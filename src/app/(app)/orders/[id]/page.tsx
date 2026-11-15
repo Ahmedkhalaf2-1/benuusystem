@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { Banknote, CalendarClock, Factory, Pencil, Phone, ReceiptText, Truck, User } from "lucide-react";
 import type { ReactNode } from "react";
 import { SoonBadge } from "@/components/coming-soon";
+import { OrderCostsSection } from "@/components/finance/order-costs-section";
 import { Flash } from "@/components/flash";
 import { StatusBadge } from "@/components/orders/status-badge";
 import { VoidPaymentForm } from "@/components/orders/void-payment-form";
@@ -17,6 +18,7 @@ import { formatMoneyString, toCents } from "@/lib/money";
 import { formatNumber } from "@/lib/numbers";
 import { formatOrderNumber, PAYMENT_METHOD_LABELS, UNIT_LABELS } from "@/lib/orders/labels";
 import { cn } from "@/lib/utils";
+import { getOrderCosts } from "@/server/services/cost-service";
 import { getOrderDetails } from "@/server/services/order-service";
 
 export const metadata: Metadata = { title: "تفاصيل الأوردر" };
@@ -26,6 +28,10 @@ const FLASH: Record<string, string> = {
   updated: "تم حفظ التعديلات ✓",
   payment: "تم تسجيل الدفعة ✓",
   voided: "تم إلغاء الدفعة",
+  cost: "تم حفظ التكلفة ✓",
+  "cost-voided": "تم إلغاء التكلفة",
+  "paid-out": "تم تسجيل الدفعة للمورد ✓",
+  "payment-voided": "تم إلغاء الدفعة",
 };
 
 function Section({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
@@ -55,6 +61,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
   const { saved } = await props.searchParams;
   const order = /^[0-9a-f-]{36}$/i.test(id) ? await getOrderDetails(prisma, user, id) : null;
   if (!order) notFound();
+  const costs = hasPermission(user, "costs:view") ? await getOrderCosts(prisma, user, order.id) : null;
 
   const outstanding = toCents(order.outstanding);
   const canPay =
@@ -186,7 +193,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
         )}
       </Section>
 
-      <Section title="المدفوعات" icon={<Banknote className="size-5" />}>
+      <Section title="فلوس العميل (المدفوعات)" icon={<Banknote className="size-5" />}>
         {order.payments.length === 0 ? (
           <p className="text-sm text-muted-foreground">لسه مفيش مدفوعات على الأوردر ده.</p>
         ) : (
@@ -222,11 +229,20 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
         )}
       </Section>
 
+      {costs && (
+        <OrderCostsSection
+          orderId={order.id}
+          summary={costs}
+          canRecord={hasPermission(user, "costs:record")}
+          canPay={hasPermission(user, "payables:pay")}
+          canVoid={hasPermission(user, "finance:void")}
+        />
+      )}
+
       <section className="rounded-2xl border border-dashed bg-card/60 p-4">
         <h2 className="mb-3 font-bold">قريبًا</h2>
-        <ul className="grid gap-2 sm:grid-cols-3">
+        <ul className="grid gap-2 sm:grid-cols-2">
           {[
-            { label: "إضافة تكلفة", icon: ReceiptText },
             { label: "تسجيل إنتاج", icon: Factory },
             { label: "تسليم قطع", icon: Truck },
           ].map(({ label, icon: Icon }) => (

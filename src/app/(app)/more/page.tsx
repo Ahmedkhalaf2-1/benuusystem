@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChevronLeft, HardHat, UsersRound } from "lucide-react";
+import { ChevronLeft, HardHat, Receipt, Truck, UsersRound } from "lucide-react";
 import { SoonBadge } from "@/components/coming-soon";
 import { LogoutButton } from "@/components/layout/logout-button";
 import { UserAvatar } from "@/components/layout/user-avatar";
@@ -11,6 +11,8 @@ export const metadata: Metadata = { title: "المزيد" };
 
 const SECTIONS: { key: string; label: string; description: string; icon: typeof HardHat; href?: string }[] = [
   { key: "customers", label: "العملاء", description: "بيانات العملاء ومدفوعاتهم", icon: UsersRound, href: "/customers" },
+  { key: "suppliers", label: "الموردين", description: "اللي اشترينا منهم واللي لسه ليهم", icon: Truck, href: "/suppliers" },
+  { key: "expenses", label: "المصاريف", description: "إيجار، كهرباء، مستلزمات…", icon: Receipt, href: "/expenses" },
   { key: "workers", label: "العمال", description: "بيانات العمال وحساباتهم", icon: HardHat },
 ];
 

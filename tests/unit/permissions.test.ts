@@ -13,6 +13,10 @@ describe("permissions", () => {
     expect(hasPermission({ role: "STAFF" }, "orders:edit-price")).toBe(false);
     expect(hasPermission({ role: "STAFF" }, "orders:cancel")).toBe(false);
     expect(hasPermission({ role: "STAFF" }, "payments:void")).toBe(false);
+    expect(hasPermission({ role: "STAFF" }, "costs:record")).toBe(true);
+    expect(hasPermission({ role: "STAFF" }, "expenses:record")).toBe(true);
+    expect(hasPermission({ role: "STAFF" }, "payables:pay")).toBe(true);
+    expect(hasPermission({ role: "STAFF" }, "finance:void")).toBe(false);
     expect(hasPermission({ role: "STAFF" }, "users:manage")).toBe(false);
     expect(hasPermission({ role: "STAFF" }, "audit-logs:view")).toBe(false);
   });

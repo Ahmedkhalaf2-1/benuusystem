@@ -4,8 +4,9 @@ Management system for **Benuuprint** (garment manufacturing, DTF, screen printin
 
 - **Phase 1:** foundation. Authentication, database, the Arabic RTL mobile-first app shell, PWA install.
 - **Phase 2:** customers, orders (with groups and printing/embroidery work), customer payments, real dashboard numbers.
+- **Phase 3:** order costs, suppliers (balances and payments), general expenses, money-out tracking.
 
-Workers, expenses, production, delivery and monthly accounts come in later phases. Until then they show a "قريبًا" (coming soon) state.
+Workers/payroll, production, delivery and monthly accounts (profit) come in later phases. Until then they show a "قريبًا" (coming soon) state.
 
 ---
 
@@ -133,6 +134,37 @@ Environment variables are validated on first use (`src/lib/env.ts`). `next build
 - **Owner-only actions:** changing the agreed price (never below what was paid), cancelling or re-opening an order (only once its payments are voided), and voiding payments. Staff can create and edit everything else and record payments.
 - **Statuses.** Orders use جديد / تحت التنفيذ / ملغي. «مكتمل» exists in the database but can't be set until delivery tracking exists.
 
+## Costs, suppliers & expenses (Phase 3)
+
+| Screen | Route |
+| --- | --- |
+| Add a cost to an order (category, amount, optional supplier, paid in full / partly / on credit) | `/orders/[id]/costs/new` |
+| «تكاليف الأوردر» section: totals, history, pay the rest, owner voids | on `/orders/[id]` |
+| Pay (part of) a cost | `/costs/[id]/pay` |
+| Suppliers: list with balances, add, details (purchases, payments, what's still owed), edit | `/suppliers` |
+| General expenses: this month / last month / date range / category, summary cards | `/expenses` |
+| Record an expense / pay an expense | `/expenses/new`, `/expenses/[id]/pay` |
+| Money hub (the «الحسابات» tab) | `/accounts` |
+
+**How the money stays straight:**
+
+- **A cost is what something cost.** Order costs and general expenses count the full amount when they're recorded, whether paid or not. A credit purchase raises the order's cost immediately and pays nothing.
+- **A payment out is cash that left the business.** Every row in `outgoing_payments` pays exactly one order cost or one general expense; a database CHECK enforces this. A supplier payment is just a payment on one of that supplier's purchases, so it can never count as a new cost.
+- **Balances are never stored.** What's still owed, a supplier's balance and the paid / partly paid / unpaid status are always computed as amount minus valid payments.
+- **General expenses are never order costs.** They're separate rows, so future overhead allocation can reference them without copying, and so without double counting.
+- **Two kinds of totals.** Recorded totals use the cost or expense date. Cash totals use the payment date. For example, last month's rent paid today is this month's cash but last month's expense.
+- **Overpayment protection.** The cost or expense row is locked during a payment, so two payments at once can't pay more than is owed.
+- **Corrections.** Nothing is edited or deleted. The owner voids with a reason, and a cost or expense can only be voided after its payments are voided, so real cash is never hidden. Everything is audited.
+- **Who can do what.** Staff can record costs and expenses, add suppliers and pay what's owed. Only the owner can void (`finance:void`).
+
+## Known follow-ups (next phases)
+
+These are deliberate gaps, recorded so they're handled before they can cause wrong numbers:
+
+1. **Restrict financial visibility by role.** Staff can currently see order costs, supplier balances and expenses, because they record them. If margins should be owner-only, add finer permissions (for example `costs:view-totals`). Every check already goes through `src/lib/auth/permissions.ts`, so no call sites change.
+2. **Keep order-group IDs stable when editing orders.** `updateOrder` deletes and recreates an order's groups when they change. Before production tracking, delivery or per-group costs point at `order_groups`, editing must update existing groups in place and only add or remove what actually changed.
+3. **Never double count labour and overhead.** Payroll should follow the cost pattern: record what's owed, pay it through `outgoing_payments` (extending the "exactly one target" CHECK), and correct by voiding. Overhead allocation should *reference* `general_expenses` rows rather than copy them into order costs. Profit = order price − order costs − allocated overhead − labour, computed from records and never stored.
+
 ## Database & migrations
 
 | Command | What it does |
@@ -156,6 +188,10 @@ Tables:
 - **order_groups** / **order_group_operations**: quantity and material per group, plus its operations (DTF / screen print / embroidery; none means plain)
 - **order_payments**: amount, date, method (cash / bank transfer / InstaPay / other), advance flag, recorded by, void info (who, when, why), idempotency key
 - **counters**: the gapless order-number counter
+- **suppliers**: name, optional phone and notes
+- **order_costs**: order, category, description, amount, date, optional supplier, void info, idempotency key
+- **general_expenses**: category, description, amount, date, void info, idempotency key
+- **outgoing_payments**: money paid out against exactly one order cost or one general expense; amount, date, method, recorded by, void info
 
 ## Administrator account
 

@@ -6,6 +6,7 @@ import {
   LayoutGrid,
   PlusCircle,
   Receipt,
+  Truck,
   UsersRound,
   Wallet,
   type LucideIcon,
@@ -34,6 +35,8 @@ export const MAIN_NAV: readonly NavItem[] = [
 /** Extra sidebar entries on desktop (phones reach them from the dashboard / المزيد). */
 export const SIDEBAR_EXTRA_NAV: readonly NavItem[] = [
   { key: "customers", label: "العملاء", href: "/customers", icon: UsersRound },
+  { key: "suppliers", label: "الموردين", href: "/suppliers", icon: Truck },
+  { key: "expenses", label: "المصاريف", href: "/expenses", icon: Receipt },
 ];
 
 export type QuickAction = {
@@ -48,7 +51,7 @@ export type QuickAction = {
 export const QUICK_ACTIONS: readonly QuickAction[] = [
   { key: "new-order", label: "أوردر جديد", description: "تسجيل أوردر لعميل", icon: PlusCircle, href: "/orders/new" },
   { key: "orders", label: "كل الأوردرات", description: "متابعة حالة الأوردرات", icon: ClipboardList, href: "/orders" },
-  { key: "new-expense", label: "سجل مصروف", description: "تسجيل مصروف جديد", icon: Receipt },
+  { key: "new-expense", label: "سجل مصروف", description: "إيجار، كهرباء، مستلزمات…", icon: Receipt, href: "/expenses/new" },
   { key: "workers", label: "العمال", description: "بيانات العمال وحساباتهم", icon: HardHat },
   { key: "customers", label: "العملاء", description: "بيانات العملاء ومدفوعاتهم", icon: UsersRound, href: "/customers" },
   { key: "monthly-accounts", label: "حسابات الشهر", description: "ملخص دخل ومصروفات الشهر", icon: CalendarRange },

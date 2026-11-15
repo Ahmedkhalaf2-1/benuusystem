@@ -27,6 +27,17 @@ export const PERMISSIONS = [
   "payments:record",
   /** Voiding a recorded payment (financial correction). */
   "payments:void",
+  // Suppliers, order costs, general expenses, money paid out
+  "suppliers:view",
+  "suppliers:manage",
+  "costs:view",
+  "costs:record",
+  "expenses:view",
+  "expenses:record",
+  /** Paying (part of) a recorded cost or expense. */
+  "payables:pay",
+  /** Voiding order costs, general expenses and money paid out (owner). */
+  "finance:void",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -41,6 +52,13 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "orders:create",
     "orders:edit",
     "payments:record",
+    "suppliers:view",
+    "suppliers:manage",
+    "costs:view",
+    "costs:record",
+    "expenses:view",
+    "expenses:record",
+    "payables:pay",
   ],
 };
 

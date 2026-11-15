@@ -36,6 +36,14 @@ model User {
   paymentsRecorded OrderPayment[] @relation("PaymentRecordedBy")
   paymentsVoided   OrderPayment[] @relation("PaymentVoidedBy")
 
+  suppliersCreated         Supplier[]        @relation("SupplierCreatedBy")
+  orderCostsRecorded       OrderCost[]       @relation("OrderCostRecordedBy")
+  orderCostsVoided         OrderCost[]       @relation("OrderCostVoidedBy")
+  expensesRecorded         GeneralExpense[]  @relation("ExpenseRecordedBy")
+  expensesVoided           GeneralExpense[]  @relation("ExpenseVoidedBy")
+  outgoingPaymentsRecorded OutgoingPayment[] @relation("OutgoingPaymentRecordedBy")
+  outgoingPaymentsVoided   OutgoingPayment[] @relation("OutgoingPaymentVoidedBy")
+
   @@map("users")
 }
 
@@ -174,6 +182,7 @@ model Order {
   createdBy User           @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   groups    OrderGroup[]
   payments  OrderPayment[]
+  costs     OrderCost[]
 
   @@index([customerId])
   @@index([status, deliveryDate])
@@ -235,4 +244,136 @@ model OrderPayment {
   @@index([orderId])
   @@index([paidAt])
   @@map("order_payments")
+}
+
+// ───────────────────────────── Phase 3: costs, suppliers & expenses ─────────────────────────────
+//
+// Three distinct things, never mixed:
+//   • OrderCost / GeneralExpense — what something COST (counted once, when recorded,
+//     whether paid or not).
+//   • OutgoingPayment — CASH that actually left the business, always against exactly
+//     one cost or one expense (so a supplier payment can never be counted as a new cost).
+//   • Balances (supplier owed, unpaid) — always computed: cost − valid payments.
+// Nothing is deleted or edited: corrections are owner-only voids with a reason.
+
+model Supplier {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  name        String   @db.VarChar(120)
+  phone       String?  @db.VarChar(30)
+  notes       String?  @db.VarChar(1000)
+  createdById String   @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy User        @relation("SupplierCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  costs     OrderCost[]
+
+  @@index([name])
+  @@index([phone])
+  @@map("suppliers")
+}
+
+enum CostCategory {
+  MATERIALS
+  PRINTING
+  EMBROIDERY
+  OUTSOURCED_LABOR
+  TRANSPORT
+  PACKAGING
+  OTHER
+}
+
+/// A direct cost of one order (fabric, printing, outside workshop…).
+model OrderCost {
+  id             String       @id @default(uuid(7)) @db.Uuid
+  orderId        String       @map("order_id") @db.Uuid
+  category       CostCategory
+  description    String?      @db.VarChar(200)
+  /// Full cost, counted when recorded — paid or not.
+  amount         Decimal      @db.Decimal(12, 2)
+  costDate       DateTime     @map("cost_date") @db.Date
+  supplierId     String?      @map("supplier_id") @db.Uuid
+  notes          String?      @db.VarChar(500)
+  idempotencyKey String       @unique @map("idempotency_key") @db.Uuid
+  recordedById   String       @map("recorded_by_id") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  voidedAt       DateTime?    @map("voided_at") @db.Timestamptz(3)
+  voidedById     String?      @map("voided_by_id") @db.Uuid
+  voidReason     String?      @map("void_reason") @db.VarChar(300)
+
+  order      Order             @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  supplier   Supplier?         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  recordedBy User              @relation("OrderCostRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  voidedBy   User?             @relation("OrderCostVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  payments   OutgoingPayment[]
+
+  @@index([orderId])
+  @@index([supplierId])
+  @@index([costDate])
+  @@map("order_costs")
+}
+
+enum ExpenseCategory {
+  RENT
+  ELECTRICITY
+  WATER
+  INTERNET
+  MAINTENANCE
+  TRANSPORT
+  CLEANING
+  SUPPLIES
+  ADMINISTRATIVE
+  OTHER
+}
+
+/// A general business expense, NOT tied to any order (rent, electricity…).
+/// Kept separate so future overhead allocation can reference these rows
+/// without copying (and double counting) them.
+model GeneralExpense {
+  id             String          @id @default(uuid(7)) @db.Uuid
+  category       ExpenseCategory
+  description    String?         @db.VarChar(300)
+  amount         Decimal         @db.Decimal(12, 2)
+  expenseDate    DateTime        @map("expense_date") @db.Date
+  idempotencyKey String          @unique @map("idempotency_key") @db.Uuid
+  recordedById   String          @map("recorded_by_id") @db.Uuid
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  voidedAt       DateTime?       @map("voided_at") @db.Timestamptz(3)
+  voidedById     String?         @map("voided_by_id") @db.Uuid
+  voidReason     String?         @map("void_reason") @db.VarChar(300)
+
+  recordedBy User              @relation("ExpenseRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  voidedBy   User?             @relation("ExpenseVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  payments   OutgoingPayment[]
+
+  @@index([expenseDate])
+  @@index([category, expenseDate])
+  @@map("general_expenses")
+}
+
+/// Cash paid out, against exactly ONE order cost or ONE general expense.
+model OutgoingPayment {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  orderCostId    String?       @map("order_cost_id") @db.Uuid
+  expenseId      String?       @map("expense_id") @db.Uuid
+  amount         Decimal       @db.Decimal(12, 2)
+  paidAt         DateTime      @map("paid_at") @db.Date
+  method         PaymentMethod
+  notes          String?       @db.VarChar(500)
+  idempotencyKey String        @unique @map("idempotency_key") @db.Uuid
+  recordedById   String        @map("recorded_by_id") @db.Uuid
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  voidedAt       DateTime?     @map("voided_at") @db.Timestamptz(3)
+  voidedById     String?       @map("voided_by_id") @db.Uuid
+  voidReason     String?       @map("void_reason") @db.VarChar(300)
+
+  orderCost  OrderCost?      @relation(fields: [orderCostId], references: [id], onDelete: Restrict)
+  expense    GeneralExpense? @relation(fields: [expenseId], references: [id], onDelete: Restrict)
+  recordedBy User            @relation("OutgoingPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  voidedBy   User?           @relation("OutgoingPaymentVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+
+  @@index([orderCostId])
+  @@index([expenseId])
+  @@index([paidAt])
+  @@map("outgoing_payments")
 }

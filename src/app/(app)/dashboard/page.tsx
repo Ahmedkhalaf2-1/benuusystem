@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Banknote, PackageCheck, Receipt, Truck } from "lucide-react";
+import { Banknote, PackageCheck, Receipt, Truck, Wallet } from "lucide-react";
 import { SoonBadge } from "@/components/coming-soon";
 import { requireUser } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
 import { greetingAr } from "@/lib/format";
 import { formatMoneyString } from "@/lib/money";
 import { formatNumber } from "@/lib/numbers";
+import { getFinanceDashboard } from "@/server/services/finance-summary-service";
 import { getDashboardStats } from "@/server/services/order-service";
 import { QUICK_ACTIONS } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
@@ -22,7 +23,7 @@ type Stat = { key: string; label: string; icon: typeof PackageCheck; value?: str
 export default async function DashboardPage() {
   const user = await requireUser();
   const firstName = user.name.trim().split(/\s+/)[0];
-  const stats = await getDashboardStats(prisma, user);
+  const [stats, finance] = await Promise.all([getDashboardStats(prisma, user), getFinanceDashboard(prisma, user)]);
   const STATS: Stat[] = [
     {
       key: "active-orders",
@@ -40,7 +41,28 @@ export default async function DashboardPage() {
       icon: Banknote,
       value: formatMoneyString(stats.paymentsThisMonth),
     },
-    { key: "expenses", label: "المصروفات", icon: Receipt, note: "قريبًا" },
+    {
+      key: "expenses",
+      label: "مصاريف الشهر ده",
+      icon: Receipt,
+      value: formatMoneyString(finance.expensesThisMonth),
+      note: `اتدفع منها ${formatMoneyString(finance.expensesPaidThisMonth)}`,
+      href: "/expenses",
+    },
+    {
+      key: "paid-out",
+      label: "فلوس اتدفعت الشهر ده",
+      icon: Wallet,
+      value: formatMoneyString(finance.paidOutThisMonth),
+      note: "للموردين والمصاريف",
+    },
+    {
+      key: "suppliers-owed",
+      label: "لسه علينا للموردين",
+      icon: Truck,
+      value: formatMoneyString(finance.supplierOutstanding),
+      href: "/suppliers",
+    },
   ];
 
   return (
@@ -58,7 +80,7 @@ export default async function DashboardPage() {
         <h2 id="stats-heading" className="sr-only">
           ملخص
         </h2>
-        <ul className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <ul className="grid grid-cols-2 gap-3 lg:grid-cols-3">
           {STATS.map(({ key, label, icon: Icon, value, note, href, alert }) => {
             const body = (
               <>
@@ -90,7 +112,7 @@ export default async function DashboardPage() {
           })}
         </ul>
         <p className="mt-3 text-xs text-muted-foreground">
-          التسليمات والمصروفات هتظهر أرقامها لما الأقسام دي تتفعّل.
+          التسليمات هتظهر أرقامها لما القسم ده يتفعّل. الربح مش بيتحسب لسه (مرتبات العمال والمصاريف العامة لسه مش متوزعة على الأوردرات).
         </p>
       </section>
 

@@ -63,3 +63,18 @@ export function daysUntil(value: string, now: Date = new Date()): number {
   const today = dateFromString(todayDateString(now)).getTime();
   return Math.round((dateFromString(value).getTime() - today) / 86_400_000);
 }
+
+/** First and last day ("YYYY-MM-DD") of the month containing `day`. */
+export function monthRange(day: string): { from: string; to: string } {
+  const [y, m] = day.split("-").map(Number) as [number, number];
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const mm = String(m).padStart(2, "0");
+  return { from: `${y}-${mm}-01`, to: `${y}-${mm}-${String(last).padStart(2, "0")}` };
+}
+
+/** The month before the one containing `day`. */
+export function previousMonthRange(day: string): { from: string; to: string } {
+  const [y, m] = day.split("-").map(Number) as [number, number];
+  const prev = m === 1 ? `${y - 1}-12-01` : `${y}-${String(m - 1).padStart(2, "0")}-01`;
+  return monthRange(prev);
+}

@@ -18,12 +18,28 @@ function createPrismaClient(): PrismaClient {
   });
 }
 
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+/**
+ * The client is cached on globalThis so dev hot-reloads don't open a new pool
+ * on every edit. We also remember WHICH generated PrismaClient class built it:
+ * after `prisma generate` (e.g. a new migration) hot-reload brings a new class,
+ * and a client from the old class would lack the new models
+ * ("Cannot read properties of undefined (reading 'findMany')").
+ */
+const globalForPrisma = globalThis as unknown as {
+  prisma?: PrismaClient;
+  prismaClass?: typeof PrismaClient;
+};
 
 /** Lazily created so importing this module never needs DATABASE_URL at build time. */
 export function getPrisma(): PrismaClient {
+  if (globalForPrisma.prisma && globalForPrisma.prismaClass !== PrismaClient) {
+    // Stale client from before the schema was regenerated: close it and rebuild.
+    void globalForPrisma.prisma.$disconnect().catch(() => {});
+    globalForPrisma.prisma = undefined;
+  }
   if (!globalForPrisma.prisma) {
     globalForPrisma.prisma = createPrismaClient();
+    globalForPrisma.prismaClass = PrismaClient;
   }
   return globalForPrisma.prisma;
 }
