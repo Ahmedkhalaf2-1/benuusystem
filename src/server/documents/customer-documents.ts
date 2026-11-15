@@ -3,6 +3,7 @@ import type { PaymentMethod } from "@/generated/prisma/enums";
 import { formatDateAr } from "@/lib/dates";
 import type { DocOrder, Period } from "@/lib/documents/customer-account";
 import { orderBalance } from "@/lib/documents/customer-account";
+import { DELIVERY_STATUS_LABELS, type DeliveryEntry } from "@/lib/documents/delivery-history";
 import { formatAmount, formatMoney, type Cents } from "@/lib/money";
 import { describeOperations, ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS, UNIT_LABELS } from "@/lib/orders/labels";
 import type { getCustomerOrdersSummary, getCustomerStatement, InvoiceData } from "@/server/services/customer-documents-service";
@@ -71,7 +72,9 @@ export async function renderOrderInvoice(data: InvoiceData): Promise<Buffer> {
     data.groups,
   );
 
-  pdf.sectionTitle("المدفوعات");
+  renderDeliveries(pdf, data);
+
+  pdf.sectionTitle("المدفوعات والحساب");
   if (order.payments.length === 0) pdf.paragraph("مفيش مدفوعات متسجلة على الأوردر ده.");
   else
     pdf.table(
@@ -103,6 +106,58 @@ export async function renderOrderInvoice(data: InvoiceData): Promise<Buffer> {
       (data.voidedPayments > 0 ? ` الدفعات الملغية (${data.voidedPayments}) مش ظاهرة ومش محسوبة.` : ""),
   );
   return pdf.finish();
+}
+
+/**
+ * «سجل التسليمات»: physical pieces handed over, from valid Delivery records
+ * only. Kept apart from the money figures — neither is inferred from the other.
+ */
+function renderDeliveries(pdf: PdfDoc, data: InvoiceData) {
+  const h = data.deliveries;
+  const unit = UNIT_LABELS[data.order.unit];
+  const qty = (n: number) => `${new Intl.NumberFormat("en-US").format(n)} ${unit}`;
+  const remainingText = (n: number) => (n < 0 ? `زيادة ${qty(-n)}` : qty(n));
+
+  pdf.sectionTitle("سجل التسليمات");
+  if (h.entries.length === 0) {
+    pdf.paragraph("لا توجد تسليمات مسجلة.", 10, C.ink);
+  } else {
+    const multiGroup = data.groups.length > 1;
+    const anyNotes = h.entries.some((e) => e.notes);
+    const anySizes = h.entries.some((e) => e.sizes.length > 0);
+    const cols: Parameters<typeof pdf.table<DeliveryEntry>>[0] = [
+      { header: "#", width: 6, value: (e) => String(e.seq) },
+      { header: "التاريخ", width: 16, value: (e) => formatDateAr(e.date) },
+      ...(multiGroup ? [{ header: "المجموعة", width: 9, value: (e: DeliveryEntry) => String(e.groupPosition) }] : []),
+      { header: "الكمية", width: 11, font: "semibold" as const, value: (e) => qty(e.quantity) },
+      ...(anySizes
+        ? [{ header: "المقاسات", width: anyNotes ? 20 : 30, value: (e: DeliveryEntry) => (e.sizes.length ? e.sizes.map((x) => `${x.label}: ${x.quantity}`).join("  ·  ") : "—") }]
+        : []),
+      ...(anyNotes ? [{ header: "ملاحظات", width: 14, value: (e: DeliveryEntry) => e.notes ?? "" }] : []),
+      { header: "إجمالي المسلَّم", width: 12, value: (e) => qty(e.cumulative) },
+      { header: "المتبقي للتسليم", width: 12, font: "semibold" as const, value: (e) => remainingText(e.remaining) },
+    ];
+    pdf.table(cols, h.entries);
+  }
+
+  pdf.totals([
+    { label: "إجمالي كمية الأوردر", value: qty(h.total) },
+    { label: "إجمالي ما تم تسليمه", value: qty(h.delivered), color: C.success },
+    { label: "المتبقي للتسليم", value: remainingText(h.remaining), strong: true },
+    { label: "حالة التسليم", value: DELIVERY_STATUS_LABELS[h.status] },
+    ...(h.lastDate ? [{ label: "تاريخ آخر تسليم", value: formatDateAr(h.lastDate) }] : []),
+  ]);
+
+  // Say it plainly when the order status and the delivery records disagree.
+  const status = data.order.status;
+  if (status === "COMPLETED" && h.status !== "complete")
+    pdf.callout(`حالة الأوردر «مكتمل»، لكن التسليمات المسجلة ${qty(h.delivered)} من ${qty(h.total)}. الأرقام فوق من سجلات التسليم الفعلية.`, "warning");
+  if (h.status === "complete" && (status === "NEW" || status === "IN_PROGRESS"))
+    pdf.callout("كل الكمية متسلمة حسب سجلات التسليم، لكن حالة الأوردر لسه مش «مكتمل».", "warning");
+  if (status === "CANCELLED" && h.delivered > 0) pdf.callout(`الأوردر ملغي، واتسجل تسليم ${qty(h.delivered)} قبل الإلغاء.`, "info");
+  if (h.overDeliveredGroups.length > 0)
+    pdf.callout(`المسلَّم في المجموعة ${h.overDeliveredGroups.join("، ")} أكتر من كميتها — محتاج مراجعة.`, "warning");
+  if (data.voidedDeliveries > 0) pdf.paragraph(`التسليمات الملغية (${data.voidedDeliveries}) مش محسوبة.`);
 }
 
 // ───────────────────────────── 2. Customer orders summary ─────────────────────────────

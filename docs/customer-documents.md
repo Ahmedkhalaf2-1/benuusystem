@@ -7,7 +7,7 @@ so in its footer.
 
 | Document | Where | Route (GET) |
 | --- | --- | --- |
-| Order invoice — «فاتورة أوردر» | Order page → «الحساب» → «تحميل فاتورة PDF» / «معاينة» | `/api/documents/orders/{orderId}/invoice` |
+| Order invoice — «فاتورة أوردر» (with delivery history) | Order page → «الحساب» → «تحميل فاتورة PDF» / «معاينة» | `/api/documents/orders/{orderId}/invoice` |
 | Customer orders summary — «ملخص الأوردرات» | Customer page → «مستندات العميل» | `/api/documents/customers/{customerId}/orders?from&to` |
 | Customer account statement — «كشف حساب» | Customer page → «مستندات العميل» | `/api/documents/customers/{customerId}/statement?from&to` |
 
@@ -30,6 +30,35 @@ so in its footer.
 - Responses are `Cache-Control: private, no-store`.
 - The documents read only customers, orders, groups, sizes, operations and
   payments. They never read costs, wages, suppliers, labour or profit.
+
+## Delivery history in the order invoice (Phase 8.1)
+
+The invoice has a «سجل التسليمات» section between «تفاصيل الشغل» and the payments, and it appears in both download and preview.
+
+- **Source.** Only valid (not voided) `Delivery` records are used. Production stages, printing/embroidery operations and «جاهز» confirmations are never added. A garment that needs DTF + embroidery is one garment, counted once, when it is delivered.
+- **Lines.**
+  - Lines are in chronological order (delivery date, then recording time, then id).
+  - Each line shows: date, group (when the order has several), quantity and unit, delivered sizes, notes, cumulative delivered and remaining to deliver.
+- **One delivery form, one line.** A sized delivery form saves one row per size, milliseconds apart. There is no stored batch id, so rows are shown as one handover only when all of these hold:
+  - same group, delivery date, recorder and notes;
+  - saved within 2 seconds of each other;
+  - no size repeated.
+
+  Everything else, including several deliveries on the same day, stays a separate line. Sizes are never distributed or invented.
+- **Summary.** It shows:
+  - order quantity (the sum of its groups);
+  - delivered;
+  - remaining;
+  - «حالة التسليم»: «لم يتم التسليم», «تسليم جزئي», or «مكتمل التسليم» (every group fully delivered — the same rule that completes an order);
+  - last delivery date.
+- **Physical vs. money.** Pieces and money are two separate boxes. Neither is inferred from the other, and payments are unchanged.
+- **Discrepancies are shown, not hidden.** These cases get a visible note:
+  - the order status says «مكتمل» but the records don't add up, or the reverse;
+  - a cancelled order has deliveries;
+  - a group is over-delivered.
+
+  Voided deliveries are counted in a note and never added.
+- **Current state.** Every download reflects the latest records and carries its generation time.
 
 ## Calculation rules
 

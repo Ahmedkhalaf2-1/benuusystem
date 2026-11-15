@@ -139,7 +139,8 @@ export class PdfDoc {
   }
 
   sectionTitle(text: string) {
-    this.ensure(46);
+    // Keep the heading with its first content (a table header and a row or two).
+    this.ensure(110);
     this.doc.rect(this.right - 3, this.y + 3, 3, 13).fill(C.brand);
     this.textAt(text, { left: this.left, right: this.right - 9, y: this.y, size: 12, font: "semibold" });
     this.y += 24;
@@ -177,7 +178,7 @@ export class PdfDoc {
   paragraph(text: string, size = 9, color: string = C.muted) {
     const h = this.measure(text, this.width, size);
     this.ensure(h);
-    this.y += this.textAt(text, { left: this.left, right: this.right, y: this.y, size, color });
+    this.y += this.textAt(text, { left: this.left, right: this.right, y: this.y, size, color }) + 8;
   }
 
   /**

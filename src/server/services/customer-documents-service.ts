@@ -3,6 +3,7 @@ import { assertPermission } from "@/lib/auth/permissions";
 import type { DbClient } from "@/lib/db/prisma";
 import { dateToString, isValidDateString } from "@/lib/dates";
 import { buildStatement, inPeriod, orderBalance, totalsFor, type DocOrder, type Period, type Statement } from "@/lib/documents/customer-account";
+import { buildDeliveryHistory, type DeliveryHistory } from "@/lib/documents/delivery-history";
 import { AppError } from "@/lib/errors";
 import { toCents } from "@/lib/money";
 import type { Actor } from "./actor";
@@ -57,6 +58,9 @@ export type InvoiceData = {
   groups: { position: number; quantity: number; material: string; operations: PrintOperation[]; sizes: { label: string; quantity: number }[] }[];
   balance: ReturnType<typeof orderBalance>;
   voidedPayments: number;
+  /** Physical deliveries — independent of the money figures above. */
+  deliveries: DeliveryHistory;
+  voidedDeliveries: number;
 };
 
 export async function getOrderInvoiceData(db: DbClient, actor: Actor, orderId: string): Promise<InvoiceData | null> {
@@ -79,7 +83,20 @@ export async function getOrderInvoiceData(db: DbClient, actor: Actor, orderId: s
       customer: { select: { name: true, phone: true } },
       groups: {
         orderBy: { position: "asc" },
-        select: { position: true, quantity: true, material: true, operations: { select: { operation: true } }, sizes: { orderBy: { position: "asc" }, select: { label: true, quantity: true } } },
+        select: { id: true, position: true, quantity: true, material: true, operations: { select: { operation: true } }, sizes: { orderBy: { position: "asc" }, select: { label: true, quantity: true } } },
+      },
+      deliveries: {
+        select: {
+          id: true,
+          quantity: true,
+          deliveredAt: true,
+          createdAt: true,
+          recordedById: true,
+          notes: true,
+          voidedAt: true,
+          orderGroup: { select: { id: true, position: true } },
+          orderGroupSize: { select: { label: true, position: true } },
+        },
       },
       payments: { orderBy: [{ paidAt: "asc" }, { createdAt: "asc" }], select: PAYMENT_SELECT },
     },
@@ -107,6 +124,24 @@ export async function getOrderInvoiceData(db: DbClient, actor: Actor, orderId: s
     groups: o.groups.map((g) => ({ position: g.position, quantity: g.quantity, material: g.material, operations: g.operations.map((x) => x.operation), sizes: g.sizes })),
     balance: orderBalance(order),
     voidedPayments: o.payments.length - payments.length,
+    deliveries: buildDeliveryHistory(
+      o.groups.map((g) => ({ id: g.id, position: g.position, quantity: g.quantity })),
+      o.deliveries
+        .filter((d) => d.voidedAt === null)
+        .map((d) => ({
+          id: d.id,
+          groupId: d.orderGroup.id,
+          groupPosition: d.orderGroup.position,
+          sizeLabel: d.orderGroupSize?.label ?? null,
+          sizePosition: d.orderGroupSize?.position ?? null,
+          quantity: d.quantity,
+          deliveredAt: dateToString(d.deliveredAt),
+          createdAt: d.createdAt,
+          recordedById: d.recordedById,
+          notes: d.notes,
+        })),
+    ),
+    voidedDeliveries: o.deliveries.filter((d) => d.voidedAt !== null).length,
   };
 }
 
