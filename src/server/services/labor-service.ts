@@ -415,3 +415,47 @@ export async function getTodayAttendance(db: DbClient, actor: Actor) {
   ]);
   return { activeWorkers: active, presentToday: present };
 }
+
+// ───────────────────────────── Reporting (read-only) ─────────────────────────────
+
+/**
+ * Allocated labour per order, for many orders at once — the same derivation as
+ * getOrderLabor (a day's wage split by that day's valid work logs), batched.
+ */
+export async function laborByOrders(db: DbClient, actor: Actor, orderIds: string[]): Promise<Map<string, Cents>> {
+  assertPermission(actor, "labor:view");
+  const result = new Map<string, Cents>(orderIds.map((id) => [id, 0n]));
+  if (orderIds.length === 0) return result;
+  const dayIds = await db.workerWorkLog.findMany({
+    where: { orderId: { in: orderIds }, voidedAt: null },
+    select: { workdayId: true },
+    distinct: ["workdayId"],
+  });
+  if (dayIds.length === 0) return result;
+  const days = await db.workerWorkday.findMany({
+    where: { id: { in: dayIds.map((d) => d.workdayId) }, voidedAt: null, worked: true },
+    select: DAY_WITH_LOGS,
+  });
+  for (const day of days) {
+    for (const share of allocate(day).shares) {
+      if (share.orderId && result.has(share.orderId)) result.set(share.orderId, result.get(share.orderId)! + share.cents);
+    }
+  }
+  return result;
+}
+
+/** Wages earned in a period, and the part not attributable to any order (no or unsplittable work logs). */
+export async function laborTotals(db: DbClient, actor: Actor, range: { from: string; to: string }) {
+  assertPermission(actor, "labor:view");
+  const days = await db.workerWorkday.findMany({
+    where: { voidedAt: null, worked: true, workDate: { gte: dateFromString(range.from), lte: dateFromString(range.to) } },
+    select: DAY_WITH_LOGS,
+  });
+  let earned = 0n;
+  let unallocated = 0n;
+  for (const d of days) {
+    earned += toCents(d.wage);
+    unallocated += allocate(d).unallocated;
+  }
+  return { earned, allocated: earned - unallocated, unallocated, days: days.length };
+}

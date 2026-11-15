@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Banknote, CalendarDays, ClipboardList, Factory, HardHat, Pencil, Phone, ReceiptText, Truck, Wallet } from "lucide-react";
+import { Banknote, CalendarDays, ClipboardList, Factory, HardHat, Pencil, Phone, ReceiptText, TrendingUp, Truck, Wallet } from "lucide-react";
 import { Fold, ProductionBreakdown, ProductionReadout, StagesCard } from "@/components/production/production-section";
 import { OrderCostsSection } from "@/components/finance/order-costs-section";
 import { OrderLaborSection } from "@/components/workers/order-labor-section";
@@ -24,6 +24,8 @@ import { getOrderCosts } from "@/server/services/cost-service";
 import { getOrderLabor } from "@/server/services/labor-service";
 import { getOrderProduction } from "@/server/services/production-service";
 import { getOrderDetails } from "@/server/services/order-service";
+import { getOrderContributions } from "@/server/services/reports-service";
+import { Caveat, WARNING_LABELS } from "@/components/reports/report-ui";
 
 export const metadata: Metadata = { title: "تفاصيل الأوردر" };
 
@@ -64,6 +66,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
   const costs = hasPermission(user, "costs:view") ? await getOrderCosts(prisma, user, order.id) : null;
   const labor = hasPermission(user, "labor:view") ? await getOrderLabor(prisma, user, order.id) : null;
   const production = (await getOrderProduction(prisma, user, order.id))!;
+  const contribution = hasPermission(user, "finance:view-summary") ? (await getOrderContributions(prisma, user, { orderIds: [order.id] }))[0] : undefined;
   const partlyDelivered = production.totals.delivered > 0 && order.status !== "COMPLETED";
 
   const outstanding = toCents(order.outstanding);
@@ -83,7 +86,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
       {canRecordProd && (
         <Link
           href={`/orders/${order.id}/production/new`}
-          className="flex h-13 flex-1 items-center justify-center gap-2 rounded-2xl bg-gradient-to-b from-[#6d47ea] to-violet-deep font-display font-semibold text-white shadow-[var(--shadow-violet)] transition-transform active:scale-[0.97]"
+          className="flex h-13 flex-1 items-center justify-center gap-2 rounded-2xl bg-brand-solid font-display font-semibold text-white transition-transform active:scale-[0.97]"
         >
           <Factory className="size-5" aria-hidden="true" />
           تسجيل إنتاج
@@ -94,7 +97,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
           href={`/orders/${order.id}/deliveries/new`}
           className={cn(
             "flex h-13 flex-1 items-center justify-center gap-2 rounded-2xl font-display font-semibold transition-transform active:scale-[0.97]",
-            hasReady ? "bg-teal text-white shadow-[0_10px_24px_-12px_rgb(18_165_148/0.8)]" : "bg-surface text-ink shadow-[var(--shadow-soft)] ring-1 ring-hairline",
+            hasReady ? "bg-brand-soft text-brand-ink" : "bg-surface text-ink border border-line ring-1 ring-hairline",
           )}
         >
           <Truck className="size-5" aria-hidden="true" />
@@ -112,18 +115,17 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-6">
         <div className="min-w-0 space-y-4">
           {/* Production control: the job on the brand stage */}
-          <section className="stage animate-settle relative overflow-hidden rounded-[1.9rem] p-5 text-white shadow-[var(--shadow-violet)] sm:p-6">
-            <span aria-hidden="true" className="pointer-events-none absolute -top-16 -end-10 size-48 rounded-full bg-[#ff7aa8]/20 blur-3xl" />
+          <section className="stage animate-settle relative overflow-hidden rounded-2xl p-5 text-on-panel sm:p-6">
             <div className="relative">
               <div className="flex items-start gap-2">
-                <span dir="ltr" className="tabular inline-flex h-7 items-center rounded-full bg-white/15 px-2.5 font-display text-xs font-semibold ring-1 ring-white/15">
+                <span dir="ltr" className="tabular inline-flex h-7 items-center rounded-full bg-panel-2 px-2.5 font-display text-xs font-semibold ring-1 ring-panel-line">
                   {formatOrderNumber(order.number)}
                 </span>
                 <StatusBadge status={order.status} overdue={order.overdue} partlyDelivered={partlyDelivered} onDark />
                 {canEdit && (
                   <Link
                     href={`/orders/${order.id}/edit`}
-                    className="ms-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-white/15 px-3 text-xs font-semibold whitespace-nowrap ring-1 ring-white/15 hover:bg-white/25"
+                    className="ms-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-panel-2 px-3 text-xs font-semibold whitespace-nowrap ring-1 ring-panel-line hover:bg-panel-line"
                   >
                     <Pencil className="size-3.5" aria-hidden="true" />
                     تعديل الأوردر
@@ -132,12 +134,12 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
               </div>
 
               <div className="mt-4 flex items-center gap-3">
-                <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-white/12 ring-1 ring-white/15">
+                <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-panel-2 ring-1 ring-panel-line">
                   <ProductIcon productType={order.productType} className="size-6" />
                 </span>
                 <div className="min-w-0">
                   <h1 className="font-display text-[1.55rem] leading-tight font-semibold tracking-[-0.02em] text-balance">{order.title}</h1>
-                  <p className="truncate text-sm text-white/75">
+                  <p className="truncate text-sm text-on-panel-muted">
                     <Link href={`/customers/${order.customerId}`} className="font-semibold text-white underline decoration-white/30 underline-offset-4">
                       {order.customerName}
                     </Link>
@@ -151,7 +153,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
               <p
                 className={cn(
                   "mt-4 inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold",
-                  !open ? "bg-white/12 ring-1 ring-white/15" : due.tone === "late" ? "bg-red text-white" : due.tone === "today" || due.tone === "soon" ? "bg-amber text-white" : "bg-white/12 ring-1 ring-white/15",
+                  !open ? "bg-panel-2 ring-1 ring-panel-line" : due.tone === "late" ? "bg-danger-soft text-danger-ink" : due.tone === "today" || due.tone === "soon" ? "bg-warning-soft text-warning-ink" : "bg-panel-2 ring-1 ring-panel-line",
                 )}
               >
                 <CalendarDays className="size-3.5" aria-hidden="true" />
@@ -175,7 +177,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
           <Fold
             title="الحساب"
             icon={Wallet}
-            hue="bg-green-soft text-green-ink"
+            hue="bg-brand-soft text-brand-ink"
             meta={
               <>
                 المتبقي <span className="tabular font-semibold text-ink">{formatMoneyString(order.outstanding)}</span>
@@ -197,7 +199,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
             {canPay ? (
               <Link
                 href={`/orders/${order.id}/payments/new`}
-                className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-green font-semibold text-white shadow-[0_10px_24px_-12px_rgb(34_160_90/0.8)] transition-[background-color,transform] hover:bg-green-ink active:scale-[0.98]"
+                className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-brand-solid font-semibold text-white transition-[background-color,transform] hover:bg-brand-hover active:scale-[0.98]"
               >
                 <Banknote className="size-5" aria-hidden="true" />
                 استلام دفعة
@@ -239,7 +241,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
           </Fold>
 
           {costs ? (
-            <Fold title="تكاليف الأوردر" icon={ReceiptText} hue="bg-amber-soft text-amber-ink" meta={formatMoneyString(costs.totals.costs)} open>
+            <Fold title="تكاليف الأوردر" icon={ReceiptText} hue="bg-brand-soft text-brand-ink" meta={formatMoneyString(costs.totals.costs)} open>
               <OrderCostsSection
                 orderId={order.id}
                 summary={costs}
@@ -251,7 +253,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
           ) : (
             hasPermission(user, "costs:record") && (
               // Staff may record costs without seeing the order's cost totals.
-              <section id="costs" className="flex items-center gap-3 rounded-[1.5rem] bg-surface p-4 shadow-[var(--shadow-card)]">
+              <section id="costs" className="flex items-center gap-3 rounded-2xl bg-surface p-4 border border-line">
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-amber-soft text-amber-ink">
                   <ReceiptText className="size-[1.1rem]" aria-hidden="true" />
                 </span>
@@ -269,10 +271,40 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
             <Fold
               title="شغل العمال على الأوردر"
               icon={HardHat}
-              hue="bg-rose-soft text-rose-ink"
+              hue="bg-brand-soft text-brand-ink"
               meta={<span className="tabular font-semibold text-ink">{formatMoneyString(labor.total)}</span>}
             >
               <OrderLaborSection labor={labor} />
+            </Fold>
+          )}
+
+          {contribution && (
+            <Fold
+              id="contribution"
+              title="هامش الأوردر قبل المصاريف العامة"
+              icon={TrendingUp}
+              hue="bg-brand-soft text-brand-ink"
+              meta={<span className="tabular font-semibold text-ink">{formatMoneyString(contribution.contribution)}</span>}
+            >
+              <div className="rounded-2xl bg-well px-3.5 py-1">
+                <dl className="divide-y divide-hairline">
+                  <Line label="سعر الأوردر">{formatMoneyString(contribution.price)}</Line>
+                  <Line label="خامات">{`− ${formatMoneyString(contribution.materials)}`}</Line>
+                  <Line label="شغل برّه (طباعة/تطريز/ورش)">{`− ${formatMoneyString(contribution.outside)}`}</Line>
+                  <Line label="تكاليف تانية (نقل…)">{`− ${formatMoneyString(contribution.otherCosts)}`}</Line>
+                  <Line label="نصيبه من يوميات العمال">{`− ${formatMoneyString(contribution.labor)}`}</Line>
+                  <Line label="الهامش" strong testId="contribution" tone={contribution.contribution.startsWith("-") ? "text-red" : "text-green-ink"}>
+                    {formatMoneyString(contribution.contribution)}
+                  </Line>
+                </dl>
+              </div>
+              <p className="mt-2 text-sm text-graphite">{contribution.percent !== null ? `${contribution.percent}% من سعر الأوردر` : "السعر صفر — مفيش نسبة"}</p>
+              <div className="mt-3 space-y-2">
+                <Caveat>
+                  ده الهامش قبل الإيجار والكهربا والمصاريف العامة واليوميات اللي مش متوزعة — مش الربح النهائي. التكاليف بتتحسب لما تتسجل حتى لو متدفعتش.
+                </Caveat>
+                {contribution.warnings.length > 0 && <Caveat tone="warn">{contribution.warnings.map((w) => WARNING_LABELS[w]).join("، ")}</Caveat>}
+              </div>
             </Fold>
           )}
 
@@ -325,7 +357,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
       {/* Phones: the two daily actions float above the tab bar. */}
       {actions && (
         <div className="sticky bottom-[calc(6.5rem+env(safe-area-inset-bottom))] z-20 mt-5 lg:hidden">
-          <div className="flex gap-2.5 rounded-[1.4rem] bg-canvas/80 p-1.5 backdrop-blur-xl">{actions}</div>
+          <div className="flex gap-2.5 rounded-2xl bg-canvas p-1.5">{actions}</div>
         </div>
       )}
     </div>
