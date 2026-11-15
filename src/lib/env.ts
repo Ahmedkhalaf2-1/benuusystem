@@ -44,3 +44,32 @@ export function getEnv(): ServerEnv {
   };
   return cached;
 }
+
+/** The local Docker password from docker-compose.yml / .env.example. */
+const DEV_DATABASE_PASSWORD = "change-me-local-dev";
+
+/**
+ * Configuration mistakes that must stop a PRODUCTION server from starting
+ * (checked once at startup by src/instrumentation.ts). Pure, for testing.
+ */
+export function productionConfigProblems(source: Record<string, string | undefined>): string[] {
+  const problems: string[] = [];
+  const parsed = envSchema.safeParse(source);
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) problems.push(`${issue.path.join(".") || "env"}: ${issue.message}`);
+    return problems;
+  }
+  let url: URL | undefined;
+  try {
+    url = new URL(parsed.data.DATABASE_URL);
+  } catch {
+    problems.push("DATABASE_URL: not a valid URL");
+  }
+  if (url && decodeURIComponent(url.password) === DEV_DATABASE_PASSWORD) {
+    problems.push("DATABASE_URL: uses the local development password; generate a new one for production");
+  }
+  if (url && /^(benuuprint_test|.*_test)$/.test(url.pathname.replace(/^\//, ""))) {
+    problems.push("DATABASE_URL: points at a test database (wiped by the test suite)");
+  }
+  return problems;
+}

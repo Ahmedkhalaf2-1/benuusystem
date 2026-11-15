@@ -5,6 +5,14 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+  // Restrictions that need no nonces: no framing, no <base> or plugin
+  // injection, forms only post back to this site. (script-src is left to
+  // defaults: Next.js and the theme script use inline scripts.)
+  {
+    key: "Content-Security-Policy",
+    value: "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
+  },
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
   // Only honoured by browsers over HTTPS (i.e. behind Caddy in production).
   { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
 ];
