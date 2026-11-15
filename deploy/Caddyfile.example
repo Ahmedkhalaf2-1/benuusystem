@@ -1,6 +1,25 @@
-# Add a block like this to /etc/caddy/Caddyfile on the VPS (replace the domain).
-# Caddy obtains and renews the HTTPS certificate automatically.
+# Add a site block like this to /etc/caddy/Caddyfile on the VPS.
+# Replace the hostname with the real one (custom domain or a free subdomain
+# that points at the VPS) and the port with PORT from /etc/benuuprint/benuuprint.env.
+# Caddy obtains and renews the HTTPS certificate automatically and redirects
+# http:// to https://. Other sites in the same Caddyfile are not affected.
 erp.example.com {
 	encode zstd gzip
+
+	# Login and forms are small; refuse oversized bodies before they reach the app.
+	request_body {
+		max_size 2MB
+	}
+
+	# Caddy replaces any client-supplied X-Forwarded-For with the real client
+	# address; the app's login rate limit relies on that (do not add
+	# trusted_proxies unless another proxy really sits in front of Caddy).
 	reverse_proxy 127.0.0.1:3000
+
+	log {
+		output file /var/log/caddy/benuuprint.access.log {
+			roll_size 20MiB
+			roll_keep 10
+		}
+	}
 }

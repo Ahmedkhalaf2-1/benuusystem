@@ -1,0 +1,23 @@
+# /etc/systemd/system/benuuprint-backup.service — one database backup.
+# Triggered daily by benuuprint-backup.timer; run by hand with:
+#   sudo systemctl start benuuprint-backup && journalctl -u benuuprint-backup -n 30
+[Unit]
+Description=Benuuprint ERP database backup
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=benuuprint
+Group=benuuprint
+EnvironmentFile=/etc/benuuprint/benuuprint.env
+EnvironmentFile=/etc/benuuprint/backup.env
+ExecStart=/opt/benuuprint/current/deploy/backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/backups/benuuprint
+UMask=0077

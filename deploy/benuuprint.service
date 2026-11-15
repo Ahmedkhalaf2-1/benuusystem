@@ -1,0 +1,48 @@
+# /etc/systemd/system/benuuprint.service
+# Benuuprint ERP — Next.js production server, supervised by systemd.
+# Listens on 127.0.0.1 only; Caddy is the single public entry point.
+#
+#   sudo systemctl daemon-reload && sudo systemctl enable --now benuuprint
+#   journalctl -u benuuprint -f          # logs
+[Unit]
+Description=Benuuprint ERP (Next.js)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=benuuprint
+Group=benuuprint
+WorkingDirectory=/opt/benuuprint/current
+# Secrets live outside the code checkout (root:benuuprint, mode 0640).
+EnvironmentFile=/etc/benuuprint/benuuprint.env
+Environment=NODE_ENV=production
+# PORT must be set in the environment file (the unit fails to start without it).
+ExecStart=/usr/bin/env node node_modules/next/dist/bin/next start -H 127.0.0.1 -p ${PORT}
+# Graceful shutdown: Next.js finishes in-flight requests on SIGTERM.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+# Restart on crashes and on a refused start (bad configuration), with backoff;
+# give up after 5 failures in 2 minutes so a broken deploy is visible.
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=120
+StartLimitBurst=5
+# Memory guard for a small VPS (the app normally uses well under this).
+MemoryMax=900M
+
+# Isolation from other projects on the same server.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/benuuprint/releases
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
