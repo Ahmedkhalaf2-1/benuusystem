@@ -4,6 +4,7 @@ import { ChevronLeft, HardHat, Receipt, Truck, UsersRound } from "lucide-react";
 import { HueIcon, type Hue } from "@/components/ds/primitives";
 import { SoonBadge } from "@/components/coming-soon";
 import { LogoutButton } from "@/components/layout/logout-button";
+import { ThemeSelect } from "@/components/theme/theme-select";
 import { UserAvatar } from "@/components/layout/user-avatar";
 import { requireUser } from "@/lib/auth/current-user";
 import { hasPermission, ROLE_LABELS, type Permission } from "@/lib/auth/permissions";
@@ -24,16 +25,15 @@ export default async function MorePage() {
   return (
     <div className="space-y-6">
       {/* Who is signed in */}
-      <section className="stage relative overflow-hidden rounded-[1.9rem] p-5 text-white shadow-[var(--shadow-violet)]">
-        <span aria-hidden="true" className="pointer-events-none absolute -top-14 -end-10 size-44 rounded-full bg-[#ff7aa8]/25 blur-3xl" />
+      <section className="stage relative overflow-hidden rounded-2xl p-5 text-on-panel">
         <div className="relative flex items-center gap-3.5">
           <UserAvatar name={user.name} className="size-14 text-lg" />
           <div className="min-w-0">
             <h1 className="truncate font-display text-xl font-semibold">{user.name}</h1>
-            <p dir="ltr" className="truncate text-end text-sm text-white/70">
+            <p dir="ltr" className="truncate text-end text-sm text-on-panel-muted">
               {user.email}
             </p>
-            <span className="mt-1 inline-flex h-6 items-center rounded-full bg-white/15 px-2.5 text-xs font-semibold ring-1 ring-white/15">{ROLE_LABELS[user.role]}</span>
+            <span className="mt-1 inline-flex h-6 items-center rounded-full bg-panel-2 px-2.5 text-xs font-semibold ring-1 ring-panel-line">{ROLE_LABELS[user.role]}</span>
           </div>
         </div>
       </section>
@@ -43,7 +43,7 @@ export default async function MorePage() {
           الأقسام
         </h2>
         {sections.length === 0 ? (
-          <p className="rounded-[1.4rem] bg-surface p-5 text-sm text-graphite shadow-[var(--shadow-card)]">مفيش أقسام تانية متاحة لحسابك.</p>
+          <p className="rounded-2xl bg-surface p-5 text-sm text-graphite border border-line">مفيش أقسام تانية متاحة لحسابك.</p>
         ) : (
           <ul className="grid grid-cols-2 gap-3">
             {sections.map(({ key, label, description, icon, href, hue }) => {
@@ -64,18 +64,22 @@ export default async function MorePage() {
                   {href ? (
                     <Link
                       href={href}
-                      className="flex h-full min-h-36 flex-col gap-3 rounded-[1.4rem] bg-surface p-4 shadow-[var(--shadow-card)] transition-[transform,box-shadow] duration-200 hover:shadow-[var(--shadow-lift)] active:scale-[0.97]"
+                      className="flex h-full min-h-36 flex-col gap-3 rounded-2xl bg-surface p-4 border border-line transition-[transform,box-shadow] duration-200 hover:border-line-strong active:scale-[0.97]"
                     >
                       {body}
                     </Link>
                   ) : (
-                    <div className="flex h-full min-h-36 flex-col gap-3 rounded-[1.4rem] bg-surface p-4 opacity-70 shadow-[var(--shadow-card)]">{body}</div>
+                    <div className="flex h-full min-h-36 flex-col gap-3 rounded-2xl bg-surface p-4 opacity-70 border border-line">{body}</div>
                   )}
                 </li>
               );
             })}
           </ul>
         )}
+      </section>
+
+      <section className="rounded-2xl border border-line bg-surface p-4">
+        <ThemeSelect />
       </section>
 
       <LogoutButton />

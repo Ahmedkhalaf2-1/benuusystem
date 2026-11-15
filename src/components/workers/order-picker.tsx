@@ -84,7 +84,7 @@ export function OrderPicker({
         />
         {loading && <Loader2 className="absolute inset-y-0 end-3.5 my-auto size-4 animate-spin text-muted-foreground" aria-hidden="true" />}
       </div>
-      <ul role="listbox" className="mt-2 max-h-72 overflow-y-auto rounded-2xl bg-popover p-1.5 shadow-[var(--shadow-lift)] ring-1 ring-hairline">
+      <ul role="listbox" className="mt-2 max-h-72 overflow-y-auto rounded-2xl bg-popover p-1.5 border border-line ring-1 ring-hairline">
         {results.map((o) => (
           <li key={o.id} role="option" aria-selected={false}>
             <button type="button" onClick={() => onChange(o)} className="flex min-h-12 w-full flex-col items-start rounded-xl px-3 py-2 text-start transition-colors hover:bg-well">

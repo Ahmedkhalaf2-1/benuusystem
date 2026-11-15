@@ -91,7 +91,7 @@ export function PaymentForm({ orderId, outstanding, today }: { orderId: string; 
 
       <FormMessage message={state?.message} />
 
-      <button type="submit" className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-b from-[#2bb469] to-green-ink font-display text-lg font-semibold text-white shadow-[0_14px_30px_-12px_rgb(34_160_90/0.75)] transition-transform active:scale-[0.98] disabled:opacity-50" disabled={pending}>
+      <button type="submit" className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-brand-solid font-display text-lg font-semibold text-white transition-transform active:scale-[0.98] disabled:opacity-50" disabled={pending}>
         {pending ? (
           <>
             <Loader2 className="size-5 animate-spin" aria-hidden="true" />

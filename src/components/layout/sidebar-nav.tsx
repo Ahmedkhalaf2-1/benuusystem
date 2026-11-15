@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BrandMark } from "@/components/brand/brand-mark";
+import { BrandSymbol } from "@/components/brand/brand-mark";
 import { MAIN_NAV, SIDEBAR_EXTRA_NAV, isNavItemActive } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 
@@ -13,7 +13,7 @@ export function SidebarNav({ extraKeys }: { extraKeys: string[] }) {
   return (
     <aside className="fixed inset-y-0 start-0 z-30 hidden w-64 flex-col border-e border-hairline bg-surface lg:flex">
       <Link href="/dashboard" className="flex h-16 items-center gap-2.5 px-6" aria-label="Benuuprint — الرئيسية">
-        <BrandMark className="size-9 rounded-[11px] shadow-[var(--shadow-violet)]" />
+        <BrandSymbol className="size-9" priority />
         <span dir="ltr" className="font-display text-[1.1rem] font-semibold tracking-[-0.02em] text-ink">
           Benuuprint
         </span>

@@ -65,7 +65,7 @@ export function ExpenseForm({ today, initialCategory }: { today: string; initial
   const clear = (key: string) => setErrors((e) => (e[key] ? { ...e, [key]: "" } : e));
 
   return (
-    <form onSubmit={submit} noValidate className="space-y-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4 sm:p-5">
+    <form onSubmit={submit} noValidate className="space-y-5 rounded-2xl bg-surface border border-line p-4 sm:p-5">
       <ChoiceCards
         label="نوع المصروف"
         options={EXPENSE_CATEGORIES.map((c) => ({ value: c, label: EXPENSE_CATEGORY_LABELS[c] }))}

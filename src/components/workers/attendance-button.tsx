@@ -19,7 +19,7 @@ export function AttendanceButton({ workerId, today }: { workerId: string; today:
       <button
         type="submit"
         disabled={pending}
-        className="inline-flex h-11 items-center gap-1.5 rounded-2xl bg-rose px-4 text-sm font-semibold text-white shadow-[0_8px_18px_-8px_rgb(224_69_123/0.7)] transition-transform active:scale-95 disabled:opacity-60"
+        className="inline-flex h-11 items-center gap-1.5 rounded-2xl bg-brand-solid px-4 text-sm font-semibold text-white transition-transform active:scale-95 disabled:opacity-60"
       >
         {pending ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Check className="size-4" aria-hidden="true" />}
         حضر النهارده

@@ -28,7 +28,7 @@ export default async function PayCostPage(props: PageProps<"/costs/[id]/pay">) {
   return (
     <div className="mx-auto max-w-md">
       <FlowHeader icon={Banknote} hue="amber" title={cost.supplier ? `دفعة لـ ${cost.supplier.name}` : "دفع تكلفة"} backHref={backHref} backLabel="رجوع" />
-      <div className="mb-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+      <div className="mb-5 rounded-2xl bg-surface border border-line p-4">
         <p className="font-bold">{cost.description ?? COST_CATEGORY_LABELS[cost.category]}</p>
         <p className="text-sm text-muted-foreground">
           <span dir="ltr">{formatOrderNumber(cost.order.number)}</span> · {cost.order.customer.name} — {cost.order.title}

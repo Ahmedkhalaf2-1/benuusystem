@@ -22,7 +22,7 @@ export default async function NewPaymentPage(props: PageProps<"/orders/[id]/paym
   return (
     <div className="mx-auto max-w-md">
       <FlowHeader icon={HandCoins} hue="green" title="استلام دفعة" backHref={`/orders/${order.id}`} backLabel="رجوع للأوردر" />
-      <div className="mb-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+      <div className="mb-5 rounded-2xl bg-surface border border-line p-4">
         <p className="text-sm text-muted-foreground">
           <span dir="ltr">{formatOrderNumber(order.number)}</span> · {order.customerName}
         </p>

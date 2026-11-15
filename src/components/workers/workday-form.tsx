@@ -18,7 +18,7 @@ export function WorkdayForm({ workerId, today, standardWage }: { workerId: strin
   const [wage, setWage] = useState("");
   const errors = state?.fieldErrors ?? {};
   return (
-    <form action={action} className="space-y-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4 sm:p-5">
+    <form action={action} className="space-y-5 rounded-2xl bg-surface border border-line p-4 sm:p-5">
       <input type="hidden" name="workerId" value={workerId} />
       <input type="hidden" name="idempotencyKey" value={key} />
       <input type="hidden" name="worked" value={worked} />

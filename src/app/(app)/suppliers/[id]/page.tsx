@@ -63,7 +63,7 @@ export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) 
         }
       />
 
-      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+      <section className="rounded-2xl bg-surface border border-line p-4">
         <dl className="grid grid-cols-3 gap-2 text-center">
           <div className="rounded-2xl bg-well p-3">
             <dt className="text-xs text-muted-foreground">اشترينا منه</dt>
@@ -85,7 +85,7 @@ export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) 
       </section>
 
       {unpaid.length > 0 && canPay && (
-        <section className="rounded-[1.4rem] bg-amber-soft/70 p-4">
+        <section className="rounded-2xl bg-amber-soft/70 p-4">
           <h2 className="mb-1 font-display text-[1.05rem] font-semibold">تسجيل دفعة للمورد</h2>
           <p className="mb-3 text-sm text-muted-foreground">اختار الحاجة اللي بتدفع تمنها:</p>
           <ul className="space-y-2">
@@ -93,7 +93,7 @@ export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) 
               <li key={p.id}>
                 <Link
                   href={`/costs/${p.id}/pay?from=supplier`}
-                  className="flex items-center justify-between gap-3 rounded-2xl bg-surface p-3 shadow-[var(--shadow-card)] transition-shadow hover:shadow-[var(--shadow-lift)] active:scale-[0.99]"
+                  className="flex items-center justify-between gap-3 rounded-2xl bg-surface p-3 border border-line transition-shadow hover:border-line-strong active:scale-[0.99]"
                 >
                   <div className="min-w-0">
                     <p className="truncate font-semibold">{p.description ?? COST_CATEGORY_LABELS[p.category]}</p>
@@ -113,7 +113,7 @@ export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) 
         </section>
       )}
 
-      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+      <section className="rounded-2xl bg-surface border border-line p-4">
         <h2 className="mb-2 font-display text-[1.05rem] font-semibold">المشتريات ({supplier.purchases.length})</h2>
         {supplier.purchases.length === 0 ? (
           <p className="text-sm text-muted-foreground">لسه مفيش مشتريات من المورد ده. المشتريات بتتسجل من صفحة الأوردر («إضافة تكلفة»).</p>
@@ -142,7 +142,7 @@ export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) 
         )}
       </section>
 
-      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+      <section className="rounded-2xl bg-surface border border-line p-4">
         <h2 className="mb-2 font-display text-[1.05rem] font-semibold">الدفعات ({supplier.payments.length})</h2>
         {supplier.payments.length === 0 ? (
           <p className="text-sm text-muted-foreground">لسه مفيش دفعات للمورد ده.</p>
@@ -185,7 +185,7 @@ export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) 
       </section>
 
       {supplier.notes && (
-        <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+        <section className="rounded-2xl bg-surface border border-line p-4">
           <h2 className="mb-1 text-sm text-muted-foreground">ملاحظات</h2>
           <p className="whitespace-pre-wrap">{supplier.notes}</p>
         </section>

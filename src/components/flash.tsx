@@ -6,7 +6,7 @@ export function Flash({ message }: { message?: string }) {
   return (
     <div
       role="status"
-      className="animate-settle mb-4 flex items-center gap-2.5 rounded-2xl bg-green-soft px-4 py-3 text-sm font-semibold text-green-ink shadow-[var(--shadow-soft)]"
+      className="animate-settle mb-4 flex items-center gap-2.5 rounded-2xl bg-green-soft px-4 py-3 text-sm font-semibold text-green-ink border border-line"
     >
       <CheckCircle2 className="size-5 shrink-0 text-green" aria-hidden="true" />
       {message}

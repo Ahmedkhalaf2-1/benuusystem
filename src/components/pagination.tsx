@@ -22,7 +22,7 @@ export function Pagination({
     const qs = search.toString();
     return qs ? `${basePath}?${qs}` : basePath;
   };
-  const linkClass = "inline-flex h-11 items-center gap-1 rounded-xl bg-surface px-4 shadow-[var(--shadow-soft)] text-sm font-medium";
+  const linkClass = "inline-flex h-11 items-center gap-1 rounded-xl bg-surface px-4 border border-line text-sm font-medium";
   return (
     <nav aria-label="الصفحات" className="mt-6 flex items-center justify-between gap-3">
       {page > 1 ? (

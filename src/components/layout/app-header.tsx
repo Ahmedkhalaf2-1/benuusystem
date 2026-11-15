@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BrandMark } from "@/components/brand/brand-mark";
+import { BrandSymbol } from "@/components/brand/brand-mark";
 import { ROLE_LABELS } from "@/lib/auth/permissions";
 import type { PublicUser } from "@/server/repositories/user-repository";
 import { UserAvatar } from "./user-avatar";
@@ -10,10 +10,10 @@ import { UserAvatar } from "./user-avatar";
  */
 export function AppHeader({ user }: { user: Pick<PublicUser, "name" | "role"> }) {
   return (
-    <header className="pt-safe sticky top-0 z-30 bg-canvas/80 backdrop-blur-xl">
+    <header className="pt-safe sticky top-0 z-30 border-b border-line bg-canvas">
       <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 lg:px-8">
         <Link href="/dashboard" className="flex items-center gap-2.5 rounded-xl lg:hidden" aria-label="Benuuprint — الرئيسية">
-          <BrandMark className="size-9 rounded-[11px] shadow-[var(--shadow-violet)]" />
+          <BrandSymbol className="size-9" priority />
           <span dir="ltr" className="font-display text-[1.08rem] font-semibold tracking-[-0.02em] text-ink">
             Benuuprint
           </span>

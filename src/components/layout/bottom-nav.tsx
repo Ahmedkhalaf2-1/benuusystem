@@ -42,7 +42,7 @@ export function BottomNav({ canCreateOrder = false }: { canCreateOrder?: boolean
   return (
     <nav
       aria-label="التنقل الرئيسي"
-      className="fixed inset-x-3 bottom-[calc(0.6rem+env(safe-area-inset-bottom))] z-40 rounded-[1.6rem] border border-white/60 bg-surface/92 shadow-[var(--shadow-bar)] backdrop-blur-xl lg:hidden"
+      className="fixed inset-x-3 bottom-[calc(0.6rem+env(safe-area-inset-bottom))] z-40 rounded-2xl border border-line bg-surface lg:hidden"
     >
       <ul className={cn("mx-auto grid h-16 max-w-md", canCreateOrder ? "grid-cols-5" : "grid-cols-4")}>
         {MAIN_NAV.slice(0, half).map(tab)}
@@ -51,7 +51,7 @@ export function BottomNav({ canCreateOrder = false }: { canCreateOrder?: boolean
             <Link
               href="/orders/new"
               aria-current={pathname === "/orders/new" ? "page" : undefined}
-              className="-mt-6 flex size-[3.6rem] items-center justify-center rounded-full bg-gradient-to-b from-[#6d47ea] to-violet-deep text-white shadow-[var(--shadow-violet)] ring-4 ring-canvas transition-transform duration-200 active:scale-90"
+              className="-mt-6 flex size-[3.6rem] items-center justify-center rounded-full bg-brand-solid text-white ring-4 ring-canvas transition-transform duration-200 active:scale-90"
             >
               <Plus className="size-7" strokeWidth={2.5} aria-hidden="true" />
               <span className="sr-only">أوردر جديد</span>

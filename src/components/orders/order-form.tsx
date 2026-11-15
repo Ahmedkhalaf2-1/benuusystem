@@ -66,7 +66,7 @@ function Question({
   hue: string;
 }) {
   return (
-    <section aria-labelledby={id} className="rounded-[1.6rem] bg-surface p-4 shadow-[var(--shadow-card)] sm:p-5">
+    <section aria-labelledby={id} className="rounded-2xl bg-surface p-4 border border-line sm:p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 id={id} className="flex items-center gap-2.5 font-display text-[1.12rem] leading-tight font-semibold tracking-[-0.01em]">
           <span className={cn("flex size-9 items-center justify-center rounded-xl", hue)}>
@@ -86,7 +86,7 @@ function chip(selected: boolean) {
   return cn(
     "inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl px-3.5 text-[0.95rem] font-semibold transition-[background-color,box-shadow,color,transform] duration-200 ease-[var(--ease-out-expo)] active:scale-[0.96]",
     selected
-      ? "bg-gradient-to-b from-[#6d47ea] to-violet-deep text-white shadow-[var(--shadow-violet)]"
+      ? "bg-brand-solid text-white"
       : "bg-well text-ink ring-1 ring-hairline hover:ring-violet/40",
   );
 }
@@ -288,15 +288,14 @@ export function OrderForm(props: Props) {
         ))}
       </datalist>
 
-      <header className="stage animate-settle relative overflow-hidden rounded-[1.75rem] px-5 py-5 text-white shadow-[var(--shadow-violet)]">
-        <span aria-hidden="true" className="pointer-events-none absolute -top-14 -end-10 size-40 rounded-full bg-[#ff7aa8]/25 blur-3xl" />
+      <header className="stage animate-settle relative overflow-hidden rounded-2xl px-5 py-5 text-on-panel">
         <h1 className="relative font-display text-[1.75rem] leading-tight font-semibold tracking-[-0.02em]">{mode === "create" ? "أوردر جديد" : "تعديل الأوردر"}</h1>
-        <p className="relative mt-1 text-[0.92rem] text-white/75">
+        <p className="relative mt-1 text-[0.92rem] text-on-panel-muted">
           {mode === "create" ? "كل الأوردر في صفحة واحدة، واللي مش ضروري متطوي." : (props.mode === "edit" && props.orderLabel) || "عدّل اللي محتاجه واحفظ."}
         </p>
       </header>
 
-      <Question title="مين العميل؟" id="q-customer" icon={User} hue="bg-violet-soft text-violet">
+      <Question title="مين العميل؟" id="q-customer" icon={User} hue="bg-brand-soft text-brand-ink">
         <CustomerPicker
           value={draft.customer}
           onChange={(customer) => {
@@ -317,7 +316,7 @@ export function OrderForm(props: Props) {
         </Field>
       </Question>
 
-      <Question title="بنعمل إيه؟" id="q-product" icon={Package} hue="bg-blue-soft text-blue-ink">
+      <Question title="بنعمل إيه؟" id="q-product" icon={Package} hue="bg-brand-soft text-brand-ink">
         <div>
           <div className="grid grid-cols-4 gap-2" role="group" aria-label="أنواع شائعة">
             {PRODUCT_TILES.map((name) => {
@@ -332,7 +331,7 @@ export function OrderForm(props: Props) {
                   className={cn(chip(selected), "relative h-[5.25rem] flex-col gap-1.5 px-1 text-[0.8rem] leading-tight")}
                 >
                   {selected && (
-                    <span className="absolute top-1.5 end-1.5 flex size-4 items-center justify-center rounded-full bg-white text-violet">
+                    <span className="absolute top-1.5 end-1.5 flex size-4 items-center justify-center rounded-full bg-surface text-brand">
                       <Check className="size-3" strokeWidth={3.5} aria-hidden="true" />
                     </span>
                   )}
@@ -367,7 +366,7 @@ export function OrderForm(props: Props) {
         </Field>
       </Question>
 
-      <Question title="كام قطعة؟" id="q-quantity" icon={Layers} hue="bg-teal-soft text-teal-ink">
+      <Question title="كام قطعة؟" id="q-quantity" icon={Layers} hue="bg-brand-soft text-brand-ink">
         <div data-error={errors.quantity ? "true" : undefined}>
           <div className="flex items-stretch gap-2">
             <button
@@ -427,8 +426,8 @@ export function OrderForm(props: Props) {
               onChange={(e) => setDraft((d) => ({ ...d, sizesEnabled: e.target.checked, sizesTouched: true }))}
               className="peer sr-only"
             />
-            <span className="h-7 w-12 rounded-full bg-[#d8d2e6] transition-colors peer-checked:bg-violet peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-violet" />
-            <span className="absolute top-1 start-1 size-5 rounded-full bg-white shadow-[0_1px_2px_rgb(23_21_28/0.3)] transition-transform duration-200 ease-[var(--ease-out-expo)] peer-checked:-translate-x-5" />
+            <span className="h-7 w-12 rounded-full bg-line-strong transition-colors peer-checked:bg-brand-solid peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-violet" />
+            <span className="absolute top-1 start-1 size-5 rounded-full bg-on-panel transition-transform duration-200 ease-[var(--ease-out-expo)] peer-checked:-translate-x-5" />
           </span>
         </label>
 
@@ -444,7 +443,7 @@ export function OrderForm(props: Props) {
         )}
       </Question>
 
-      <Question title="الشغل المطلوب" id="q-work" icon={Printer} hue="bg-rose-soft text-rose-ink">
+      <Question title="الشغل المطلوب" id="q-work" icon={Printer} hue="bg-brand-soft text-brand-ink">
         {!multiple && <p className="-mt-2 text-sm text-graphite">ينفع أكتر من نوع على نفس القطعة، والقطعة بتتحسب مرة واحدة.</p>}
 
         {draft.groups.map((group, index) => (
@@ -527,7 +526,7 @@ export function OrderForm(props: Props) {
         {draft.groups.length < MAX_ORDER_GROUPS && (
           <button
             type="button"
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#d9d2ea] text-[0.95rem] font-semibold text-violet transition-colors hover:border-violet/50 hover:bg-violet-soft/40"
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-line-strong text-[0.95rem] font-semibold text-violet transition-colors hover:border-violet/50 hover:bg-violet-soft/40"
             onClick={() =>
               setDraft((d) => {
                 const groups = d.groups.map((g, i) =>
@@ -545,7 +544,7 @@ export function OrderForm(props: Props) {
         {!multiple && <p className="text-xs text-graphite">لو جزء من الكمية شغله مختلف (مثلًا 100 DTF و 50 تطريز) ضيف مجموعة تانية.</p>}
       </Question>
 
-      <Question title="الحساب" id="q-money" icon={Wallet} hue="bg-green-soft text-green-ink">
+      <Question title="الحساب" id="q-money" icon={Wallet} hue="bg-brand-soft text-brand-ink">
         <Field
           label="سعر الأوردر كله"
           htmlFor="totalPrice"
@@ -581,19 +580,19 @@ export function OrderForm(props: Props) {
           </div>
         )}
 
-        <dl className="rounded-2xl bg-ink px-4 py-2 text-white">
+        <dl className="rounded-2xl bg-panel px-4 py-2 text-on-panel">
           {props.mode === "edit" && (
             <div className="flex items-baseline gap-2 py-1.5">
-              <dt className="text-white/65">المدفوع لحد دلوقتي</dt>
+              <dt className="text-on-panel-muted">المدفوع لحد دلوقتي</dt>
               <span className="flex-1" aria-hidden="true" />
               <dd className="tabular font-display font-medium">{formatMoney(toCents(props.paid))}</dd>
             </div>
           )}
           <div className="flex items-baseline gap-2 py-1.5">
-            <dt className="text-sm text-white/75">المتبقي على العميل</dt>
+            <dt className="text-sm text-on-panel-muted">المتبقي على العميل</dt>
             <span className="flex-1" aria-hidden="true" />
             <dd
-              className={cn("tabular font-display text-2xl font-semibold", money.remaining !== null && money.remaining < 0n ? "text-[#ff8a8a]" : "text-[#7ee2a8]")}
+              className={cn("tabular font-display text-2xl font-semibold", money.remaining !== null && money.remaining < 0n ? "text-panel-danger" : "text-panel-success")}
               aria-live="polite"
             >
               {money.remaining !== null ? formatMoney(money.remaining) : "—"}
@@ -602,7 +601,7 @@ export function OrderForm(props: Props) {
         </dl>
       </Question>
 
-      <Question title="هيتسلم إمتى؟" id="q-date" icon={CalendarDays} hue="bg-amber-soft text-amber-ink">
+      <Question title="هيتسلم إمتى؟" id="q-date" icon={CalendarDays} hue="bg-brand-soft text-brand-ink">
         <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="مواعيد سريعة">
           {dueChips.map((c) => {
             const value = addDays(from, c.days);
@@ -653,26 +652,26 @@ export function OrderForm(props: Props) {
 
       {/* The save bar: what is about to be saved, and the one button. */}
       <div className="sticky bottom-[calc(6.5rem+env(safe-area-inset-bottom))] z-20 lg:bottom-4">
-        <div className={cn("flex items-center gap-3 rounded-[1.4rem] bg-ink py-2 ps-4 pe-2 text-white shadow-[var(--shadow-lift)] transition-shadow", sizeIssue && "ring-2 ring-[#ffc56b]/70")}>
+        <div className={cn("flex items-center gap-3 rounded-2xl bg-panel py-2 ps-4 pe-2 text-on-panel border border-line transition-shadow", sizeIssue && "ring-2 ring-panel-warning")}>
           <div className="min-w-0 flex-1 leading-tight" aria-live="polite">
             <p className="tabular truncate font-display text-[1.05rem] font-semibold">
               {orderQuantity ? `${formatNumber(orderQuantity)} ${unitLabel}` : "لسه مفيش كمية"}
-              {sizedGroups > 0 && <span className="text-sm font-normal text-white/65"> بالمقاسات</span>}
+              {sizedGroups > 0 && <span className="text-sm font-normal text-on-panel-muted"> بالمقاسات</span>}
             </p>
             {sizeIssue ? (
               <button
                 type="button"
                 onClick={() => document.querySelector(`[data-size-grid="${sizeIssue.grid}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                className="flex max-w-full items-center gap-1 truncate text-start text-xs font-semibold text-[#ffc56b] underline decoration-[#ffc56b]/40 underline-offset-2"
+                className="flex max-w-full items-center gap-1 truncate text-start text-xs font-semibold text-panel-warning underline decoration-panel-warning/40 underline-offset-2"
               >
                 <TriangleAlert className="size-3.5 shrink-0" aria-hidden="true" />
                 <span className="truncate">{sizeIssue.text} — دوس هنا عشان تكمّل</span>
               </button>
             ) : (
-              <p className="tabular truncate text-xs text-white/65">{money.total !== null && money.total > 0n ? formatMoney(money.total) : "من غير سعر لسه"}</p>
+              <p className="tabular truncate text-xs text-on-panel-muted">{money.total !== null && money.total > 0n ? formatMoney(money.total) : "من غير سعر لسه"}</p>
             )}
           </div>
-          <Button type="submit" size="lg" className="h-12 shrink-0 rounded-2xl bg-gradient-to-b from-[#6d47ea] to-violet-deep px-5 font-display text-base" disabled={pending}>
+          <Button type="submit" size="lg" className="h-12 shrink-0 rounded-2xl bg-brand-solid px-5 font-display text-base" disabled={pending}>
             {pending ? (
               <>
                 <Loader2 className="size-5 animate-spin" aria-hidden="true" />

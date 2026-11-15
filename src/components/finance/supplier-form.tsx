@@ -11,7 +11,7 @@ export function SupplierForm({ supplier }: { supplier?: { id: string; name: stri
   const [state, action, pending] = useActionState(saveSupplierAction, null);
   const errors = state?.fieldErrors ?? {};
   return (
-    <form action={action} className="space-y-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4 sm:p-5">
+    <form action={action} className="space-y-5 rounded-2xl bg-surface border border-line p-4 sm:p-5">
       {supplier && <input type="hidden" name="supplierId" value={supplier.id} />}
       <Field label="اسم المورد" htmlFor="name" error={errors.name?.[0]}>
         <Input id="name" name="name" defaultValue={supplier?.name} placeholder="مثال: أحمد للأقمشة" autoFocus={!supplier} aria-invalid={errors.name ? true : undefined} />

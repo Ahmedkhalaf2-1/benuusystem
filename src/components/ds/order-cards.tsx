@@ -42,7 +42,7 @@ export function OrderCard({ order, showMoney }: { order: OrderSummary; showMoney
     <li className="min-w-0">
       <Link
         href={`/orders/${order.id}`}
-        className="group block h-full rounded-[1.4rem] bg-surface p-4 shadow-[var(--shadow-card)] transition-[transform,box-shadow] duration-200 ease-[var(--ease-out-expo)] hover:shadow-[var(--shadow-lift)] active:scale-[0.985]"
+        className="group block h-full rounded-2xl bg-surface p-4 border border-line transition-[transform,box-shadow] duration-200 ease-[var(--ease-out-expo)] hover:border-line-strong active:scale-[0.985]"
       >
         <div className="flex items-start gap-3">
           <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-well text-violet">
@@ -76,9 +76,9 @@ export function OrderCard({ order, showMoney }: { order: OrderSummary; showMoney
 export type AttentionKind = "late" | "soon" | "ready";
 
 const ATTENTION: Record<AttentionKind, { icon: LucideIcon; tone: string; ring: string }> = {
-  late: { icon: AlarmClock, tone: "bg-red text-white", ring: "ring-red/20" },
-  soon: { icon: CalendarClock, tone: "bg-amber text-white", ring: "ring-amber/25" },
-  ready: { icon: PackageCheck, tone: "bg-teal text-white", ring: "ring-teal/20" },
+  late: { icon: AlarmClock, tone: "bg-danger-soft text-danger-ink", ring: "ring-red/20" },
+  soon: { icon: CalendarClock, tone: "bg-warning-soft text-warning-ink", ring: "ring-amber/25" },
+  ready: { icon: PackageCheck, tone: "bg-brand-soft text-brand-ink", ring: "ring-teal/20" },
 };
 
 /** One job that needs someone today, with the reason up front. */
@@ -93,7 +93,7 @@ export function AttentionCard({ order, kind }: { order: OrderSummary; kind: Atte
       <Link
         href={`/orders/${order.id}`}
         className={cn(
-          "flex h-full flex-col rounded-[1.4rem] bg-surface p-4 shadow-[var(--shadow-card)] ring-1 transition-[transform,box-shadow] duration-200 hover:shadow-[var(--shadow-lift)] active:scale-[0.985]",
+          "flex h-full flex-col rounded-2xl bg-surface p-4 border border-line ring-1 transition-[transform,box-shadow] duration-200 hover:border-line-strong active:scale-[0.985]",
           ring,
         )}
       >

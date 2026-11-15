@@ -37,7 +37,7 @@ export default async function SuppliersPage(props: PageProps<"/suppliers">) {
           )
         }
       />
-      <div className="mb-4 flex items-center justify-between rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+      <div className="mb-4 flex items-center justify-between rounded-2xl bg-surface border border-line p-4">
         <span className="text-sm text-muted-foreground">إجمالي اللي علينا للموردين</span>
         <span className="text-xl font-bold text-amber-ink" data-testid="suppliers-owed">
           {formatMoneyString(owed)}
@@ -46,7 +46,7 @@ export default async function SuppliersPage(props: PageProps<"/suppliers">) {
       <SearchBox action="/suppliers" defaultValue={q} placeholder="دوّر بالاسم أو رقم الموبايل" />
 
       {result.items.length === 0 ? (
-        <div className="mt-6 flex flex-col items-center rounded-[1.6rem] border-2 border-dashed border-[#d9d2ea] bg-surface/60 px-6 py-12 text-center">
+        <div className="mt-6 flex flex-col items-center rounded-2xl border-2 border-dashed border-line-strong bg-surface px-6 py-12 text-center">
           <span className="flex size-14 items-center justify-center rounded-2xl bg-violet-soft text-violet">
             <Truck className="size-7" aria-hidden="true" />
           </span>
@@ -56,7 +56,7 @@ export default async function SuppliersPage(props: PageProps<"/suppliers">) {
           </p>
         </div>
       ) : (
-        <ul className="mt-4 divide-y divide-hairline overflow-hidden rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)]">
+        <ul className="mt-4 divide-y divide-hairline overflow-hidden rounded-2xl bg-surface border border-line">
           {result.items.map((s) => {
             const owes = toCents(s.outstanding) > 0n;
             return (

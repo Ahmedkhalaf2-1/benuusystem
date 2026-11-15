@@ -83,18 +83,18 @@ export function SizeGrid({
                 onChange={(e) => setQty(label, e.target.value)}
                 placeholder="·"
                 className={cn(
-                  "tabular h-11 w-full min-w-0 rounded-xl border-0 bg-surface px-0 text-center font-display text-[1.05rem] font-semibold shadow-[var(--shadow-soft)] outline-none transition-shadow placeholder:text-ink/25 focus-visible:ring-3 focus-visible:ring-violet/35",
+                  "tabular h-11 w-full min-w-0 rounded-xl border-0 bg-surface px-0 text-center font-display text-[1.05rem] font-semibold border border-line outline-none transition-shadow placeholder:text-ink/25 focus-visible:ring-3 focus-visible:ring-violet/35",
                   n > 0 && "text-violet",
                 )}
               />
-              <span aria-hidden="true" className="mx-1 mt-1.5 h-1 overflow-hidden rounded-full bg-white/80">
-                <span className="block h-full bg-violet transition-[width] duration-300 ease-[var(--ease-out-expo)]" style={{ width: `${(n / max) * 100}%` }} />
+              <span aria-hidden="true" className="mx-1 mt-1.5 h-1 overflow-hidden rounded-full bg-track">
+                <span className="block h-full bg-brand-solid transition-[width] duration-300 ease-[var(--ease-out-expo)]" style={{ width: `${(n / max) * 100}%` }} />
               </span>
               {isCustom && (
                 <button
                   type="button"
                   onClick={() => onChange(sizes.filter((x) => x.label !== label))}
-                  className="absolute -top-2 -end-2 flex size-6 items-center justify-center rounded-full bg-ink text-white shadow-[var(--shadow-soft)]"
+                  className="absolute -top-2 -end-2 flex size-6 items-center justify-center rounded-full bg-brand-solid text-on-brand border border-line"
                   aria-label={`شيل مقاس ${label}`}
                 >
                   <X className="size-3" aria-hidden="true" />
@@ -107,9 +107,9 @@ export function SizeGrid({
 
       {/* Distribution against the quantity: a gauge with the target at its end. */}
       <div className="mt-4">
-        <div aria-hidden="true" className="relative h-2.5 overflow-hidden rounded-full bg-[#ebe7f4]">
+        <div aria-hidden="true" className="relative h-2.5 overflow-hidden rounded-full bg-track">
           <span
-            className={cn("absolute inset-y-0 start-0 rounded-full transition-[width] duration-300 ease-[var(--ease-out-expo)]", status.tone === "bad" ? "bg-red" : status.tone === "ok" ? "bg-green" : "bg-violet")}
+            className={cn("absolute inset-y-0 start-0 rounded-full transition-[width] duration-300 ease-[var(--ease-out-expo)]", status.tone === "bad" ? "bg-danger-solid" : status.tone === "ok" ? "bg-success-solid" : "bg-brand-solid")}
             style={{ width: `${fill}%` }}
           />
         </div>
@@ -150,7 +150,7 @@ export function SizeGrid({
               aria-label="اسم المقاس"
               className="h-11 min-w-0 flex-1 rounded-xl border border-input bg-surface px-3 text-base outline-none focus-visible:border-violet focus-visible:ring-3 focus-visible:ring-violet/25"
             />
-            <button type="button" onClick={addCustom} className="h-11 shrink-0 rounded-xl bg-ink px-4 text-sm font-semibold text-white">
+            <button type="button" onClick={addCustom} className="h-11 shrink-0 rounded-xl bg-panel px-4 text-sm font-semibold text-on-panel">
               إضافة
             </button>
           </div>

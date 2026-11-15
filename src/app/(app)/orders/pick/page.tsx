@@ -29,7 +29,7 @@ const ACTIONS: Record<
     permission: "production:record",
     path: "production/new",
     icon: Factory,
-    hue: "bg-blue",
+    hue: "bg-brand-solid",
     soft: "text-blue-ink",
   },
   delivery: {
@@ -39,7 +39,7 @@ const ACTIONS: Record<
     permission: "deliveries:record",
     path: "deliveries/new",
     icon: Truck,
-    hue: "bg-teal",
+    hue: "bg-brand-solid",
     soft: "text-teal-ink",
   },
   payment: {
@@ -49,7 +49,7 @@ const ACTIONS: Record<
     permission: "payments:record",
     path: "payments/new",
     icon: HandCoins,
-    hue: "bg-green",
+    hue: "bg-success-solid",
     soft: "text-green-ink",
   },
 };
@@ -68,7 +68,7 @@ export default async function PickOrderPage(props: PageProps<"/orders/pick">) {
     <div className="mx-auto max-w-2xl">
       <BackLink href="/dashboard" label="الرئيسية" />
       <header className="mb-5 flex items-center gap-3">
-        <span className={cn("flex size-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-[var(--shadow-soft)]", meta.hue)}>
+        <span className={cn("flex size-12 shrink-0 items-center justify-center rounded-2xl text-white border border-line", meta.hue)}>
           <Icon className="size-6" aria-hidden="true" />
         </span>
         <div>
@@ -80,7 +80,7 @@ export default async function PickOrderPage(props: PageProps<"/orders/pick">) {
       <SearchBox action="/orders/pick" defaultValue={q} placeholder="دوّر باسم العميل أو الأوردر أو رقمه" hidden={{ action }} />
 
       {orders.length === 0 ? (
-        <p className="mt-6 rounded-[1.4rem] bg-surface px-5 py-8 text-center text-[0.95rem] text-graphite shadow-[var(--shadow-soft)]">
+        <p className="mt-6 rounded-2xl bg-surface px-5 py-8 text-center text-[0.95rem] text-graphite border border-line">
           {q ? "مفيش أوردر بالاسم ده هنا." : meta.empty}
         </p>
       ) : (
@@ -99,7 +99,7 @@ export default async function PickOrderPage(props: PageProps<"/orders/pick">) {
               <li key={o.id}>
                 <Link
                   href={`/orders/${o.id}/${meta.path}`}
-                  className="flex items-center gap-3 rounded-[1.3rem] bg-surface p-3.5 shadow-[var(--shadow-card)] transition-[transform,box-shadow] duration-150 hover:shadow-[var(--shadow-lift)] active:scale-[0.985]"
+                  className="flex items-center gap-3 rounded-2xl bg-surface p-3.5 border border-line transition-[transform,box-shadow] duration-150 hover:border-line-strong active:scale-[0.985]"
                 >
                   <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-well text-violet">
                     <ProductIcon productType={o.productType} className="size-5" />

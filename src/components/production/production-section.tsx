@@ -28,13 +28,13 @@ export function Fold({
   children: ReactNode;
 }) {
   return (
-    <details id={id} open={open} className="group/fold scroll-mt-20 rounded-[1.5rem] bg-surface shadow-[var(--shadow-card)]">
-      <summary className="flex min-h-16 cursor-pointer list-none items-center gap-3 rounded-[1.5rem] px-4 py-3 transition-colors hover:bg-well/60 [&::-webkit-details-marker]:hidden">
+    <details id={id} open={open} className="group/fold scroll-mt-20 rounded-2xl bg-surface border border-line">
+      <summary className="flex min-h-16 cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 transition-colors hover:bg-well/60 [&::-webkit-details-marker]:hidden">
         <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl", hue)}>
           <Icon className="size-[1.1rem]" aria-hidden="true" />
         </span>
-        <span className="font-display text-[1.02rem] font-semibold">{title}</span>
-        <span className="ms-auto truncate text-sm text-graphite">{meta}</span>
+        <span className="min-w-0 flex-1 font-display text-[1.02rem] leading-snug font-semibold">{title}</span>
+        {meta && <span className="max-w-[45%] shrink-0 text-end text-sm leading-snug text-graphite">{meta}</span>}
         <ChevronDown
           className="size-4 shrink-0 text-graphite transition-transform duration-300 ease-[var(--ease-out-expo)] group-open/fold:rotate-180"
           aria-hidden="true"
@@ -62,7 +62,7 @@ export function ProductionReadout({ production: p }: { production: OrderProducti
           <span className="tabular font-display text-[2.75rem] font-semibold tracking-[-0.03em]" data-testid="prod-delivered">
             {formatNumber(t.delivered)}
           </span>
-          <span className="ms-1.5 text-[1.05rem] text-white/75">
+          <span className="ms-1.5 text-[1.05rem] text-on-panel-muted">
             من{" "}
             <b className="tabular font-semibold text-white" data-testid="prod-required">
               {formatNumber(t.required)}
@@ -70,14 +70,14 @@ export function ProductionReadout({ production: p }: { production: OrderProducti
             {u} اتسلمت
           </span>
         </p>
-        <span className="tabular rounded-full bg-white/12 px-2.5 py-1 font-display text-sm font-semibold ring-1 ring-white/15">{pct}%</span>
+        <span className="tabular rounded-full bg-panel-2 px-2.5 py-1 font-display text-sm font-semibold ring-1 ring-panel-line">{pct}%</span>
       </div>
       <ProductionTrack className="mt-3" size="lg" tone="dark" required={t.required} ready={t.ready} delivered={t.delivered} unitLabel={u} />
       <dl className="mt-3 grid grid-cols-3 gap-2">
         {readings.map((r) => (
-          <div key={r.id} className="rounded-2xl bg-white/10 px-3 py-2.5 ring-1 ring-white/12">
-            <dt className="flex items-center gap-1.5 text-[0.72rem] whitespace-nowrap text-white/75">
-              {r.kind ? <GaugeSwatch kind={r.kind} dark /> : <CircleCheck className="size-3 text-white/80" aria-hidden="true" />}
+          <div key={r.id} className="rounded-2xl bg-panel-2 px-3 py-2.5 ring-1 ring-panel-line">
+            <dt className="flex items-center gap-1.5 text-[0.72rem] whitespace-nowrap text-on-panel-muted">
+              {r.kind ? <GaugeSwatch kind={r.kind} dark /> : <CircleCheck className="size-3 text-on-panel-muted" aria-hidden="true" />}
               {r.label}
             </dt>
             <dd className="tabular mt-1 font-display text-[1.35rem] leading-none font-semibold" data-testid={r.id}>
@@ -100,8 +100,8 @@ function StepBar({ label, done, total, tone }: { label: string; done: number; to
           <b className="font-display text-ink">{formatNumber(done)}</b> / {formatNumber(total)}
         </span>
       </div>
-      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[#ebe7f4]">
-        <span className={cn("block h-full rounded-full transition-[width] duration-700 ease-[var(--ease-out-expo)]", tone === "blue" ? "bg-blue" : "bg-teal")} style={{ width: `${pct}%` }} />
+      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-track">
+        <span className={cn("block h-full rounded-full transition-[width] duration-700 ease-[var(--ease-out-expo)]", tone === "blue" ? "bg-brand-solid" : "bg-brand-solid")} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -112,7 +112,7 @@ export function StagesCard({ production: p }: { production: OrderProduction }) {
   const multi = p.groups.length > 1;
   if (!p.groups.some((g) => g.operations.length > 0)) return null;
   return (
-    <section aria-labelledby="stages-heading" className="rounded-[1.5rem] bg-surface p-4 shadow-[var(--shadow-card)]">
+    <section aria-labelledby="stages-heading" className="rounded-2xl bg-surface p-4 border border-line">
       <h2 id="stages-heading" className="mb-3 flex items-center gap-2.5 font-display text-[1.02rem] font-semibold">
         <span className="flex size-9 items-center justify-center rounded-xl bg-blue-soft text-blue-ink">
           <Factory className="size-[1.1rem]" aria-hidden="true" />
@@ -196,7 +196,7 @@ export function ProductionBreakdown({ production: p, canCorrect }: { production:
           id="production"
           title={sized ? "المقاسات والكميات" : "المجموعات"}
           icon={sized ? Ruler : Layers}
-          hue="bg-teal-soft text-teal-ink"
+          hue="bg-brand-soft text-brand-ink"
           meta={multi ? `${formatNumber(p.groups.length)} مجموعات` : undefined}
           open
         >

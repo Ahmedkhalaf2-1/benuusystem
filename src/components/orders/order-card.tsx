@@ -21,7 +21,7 @@ export function OrderCard({ order, hideCustomer, showMoney = true }: { order: Or
     <Link
       href={`/orders/${order.id}`}
       className={cn(
-        "block rounded-[1.4rem] bg-surface p-4 shadow-[var(--shadow-card)] transition-[transform,box-shadow] duration-200 hover:shadow-[var(--shadow-lift)] active:scale-[0.985]",
+        "block rounded-2xl bg-surface p-4 border border-line transition-[transform,box-shadow] duration-200 hover:border-line-strong active:scale-[0.985]",
         order.overdue && "ring-1 ring-red/25",
       )}
     >

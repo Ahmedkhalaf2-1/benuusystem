@@ -7,7 +7,7 @@ export function UserAvatar({ name, className }: { name: string; className?: stri
     <span
       aria-hidden="true"
       className={cn(
-        "flex size-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#ffd56a] via-[#ff7aa8] to-[#6d47ea] p-[2px]",
+        "flex size-9 shrink-0 items-center justify-center rounded-full bg-line-strong p-[2px]",
         className,
       )}
     >

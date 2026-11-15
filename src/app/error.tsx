@@ -14,7 +14,7 @@ export default function ErrorPage({ reset }: { error: Error & { digest?: string 
       <button
         type="button"
         onClick={reset}
-        className="mt-6 inline-flex h-12 items-center gap-2 rounded-2xl bg-violet px-6 font-display font-semibold text-white shadow-[var(--shadow-violet)] transition-transform active:scale-[0.97]"
+        className="mt-6 inline-flex h-12 items-center gap-2 rounded-2xl bg-brand-solid px-6 font-display font-semibold text-white transition-transform active:scale-[0.97]"
       >
         <RotateCcw className="size-5" aria-hidden="true" />
         جرّب تاني

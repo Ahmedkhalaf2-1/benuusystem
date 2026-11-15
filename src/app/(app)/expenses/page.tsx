@@ -52,7 +52,7 @@ export default async function ExpensesPage(props: PageProps<"/expenses">) {
   const chip = (active: boolean) =>
     cn(
       "inline-flex h-10 shrink-0 items-center rounded-full px-4 text-sm font-semibold transition-[background-color,box-shadow] duration-200",
-      active ? "bg-gradient-to-b from-[#6d47ea] to-violet-deep text-white shadow-[var(--shadow-violet)]" : "bg-surface text-ink shadow-[var(--shadow-soft)] hover:bg-well",
+      active ? "bg-brand-solid text-white" : "bg-surface text-ink border border-line hover:bg-well",
     );
 
   return (
@@ -79,7 +79,7 @@ export default async function ExpensesPage(props: PageProps<"/expenses">) {
             الشهر اللي فات
           </Link>
         </div>
-        <details open={period === "custom" || !!category} className="rounded-[1.4rem] bg-surface p-3 shadow-[var(--shadow-card)]">
+        <details open={period === "custom" || !!category} className="rounded-2xl bg-surface p-3 border border-line">
           <summary className="flex min-h-9 cursor-pointer items-center text-sm font-semibold">فترة معيّنة أو نوع مصروف</summary>
           <form action="/expenses" method="get" className="mt-3 grid grid-cols-2 gap-2">
             <input type="hidden" name="period" value="custom" />
@@ -113,7 +113,7 @@ export default async function ExpensesPage(props: PageProps<"/expenses">) {
         </p>
       </div>
 
-      <dl className="mt-3 grid grid-cols-3 rounded-[1.4rem] bg-surface p-1.5 shadow-[var(--shadow-card)]">
+      <dl className="mt-3 grid grid-cols-3 rounded-2xl bg-surface p-1.5 border border-line">
         <div className="rounded-2xl bg-amber-soft px-3 py-3">
           <dt className="text-[0.7rem] font-semibold text-amber-ink">المصاريف المسجلة</dt>
           <dd className="tabular mt-1 whitespace-nowrap font-display text-base font-semibold sm:text-lg" data-testid="expenses-recorded">
@@ -133,7 +133,7 @@ export default async function ExpensesPage(props: PageProps<"/expenses">) {
       </dl>
 
       {result.items.length === 0 ? (
-        <div className="mt-6 flex flex-col items-center rounded-[1.6rem] border-2 border-dashed border-[#d9d2ea] bg-surface/60 px-6 py-12 text-center">
+        <div className="mt-6 flex flex-col items-center rounded-2xl border-2 border-dashed border-line-strong bg-surface px-6 py-12 text-center">
           <span className="flex size-14 items-center justify-center rounded-2xl bg-violet-soft text-violet">
             <Wallet className="size-7" aria-hidden="true" />
           </span>
@@ -141,7 +141,7 @@ export default async function ExpensesPage(props: PageProps<"/expenses">) {
           <p className="mt-1 text-sm text-muted-foreground">أي مصروف تسجله (إيجار، كهرباء، …) هيظهر هنا.</p>
         </div>
       ) : (
-        <ul className="mt-4 divide-y divide-hairline overflow-hidden rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)]">
+        <ul className="mt-4 divide-y divide-hairline overflow-hidden rounded-2xl bg-surface border border-line">
           {result.items.map((e) => (
             <li key={e.id}>
               <Link href={`/expenses/${e.id}`} className="block px-4 py-3 transition-colors hover:bg-well active:bg-well">

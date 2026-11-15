@@ -94,9 +94,9 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
                 "inline-flex h-10 shrink-0 items-center rounded-full px-4 text-sm font-semibold transition-[background-color,box-shadow] duration-200",
                 status === f.value
                   ? f.value === "overdue"
-                    ? "bg-red text-white shadow-[0_8px_18px_-8px_rgb(220_59_59/0.7)]"
-                    : "bg-gradient-to-b from-[#6d47ea] to-violet-deep text-white shadow-[var(--shadow-violet)]"
-                  : "bg-surface text-ink shadow-[var(--shadow-soft)] hover:bg-well",
+                    ? "bg-danger-soft text-danger-ink"
+                    : "bg-brand-solid text-white"
+                  : "bg-surface text-ink border border-line hover:bg-well",
               )}
             >
               {f.label}
@@ -105,7 +105,7 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
         </div>
         <div className="flex items-center gap-2 text-sm">
           <span className="text-graphite">الترتيب</span>
-          <span className="inline-flex rounded-full bg-surface p-1 shadow-[var(--shadow-soft)]">
+          <span className="inline-flex rounded-full bg-surface p-1 border border-line">
           {SORTS.map((s) => (
             <Link
               key={s.value}
@@ -124,7 +124,7 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
       </div>
 
       {result.items.length === 0 ? (
-        <div className="mt-6 flex flex-col items-center rounded-[1.6rem] border-2 border-dashed border-[#d9d2ea] bg-surface/60 px-6 py-12 text-center">
+        <div className="mt-6 flex flex-col items-center rounded-2xl border-2 border-dashed border-line-strong bg-surface px-6 py-12 text-center">
           <span className="flex size-14 items-center justify-center rounded-2xl bg-violet-soft text-violet">
             <ClipboardList className="size-7" aria-hidden="true" />
           </span>
@@ -156,7 +156,7 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
           </ul>
 
           {/* Desktop: table */}
-          <div className="mt-5 hidden overflow-hidden rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] lg:block">
+          <div className="mt-5 hidden overflow-hidden rounded-2xl bg-surface border border-line lg:block">
             <table className="w-full text-sm">
               <thead className="bg-well text-xs text-graphite">
                 <tr className="[&>th]:px-4 [&>th]:py-3 [&>th]:text-start [&>th]:font-medium">

@@ -169,7 +169,7 @@ export function EntityPicker({
         <ul
           id={`${inputId}-list`}
           role="listbox"
-          className="mt-2 max-h-80 overflow-y-auto rounded-2xl bg-popover p-1.5 shadow-[var(--shadow-lift)] ring-1 ring-hairline"
+          className="mt-2 max-h-80 overflow-y-auto rounded-2xl bg-popover p-1.5 border border-line ring-1 ring-hairline"
         >
           {matches.map((match) => (
             <li key={match.id} role="option" aria-selected={false}>

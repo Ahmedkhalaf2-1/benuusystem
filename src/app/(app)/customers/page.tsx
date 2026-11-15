@@ -38,7 +38,7 @@ export default async function CustomersPage(props: PageProps<"/customers">) {
       <SearchBox action="/customers" defaultValue={q} placeholder="دوّر بالاسم أو رقم الموبايل" />
 
       {result.items.length === 0 ? (
-        <div className="mt-6 flex flex-col items-center rounded-[1.6rem] border-2 border-dashed border-[#d9d2ea] bg-surface/60 px-6 py-12 text-center">
+        <div className="mt-6 flex flex-col items-center rounded-2xl border-2 border-dashed border-line-strong bg-surface px-6 py-12 text-center">
           <span className="flex size-14 items-center justify-center rounded-2xl bg-violet-soft text-violet">
             <UsersRound className="size-7" aria-hidden="true" />
           </span>
@@ -48,7 +48,7 @@ export default async function CustomersPage(props: PageProps<"/customers">) {
           </p>
         </div>
       ) : (
-        <ul className="mt-4 divide-y divide-hairline overflow-hidden rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)]">
+        <ul className="mt-4 divide-y divide-hairline overflow-hidden rounded-2xl bg-surface border border-line">
           {result.items.map((c) => (
             <li key={c.id}>
               <Link href={`/customers/${c.id}`} className="flex min-h-16 items-center gap-3 px-4 py-3 transition-colors hover:bg-well active:bg-well">

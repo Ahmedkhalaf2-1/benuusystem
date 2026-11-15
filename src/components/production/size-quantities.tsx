@@ -60,7 +60,7 @@ export function SizeQuantities({
                 onChange={(e) => onChange({ ...values, [r.id]: e.target.value })}
                 placeholder="0"
                 aria-invalid={error ? true : undefined}
-                className="tabular mt-1.5 h-12 w-full rounded-xl border-0 bg-surface text-center font-display text-xl font-semibold shadow-[var(--shadow-soft)] outline-none placeholder:text-ink/20 focus-visible:ring-3 focus-visible:ring-violet/35"
+                className="tabular mt-1.5 h-12 w-full rounded-xl border-0 bg-surface text-center font-display text-xl font-semibold border border-line outline-none placeholder:text-ink/20 focus-visible:ring-3 focus-visible:ring-violet/35"
               />
               <p className="mt-1.5 truncate px-0.5 text-[0.7rem] text-graphite">{r.hint}</p>
               {error && <p className="mt-1 px-0.5 text-xs font-medium text-red">{error}</p>}
@@ -80,7 +80,7 @@ export function SizeQuantities({
         ) : (
           <span />
         )}
-        <span className="rounded-full bg-ink px-3.5 py-1.5 font-semibold text-white">
+        <span className="rounded-full bg-panel px-3.5 py-1.5 font-semibold text-on-panel">
           المجموع <span className="tabular font-display">{formatNumber(total)}</span> {unitLabel}
         </span>
       </div>

@@ -63,7 +63,7 @@ export function DeliveryForm({ orderId, unit, groups, today }: { orderId: string
         action={
           <Link
             href={`/orders/${orderId}/production/new`}
-            className="inline-flex h-12 items-center gap-2 rounded-2xl bg-blue px-5 font-display font-semibold text-white shadow-[0_10px_24px_-12px_rgb(47_107_234/0.8)] transition-transform active:scale-[0.97]"
+            className="inline-flex h-12 items-center gap-2 rounded-2xl bg-brand-solid px-5 font-display font-semibold text-white transition-transform active:scale-[0.97]"
           >
             <Factory className="size-5" aria-hidden="true" />
             تسجيل إنتاج
@@ -94,10 +94,10 @@ export function DeliveryForm({ orderId, unit, groups, today }: { orderId: string
       )}
       {group && (
         <>
-          <section className="flex items-center gap-4 rounded-[1.5rem] bg-teal px-5 py-4 text-white shadow-[0_14px_30px_-14px_rgb(18_165_148/0.8)]">
+          <section className="flex items-center gap-4 rounded-2xl bg-brand-solid px-5 py-4 text-white">
             <PackageCheck className="size-8 shrink-0 opacity-90" aria-hidden="true" />
             <div>
-              <p className="text-sm text-white/85">جاهز ولم يسلم</p>
+              <p className="text-sm text-on-panel-muted">جاهز ولم يسلم</p>
               <p className="tabular font-display text-[2rem] leading-none font-semibold">
                 {formatNumber(available(group))} <span className="text-base font-medium">{u}</span>
               </p>
@@ -149,7 +149,7 @@ export function DeliveryForm({ orderId, unit, groups, today }: { orderId: string
             )}
           </FlowCard>
 
-          <details className="group/more rounded-[1.5rem] bg-surface shadow-[var(--shadow-card)]" open={!!(errors.deliveredAt || date !== today)}>
+          <details className="group/more rounded-2xl bg-surface border border-line" open={!!(errors.deliveredAt || date !== today)}>
             <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-4 [&::-webkit-details-marker]:hidden">
               <CalendarDays className="size-5 text-graphite" aria-hidden="true" />
               <span className="font-semibold">التاريخ والملاحظات</span>
@@ -172,7 +172,7 @@ export function DeliveryForm({ orderId, unit, groups, today }: { orderId: string
         <button
           type="submit"
           disabled={pending || !group}
-          className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-b from-[#19b8a5] to-teal-ink font-display text-lg font-semibold text-white shadow-[0_14px_30px_-12px_rgb(18_165_148/0.75)] transition-transform active:scale-[0.98] disabled:opacity-50"
+          className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-brand-solid font-display text-lg font-semibold text-white transition-transform active:scale-[0.98] disabled:opacity-50"
         >
           {pending ? <Loader2 className="size-5 animate-spin" aria-hidden="true" /> : <Truck className="size-5" aria-hidden="true" />}
           <span>حفظ التسليم</span>

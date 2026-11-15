@@ -41,19 +41,19 @@ export default async function WorkersPage(props: PageProps<"/workers">) {
         }
       />
       {active > 0 && (
-        <section className="mb-4 rounded-[1.6rem] bg-gradient-to-br from-[#e8558a] to-rose-ink p-5 text-white shadow-[0_16px_34px_-16px_rgb(224_69_123/0.8)]">
-          <p className="text-sm text-white/80">حضور النهارده</p>
+        <section className="mb-4 rounded-2xl bg-panel p-5 text-on-panel">
+          <p className="text-sm text-on-panel-muted">حضور النهارده</p>
           <p className="mt-0.5 font-display text-[2.1rem] leading-none font-semibold">
-            <span className="tabular">{present}</span> <span className="text-lg font-medium text-white/80">من {active} عامل</span>
+            <span className="tabular">{present}</span> <span className="text-lg font-medium text-on-panel-muted">من {active} عامل</span>
           </p>
-          <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-white/20" role="img" aria-label={`حضر ${present} من ${active}`}>
-            <span className="block h-full rounded-full bg-white transition-[width] duration-700" style={{ width: `${(present / active) * 100}%` }} />
+          <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-panel-2" role="img" aria-label={`حضر ${present} من ${active}`}>
+            <span className="block h-full rounded-full bg-on-panel transition-[width] duration-700" style={{ width: `${(present / active) * 100}%` }} />
           </div>
-          <p className="mt-2 text-xs text-white/75">{present === active ? "كل العمال اتسجل حضورهم ✓" : "دوس «حضر النهارده» جنب كل عامل جه."}</p>
+          <p className="mt-2 text-xs text-on-panel-muted">{present === active ? "كل العمال اتسجل حضورهم ✓" : "دوس «حضر النهارده» جنب كل عامل جه."}</p>
         </section>
       )}
       {hasPermission(user, "workers:view-pay") && (
-        <Link href="/workers/summary" className="mb-4 flex h-14 items-center justify-between rounded-[1.4rem] bg-surface px-4 font-semibold shadow-[var(--shadow-card)] transition-shadow hover:shadow-[var(--shadow-lift)]">
+        <Link href="/workers/summary" className="mb-4 flex h-14 items-center justify-between rounded-2xl bg-surface px-4 font-semibold border border-line transition-shadow hover:border-line-strong">
           <span className="flex items-center gap-2">
             <BarChart3 className="size-5 text-primary" aria-hidden="true" />
             حساب العمال (الشهر)
@@ -63,7 +63,7 @@ export default async function WorkersPage(props: PageProps<"/workers">) {
       )}
 
       {workers.length === 0 ? (
-        <div className="flex flex-col items-center rounded-[1.6rem] border-2 border-dashed border-[#d9d2ea] bg-surface/60 px-6 py-12 text-center">
+        <div className="flex flex-col items-center rounded-2xl border-2 border-dashed border-line-strong bg-surface px-6 py-12 text-center">
           <span className="flex size-14 items-center justify-center rounded-2xl bg-violet-soft text-violet">
             <HardHat className="size-7" aria-hidden="true" />
           </span>
@@ -73,7 +73,7 @@ export default async function WorkersPage(props: PageProps<"/workers">) {
       ) : (
         <ul className="space-y-3">
           {workers.map((w) => (
-            <li key={w.id} className={cn("rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4", !w.isActive && "opacity-60")}>
+            <li key={w.id} className={cn("rounded-2xl bg-surface border border-line p-4", !w.isActive && "opacity-60")}>
               <div className="flex items-start justify-between gap-3">
                 <Link href={`/workers/${w.id}`} className="flex min-w-0 flex-1 items-center gap-3">
                   <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-rose-soft font-display font-semibold text-rose-ink">{w.name.trim().charAt(0)}</span>

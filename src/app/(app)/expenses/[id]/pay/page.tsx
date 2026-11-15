@@ -25,7 +25,7 @@ export default async function PayExpensePage(props: PageProps<"/expenses/[id]/pa
   return (
     <div className="mx-auto max-w-md">
       <FlowHeader icon={Banknote} hue="amber" title="دفع مصروف" backHref={`/expenses/${expense.id}`} backLabel="رجوع" />
-      <div className="mb-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+      <div className="mb-5 rounded-2xl bg-surface border border-line p-4">
         <p className="font-bold">{EXPENSE_CATEGORY_LABELS[expense.category]}</p>
         <p className="text-sm text-muted-foreground">
           {formatDateAr(expense.expenseDate)}

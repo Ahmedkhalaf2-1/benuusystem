@@ -91,8 +91,8 @@ export function ProductionForm({ orderId, unit, groups, today }: { orderId: stri
           <b className="font-display text-ink">{formatNumber(done)}</b> / {formatNumber(total)} {u}
         </span>
       </div>
-      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[#ebe7f4]">
-        <span className={tone === "blue" ? "block h-full rounded-full bg-blue" : "block h-full rounded-full bg-teal"} style={{ width: `${total > 0 ? Math.min(100, (done / total) * 100) : 0}%` }} />
+      <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-track">
+        <span className={tone === "blue" ? "block h-full rounded-full bg-brand-solid" : "block h-full rounded-full bg-brand-solid"} style={{ width: `${total > 0 ? Math.min(100, (done / total) * 100) : 0}%` }} />
       </div>
       {note && <p className="mt-1 text-xs text-graphite">{note}</p>}
     </div>
@@ -199,14 +199,14 @@ export function ProductionForm({ orderId, unit, groups, today }: { orderId: stri
 
               {step !== READY && step !== "" && group.operations.length === 1 && (
                 <label className="flex min-h-13 cursor-pointer items-center gap-3 rounded-2xl bg-teal-soft px-3.5 text-[0.95rem] font-semibold text-teal-ink">
-                  <input type="checkbox" checked={alsoReady} onChange={(e) => setAlsoReady(e.target.checked)} className="size-5 accent-[var(--teal)]" />
+                  <input type="checkbox" checked={alsoReady} onChange={(e) => setAlsoReady(e.target.checked)} className="size-5 accent-[var(--brand)]" />
                   القطع دي كمان جاهزة للتسليم
                 </label>
               )}
               {step === READY && multiStep && (
                 <div data-error={errors.confirmAllOperations ? "true" : undefined}>
                   <label className="flex min-h-13 cursor-pointer items-start gap-3 rounded-2xl bg-amber-soft px-3.5 py-3 text-[0.95rem] font-medium text-amber-ink">
-                    <input type="checkbox" checked={confirmAll} onChange={(e) => setConfirmAll(e.target.checked)} className="mt-0.5 size-5 accent-[var(--amber)]" />
+                    <input type="checkbox" checked={confirmAll} onChange={(e) => setConfirmAll(e.target.checked)} className="mt-0.5 size-5 accent-[var(--warning)]" />
                     <span>متأكد إن نفس القطع دي خلصت كل الشغل: {group.description}</span>
                   </label>
                   {errors.confirmAllOperations && <p className="mt-1 text-sm text-red">{errors.confirmAllOperations}</p>}
@@ -215,7 +215,7 @@ export function ProductionForm({ orderId, unit, groups, today }: { orderId: stri
             </div>
           </FlowCard>
 
-          <details className="group/more rounded-[1.5rem] bg-surface shadow-[var(--shadow-card)]" open={!!(errors.workDate || errors.readyDate || date !== today)}>
+          <details className="group/more rounded-2xl bg-surface border border-line" open={!!(errors.workDate || errors.readyDate || date !== today)}>
             <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-4 [&::-webkit-details-marker]:hidden">
               <CalendarDays className="size-5 text-graphite" aria-hidden="true" />
               <span className="font-semibold">التاريخ والملاحظات</span>
@@ -239,7 +239,7 @@ export function ProductionForm({ orderId, unit, groups, today }: { orderId: stri
         <button
           type="submit"
           disabled={pending || !group}
-          className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-b from-[#3d7cf2] to-blue-ink font-display text-lg font-semibold text-white shadow-[0_14px_30px_-12px_rgb(47_107_234/0.75)] transition-transform active:scale-[0.98] disabled:opacity-50"
+          className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-brand-solid font-display text-lg font-semibold text-white transition-transform active:scale-[0.98] disabled:opacity-50"
         >
           {pending ? <Loader2 className="size-5 animate-spin" aria-hidden="true" /> : <Factory className="size-5" aria-hidden="true" />}
           <span>حفظ</span>

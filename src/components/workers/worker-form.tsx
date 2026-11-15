@@ -75,7 +75,7 @@ export function WorkerForm({ worker }: { worker?: WorkerFormInitial }) {
   }
 
   return (
-    <form onSubmit={submit} noValidate className="space-y-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4 sm:p-5">
+    <form onSubmit={submit} noValidate className="space-y-5 rounded-2xl bg-surface border border-line p-4 sm:p-5">
       <Field label="اسم العامل" htmlFor="name" error={errors.name}>
         <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="مثال: يوسف" aria-invalid={errors.name ? true : undefined} />
       </Field>

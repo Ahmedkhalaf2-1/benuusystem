@@ -59,7 +59,7 @@ export function FormMessage({ message }: { message?: string }) {
 /** A titled white card used to group form sections. */
 export function FormSection({ title, children, aside }: { title: string; children: ReactNode; aside?: ReactNode }) {
   return (
-    <section className="space-y-4 rounded-3xl bg-surface p-4 shadow-[var(--shadow-card)] sm:p-5">
+    <section className="space-y-4 rounded-3xl bg-surface p-4 border border-line sm:p-5">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-base font-bold">{title}</h2>
         {aside}

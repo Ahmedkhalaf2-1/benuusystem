@@ -40,7 +40,7 @@ export default async function WorkersSummaryPage(props: PageProps<"/workers/summ
         </Button>
       </form>
 
-      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+      <section className="rounded-2xl bg-surface border border-line p-4">
         <h2 className="font-display text-[1.05rem] font-semibold">1. شغل الشهر ده كلّف كام؟</h2>
         <p className="mb-3 text-xs text-muted-foreground">اليوميات اللي اتكسبت في أيام الشهر ده (حتى لو لسه متدفعتش).</p>
         <div className="grid grid-cols-2 gap-2">
@@ -51,7 +51,7 @@ export default async function WorkersSummaryPage(props: PageProps<"/workers/summ
         </div>
       </section>
 
-      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+      <section className="rounded-2xl bg-surface border border-line p-4">
         <h2 className="font-display text-[1.05rem] font-semibold">2. اتدفع للعمال كام في الشهر ده؟</h2>
         <p className="mb-3 text-xs text-muted-foreground">الفلوس اللي خرجت فعلًا في الشهر ده (حتى لو كانت عن شغل شهر قبله).</p>
         <div className="grid grid-cols-3 gap-2">
@@ -61,7 +61,7 @@ export default async function WorkersSummaryPage(props: PageProps<"/workers/summ
         </div>
       </section>
 
-      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+      <section className="rounded-2xl bg-surface border border-line p-4">
         <h2 className="font-display text-[1.05rem] font-semibold">3. الحساب في آخر الشهر</h2>
         <p className="mb-3 text-xs text-muted-foreground">لحد {formatDateAr(s.to)}.</p>
         <div className="grid grid-cols-2 gap-2">
@@ -70,7 +70,7 @@ export default async function WorkersSummaryPage(props: PageProps<"/workers/summ
         </div>
       </section>
 
-      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+      <section className="rounded-2xl bg-surface border border-line p-4">
         <h2 className="mb-2 font-display text-[1.05rem] font-semibold">كل عامل</h2>
         {s.workers.length === 0 ? (
           <p className="text-sm text-muted-foreground">مفيش عمال.</p>

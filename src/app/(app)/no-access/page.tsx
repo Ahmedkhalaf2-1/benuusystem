@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "مش متاحة" };
 export default async function NoAccessPage() {
   await requireUser();
   return (
-    <section className="mx-auto flex max-w-md flex-col items-center rounded-[1.6rem] bg-surface shadow-[var(--shadow-card)] px-6 py-12 text-center">
+    <section className="mx-auto flex max-w-md flex-col items-center rounded-2xl bg-surface border border-line px-6 py-12 text-center">
       <span className="flex size-14 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
         <Lock className="size-7" aria-hidden="true" />
       </span>

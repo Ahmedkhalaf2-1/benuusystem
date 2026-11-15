@@ -15,7 +15,7 @@ export function CustomerForm({
   const [state, action, pending] = useActionState(saveCustomerAction, null);
   const errors = state?.fieldErrors ?? {};
   return (
-    <form action={action} className="space-y-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4 sm:p-5">
+    <form action={action} className="space-y-5 rounded-2xl bg-surface border border-line p-4 sm:p-5">
       {customer && <input type="hidden" name="customerId" value={customer.id} />}
       <Field label="اسم العميل" htmlFor="name" error={errors.name?.[0]}>
         <Input id="name" name="name" defaultValue={customer?.name} placeholder="مثال: محمود" autoFocus={!customer} aria-invalid={errors.name ? true : undefined} />

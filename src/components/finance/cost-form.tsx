@@ -85,7 +85,7 @@ export function CostForm({ orderId, today }: { orderId: string; today: string })
   const clear = (key: string) => setErrors((e) => (e[key] ? { ...e, [key]: "" } : e));
 
   return (
-    <form ref={formRef} onSubmit={submit} noValidate className="space-y-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4 sm:p-5">
+    <form ref={formRef} onSubmit={submit} noValidate className="space-y-5 rounded-2xl bg-surface border border-line p-4 sm:p-5">
       <ChoiceCards
         label="نوع التكلفة"
         options={COST_CATEGORIES.map((c) => ({ value: c, label: COST_CATEGORY_LABELS[c] }))}

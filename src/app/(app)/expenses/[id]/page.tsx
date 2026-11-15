@@ -50,7 +50,7 @@ export default async function ExpensePage(props: PageProps<"/expenses/[id]">) {
         }
       />
 
-      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+      <section className="rounded-2xl bg-surface border border-line p-4">
         <dl className="grid grid-cols-3 gap-2 text-center">
           <div className="rounded-2xl bg-well p-3">
             <dt className="text-xs text-muted-foreground">المبلغ</dt>
@@ -79,7 +79,7 @@ export default async function ExpensePage(props: PageProps<"/expenses/[id]">) {
         )}
       </section>
 
-      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+      <section className="rounded-2xl bg-surface border border-line p-4">
         <h2 className="mb-2 font-display text-[1.05rem] font-semibold">الدفعات ({e.payments.length})</h2>
         {e.payments.length === 0 ? (
           <p className="text-sm text-muted-foreground">لسه متدفعش حاجة من المصروف ده.</p>
@@ -121,7 +121,7 @@ export default async function ExpensePage(props: PageProps<"/expenses/[id]">) {
       </section>
 
       {canVoid && !e.voided && (
-        <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+        <section className="rounded-2xl bg-surface border border-line p-4">
           {toCents(e.paid) > 0n ? (
             <p className="text-sm text-muted-foreground">عشان تلغي المصروف ده، ألغِ مدفوعاته الأول.</p>
           ) : (

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Sans_Arabic, Readex_Pro } from "next/font/google";
 import "./globals.css";
+import { themeInitScript } from "@/lib/theme";
 
 /** Headlines and every quantity: Readex Pro (OFL, Arabic + Latin, variable). */
 const displayFont = Readex_Pro({
@@ -39,13 +40,16 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#f3f1f8",
-  colorScheme: "light",
+  colorScheme: "light dark",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="ar" dir="rtl" className={`${arabicFont.variable} ${displayFont.variable} h-full`}>
+    <html lang="ar" dir="rtl" className={`${arabicFont.variable} ${displayFont.variable} h-full`} suppressHydrationWarning>
+      <head>
+        {/* Applies the saved light/dark theme before first paint — no flash of the wrong theme. */}
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body className="min-h-full">{children}</body>
     </html>
   );

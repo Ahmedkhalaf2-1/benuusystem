@@ -2,8 +2,8 @@ import { formatNumber } from "@/lib/numbers";
 import { cn } from "@/lib/utils";
 
 /**
- * The production bar: delivered (violet), ready and waiting (teal), still to
- * make (track). Physical pieces only. `tone="dark"` is for the violet stage.
+ * The production bar: delivered (solid sapphire), ready and waiting (muted
+ * sapphire), still to make (track). Labels beside it carry the numbers. Physical pieces only. `tone="dark"` is for the violet stage.
  */
 export function ProductionTrack({
   required,
@@ -36,20 +36,20 @@ export function ProductionTrack({
       aria-label={label}
       className={cn(
         "flex gap-[3px] overflow-hidden rounded-full",
-        dark ? "bg-white/15" : "bg-[#ebe7f4]",
+        dark ? "bg-panel-line" : "bg-track",
         size === "sm" ? "h-1.5" : size === "md" ? "h-2.5" : "h-3.5",
         className,
       )}
     >
       {deliveredPct > 0 && (
         <span
-          className={cn("h-full rounded-full transition-[width] duration-700 ease-[var(--ease-out-expo)]", dark ? "bg-white" : "bg-gradient-to-l from-violet to-[#7b5cf0]")}
+          className={cn("h-full rounded-full transition-[width] duration-700 ease-[var(--ease-out-expo)]", dark ? "bg-on-panel" : "bg-brand-solid")}
           style={{ width: `${deliveredPct}%` }}
         />
       )}
       {readyPct > 0 && (
         <span
-          className={cn("h-full rounded-full transition-[width] duration-700 ease-[var(--ease-out-expo)]", dark ? "bg-[#5eead4]" : "bg-teal")}
+          className={cn("h-full rounded-full transition-[width] duration-700 ease-[var(--ease-out-expo)]", dark ? "bg-brand" : "bg-brand-muted")}
           style={{ width: `${readyPct}%` }}
         />
       )}
@@ -64,9 +64,9 @@ export function GaugeSwatch({ kind, dark = false }: { kind: "delivered" | "ready
       aria-hidden="true"
       className={cn(
         "inline-block size-2.5 shrink-0 rounded-full",
-        kind === "delivered" && (dark ? "bg-white" : "bg-violet"),
-        kind === "ready" && (dark ? "bg-[#5eead4]" : "bg-teal"),
-        kind === "left" && (dark ? "bg-white/25" : "bg-[#ddd7ea]"),
+        kind === "delivered" && (dark ? "bg-on-panel" : "bg-brand-solid"),
+        kind === "ready" && (dark ? "bg-brand" : "bg-brand-muted"),
+        kind === "left" && (dark ? "bg-panel-line" : "bg-track ring-1 ring-line-strong"),
       )}
     />
   );

@@ -100,7 +100,7 @@ export function WorkLogForm({
   }
 
   return (
-    <form onSubmit={submit} noValidate className="space-y-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4 sm:p-5">
+    <form onSubmit={submit} noValidate className="space-y-5 rounded-2xl bg-surface border border-line p-4 sm:p-5">
       <Field label="الأوردر" error={undefined}>
         <OrderPicker value={order} onChange={chooseOrder} error={errors.orderId} />
       </Field>

@@ -134,20 +134,20 @@ export default async function WorkerPage(props: PageProps<"/workers/[id]">) {
     <div className="mx-auto max-w-2xl space-y-4">
       <Flash message={typeof saved === "string" ? FLASH[saved] : undefined} />
       <BackLink href="/workers" label="العمال" />
-      <section className="relative overflow-hidden rounded-[1.9rem] bg-gradient-to-br from-[#e8558a] to-rose-ink p-5 text-white shadow-[0_16px_34px_-16px_rgb(224_69_123/0.8)]">
+      <section className="relative overflow-hidden rounded-2xl bg-panel p-5 text-on-panel">
         <div className="flex items-start gap-3.5">
-          <span className="flex size-14 shrink-0 items-center justify-center rounded-full bg-white/20 font-display text-xl font-semibold ring-2 ring-white/30">{w.name.trim().charAt(0)}</span>
+          <span className="flex size-14 shrink-0 items-center justify-center rounded-full bg-panel-2 font-display text-xl font-semibold ring-2 ring-panel-line">{w.name.trim().charAt(0)}</span>
           <div className="min-w-0 flex-1">
             <h1 className="truncate font-display text-[1.6rem] leading-tight font-semibold tracking-[-0.02em]">{w.name}</h1>
-            <p className="mt-0.5 text-sm text-white/80">
+            <p className="mt-0.5 text-sm text-on-panel-muted">
               {jobLabel(w.job, w.jobTitle)}
-              {!w.isActive && <span className="ms-2 rounded-full bg-white/20 px-2 py-0.5 text-xs font-semibold">موقوف</span>}
+              {!w.isActive && <span className="ms-2 rounded-full bg-panel-2 px-2 py-0.5 text-xs font-semibold">موقوف</span>}
             </p>
             {w.phone && (
               <a
                 href={`tel:${w.phone.replace(/[^\d+]/g, "")}`}
                 dir="ltr"
-                className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-full bg-white/15 px-3 text-sm font-semibold ring-1 ring-white/20 hover:bg-white/25"
+                className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-full bg-panel-2 px-3 text-sm font-semibold ring-1 ring-panel-line hover:bg-panel-line"
               >
                 <Phone className="size-3.5" aria-hidden="true" />
                 {w.phone}
@@ -157,7 +157,7 @@ export default async function WorkerPage(props: PageProps<"/workers/[id]">) {
           {hasPermission(user, "workers:manage") && (
             <Link
               href={`/workers/${w.id}/edit`}
-              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-white/15 px-3 text-xs font-semibold ring-1 ring-white/20 hover:bg-white/25"
+              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-panel-2 px-3 text-xs font-semibold ring-1 ring-panel-line hover:bg-panel-line"
             >
               <Pencil className="size-3.5" aria-hidden="true" />
               تعديل
@@ -172,7 +172,7 @@ export default async function WorkerPage(props: PageProps<"/workers/[id]">) {
             <li key={href}>
               <Link
                 href={href}
-                className="flex h-[5.25rem] items-center gap-3 rounded-[1.4rem] bg-surface px-3.5 shadow-[var(--shadow-card)] transition-[transform,box-shadow] duration-150 hover:shadow-[var(--shadow-lift)] active:scale-[0.97]"
+                className="flex h-[5.25rem] items-center gap-3 rounded-2xl bg-surface px-3.5 border border-line transition-[transform,box-shadow] duration-150 hover:border-line-strong active:scale-[0.97]"
               >
                 <HueIcon icon={icon} hue={hue} />
                 <span className="font-display font-semibold">{label}</span>
@@ -183,7 +183,7 @@ export default async function WorkerPage(props: PageProps<"/workers/[id]">) {
       )}
 
       {w.pay && (
-        <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+        <section className="rounded-2xl bg-surface border border-line p-4">
           <div className="grid grid-cols-2 gap-2 text-center">
             <div className="rounded-2xl bg-violet-soft p-3">
               <p className="text-xs text-violet">المتبقي له</p>
@@ -223,7 +223,7 @@ export default async function WorkerPage(props: PageProps<"/workers/[id]">) {
         </section>
       )}
 
-      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+      <section className="rounded-2xl bg-surface border border-line p-4">
         <h2 className="mb-2 font-display text-[1.05rem] font-semibold">الشهر ده</h2>
         <dl className="grid grid-cols-2 gap-2 text-center sm:grid-cols-3">
           <div className="rounded-2xl bg-well p-3">
@@ -245,7 +245,7 @@ export default async function WorkerPage(props: PageProps<"/workers/[id]">) {
         </dl>
       </section>
 
-      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+      <section className="rounded-2xl bg-surface border border-line p-4">
         <h2 className="mb-2 font-display text-[1.05rem] font-semibold">الأيام</h2>
         {w.days.length === 0 ? (
           <p className="text-sm text-muted-foreground">لسه مفيش أيام متسجلة.</p>
@@ -265,7 +265,7 @@ export default async function WorkerPage(props: PageProps<"/workers/[id]">) {
       </section>
 
       {w.pay && (
-        <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+        <section className="rounded-2xl bg-surface border border-line p-4">
           <h2 className="mb-2 font-display text-[1.05rem] font-semibold">الفلوس اللي اتدفعت له</h2>
           {w.pay.payments.length === 0 ? (
             <p className="text-sm text-muted-foreground">لسه مفيش دفعات.</p>
@@ -300,7 +300,7 @@ export default async function WorkerPage(props: PageProps<"/workers/[id]">) {
           )}
         </section>
       )}
-      {w.notes && <p className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4 text-sm">{w.notes}</p>}
+      {w.notes && <p className="rounded-2xl bg-surface border border-line p-4 text-sm">{w.notes}</p>}
     </div>
   );
 }

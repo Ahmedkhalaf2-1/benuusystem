@@ -24,7 +24,7 @@ export function VoidPaymentForm({ paymentId }: { paymentId: string }) {
         {state?.fieldErrors?.reason && <p className="text-sm text-red">{state.fieldErrors.reason[0]}</p>}
         <FormMessage message={state?.fieldErrors ? undefined : state?.message} />
         <p className="text-xs text-graphite">الدفعة هتفضل ظاهرة في السجل بس مش هتتحسب في المدفوع.</p>
-        <Button type="submit" disabled={pending} className="w-full bg-red shadow-[0_10px_22px_-12px_rgb(220_59_59/0.8)] hover:bg-[#c42f2f]">
+        <Button type="submit" disabled={pending} className="w-full bg-danger-solid hover:opacity-90">
           {pending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
           تأكيد إلغاء الدفعة
         </Button>

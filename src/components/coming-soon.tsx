@@ -13,7 +13,7 @@ export function ComingSoon({
   icon: LucideIcon;
 }) {
   return (
-    <section className="flex flex-col items-center rounded-[1.6rem] border-2 border-dashed border-[#d9d2ea] bg-surface/60 px-6 py-12 text-center">
+    <section className="flex flex-col items-center rounded-2xl border-2 border-dashed border-line-strong bg-surface px-6 py-12 text-center">
       <span className="flex size-14 items-center justify-center rounded-2xl bg-violet-soft text-violet">
         <Icon className="size-7" aria-hidden="true" />
       </span>
