@@ -1,0 +1,6 @@
+# Add a block like this to /etc/caddy/Caddyfile on the VPS (replace the domain).
+# Caddy obtains and renews the HTTPS certificate automatically.
+erp.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:3000
+}
