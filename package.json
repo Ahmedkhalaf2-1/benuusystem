@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "check": "npm run typecheck && npm run lint && npm run test",
     "admin:create": "tsx scripts/create-admin.ts",
+    "users": "tsx scripts/manage-users.ts",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
     "db:migrate": "prisma migrate dev",
