@@ -195,7 +195,7 @@ export default async function DashboardPage() {
             آخر الأوردرات
           </SectionTitle>
           {anyOrders ? (
-            <ul className="grid gap-3 md:grid-cols-2">
+            <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {overview.recent.map((o) => (
                 <OrderCard key={o.id} order={o} showMoney={showOrderMoney} />
               ))}

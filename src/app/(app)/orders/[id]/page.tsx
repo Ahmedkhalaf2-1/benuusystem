@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Banknote, CalendarDays, ClipboardList, Factory, HardHat, Pencil, Phone, ReceiptText, TrendingUp, Truck, Wallet } from "lucide-react";
+import { OrderInvoiceActions } from "@/components/documents/document-actions";
 import { Fold, ProductionBreakdown, ProductionReadout, StagesCard } from "@/components/production/production-section";
 import { OrderCostsSection } from "@/components/finance/order-costs-section";
 import { OrderLaborSection } from "@/components/workers/order-labor-section";
@@ -207,6 +208,8 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
             ) : (
               <p className="mt-3 text-sm font-medium text-green-ink">{order.status === "CANCELLED" ? "الأوردر ملغي." : outstanding <= 0n ? "متدفع بالكامل ✓" : ""}</p>
             )}
+
+            {hasPermission(user, "documents:customer-financial") && <OrderInvoiceActions orderId={order.id} className="mt-3" />}
 
             <h3 className="mt-5 text-sm font-semibold">المدفوعات</h3>
             {order.payments.length === 0 ? (

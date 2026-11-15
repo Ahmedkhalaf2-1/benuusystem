@@ -24,6 +24,8 @@ const nextConfig: NextConfig = {
   // session read with little benefit for an always-online internal tool.
   cacheComponents: false,
   poweredByHeader: false,
+  // PDFKit reads its font metrics from its own package folder at runtime.
+  serverExternalPackages: ["pdfkit"],
   turbopack: {
     rules: {
       "*.css": {

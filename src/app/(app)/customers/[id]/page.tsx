@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Pencil, Phone, Plus } from "lucide-react";
+import { CustomerDocumentsSection } from "@/components/documents/document-actions";
 import { Flash } from "@/components/flash";
 import { OrderCard } from "@/components/orders/order-card";
 import { BackLink } from "@/components/page-header";
@@ -52,9 +53,9 @@ export default async function CustomerPage(props: PageProps<"/customers/[id]">) 
               { label: "المدفوع", value: customer.totals.paid, tone: "text-panel-success" },
               { label: "المتبقي عليه", value: customer.totals.outstanding, tone: "" },
             ].map((m) => (
-              <div key={m.label} className="rounded-2xl bg-panel-2 px-3 py-2.5 ring-1 ring-panel-line">
+              <div key={m.label} className="min-w-0 rounded-2xl bg-panel-2 px-3 py-2.5 ring-1 ring-panel-line">
                 <dt className="text-[0.7rem] text-on-panel-muted">{m.label}</dt>
-                <dd className={`tabular mt-0.5 font-display text-[0.95rem] font-semibold whitespace-nowrap ${m.tone}`}>{formatMoneyString(m.value)}</dd>
+                <dd className={`tabular mt-0.5 font-display text-[0.95rem] leading-tight font-semibold ${m.tone}`}>{formatMoneyString(m.value)}</dd>
               </div>
             ))}
           </dl>
@@ -82,6 +83,8 @@ export default async function CustomerPage(props: PageProps<"/customers/[id]">) 
         </div>
       </section>
 
+      {hasPermission(user, "documents:customer-financial") && <CustomerDocumentsSection customerId={customer.id} />}
+
       {customer.notes && (
         <section className="rounded-2xl bg-surface border border-line p-4">
           <h2 className="mb-1 text-xs font-semibold text-amber-ink">ملاحظات</h2>
@@ -96,7 +99,7 @@ export default async function CustomerPage(props: PageProps<"/customers/[id]">) 
             لسه مفيش أوردرات للعميل ده.
           </p>
         ) : (
-          <ul className="grid gap-3">
+          <ul className="grid grid-cols-1 gap-3">
             {customer.orders.map((order) => (
               <li key={order.id}>
                 <OrderCard order={order} hideCustomer />

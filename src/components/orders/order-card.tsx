@@ -31,7 +31,7 @@ export function OrderCard({ order, hideCustomer, showMoney = true }: { order: Or
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <p className="truncate font-display text-[1.02rem] font-semibold">{hideCustomer ? order.title : order.customerName}</p>
+            <p className="min-w-0 truncate font-display text-[1.02rem] font-semibold">{hideCustomer ? order.title : order.customerName}</p>
             <StatusBadge status={order.status} overdue={order.overdue} partlyDelivered={prod.delivered > 0 && order.status !== "COMPLETED"} />
           </div>
           <p className="truncate text-sm text-graphite">
@@ -62,17 +62,17 @@ export function OrderCard({ order, hideCustomer, showMoney = true }: { order: Or
 
       {showMoney && (
         <dl className="mt-3 grid grid-cols-3 gap-1 rounded-2xl bg-well px-1 py-2 text-center">
-          <div>
+          <div className="min-w-0">
             <dt className="text-[0.68rem] text-graphite">الإجمالي</dt>
-            <dd className="tabular font-display text-sm font-semibold whitespace-nowrap">{formatMoneyString(order.totalPrice)}</dd>
+            <dd className="tabular font-display text-sm leading-tight font-semibold">{formatMoneyString(order.totalPrice)}</dd>
           </div>
-          <div className="border-x border-hairline">
+          <div className="min-w-0 border-x border-hairline">
             <dt className="text-[0.68rem] text-graphite">المدفوع</dt>
-            <dd className="tabular font-display text-sm font-semibold whitespace-nowrap text-green-ink">{formatMoneyString(order.paid)}</dd>
+            <dd className="tabular font-display text-sm leading-tight font-semibold text-green-ink">{formatMoneyString(order.paid)}</dd>
           </div>
-          <div>
+          <div className="min-w-0">
             <dt className="text-[0.68rem] text-graphite">المتبقي</dt>
-            <dd className={cn("tabular font-display text-sm font-semibold whitespace-nowrap", settled ? "text-graphite" : "text-violet")}>{formatMoneyString(order.outstanding)}</dd>
+            <dd className={cn("tabular font-display text-sm leading-tight font-semibold", settled ? "text-graphite" : "text-violet")}>{formatMoneyString(order.outstanding)}</dd>
           </div>
         </dl>
       )}

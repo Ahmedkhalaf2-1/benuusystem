@@ -147,7 +147,7 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
       ) : (
         <>
           {/* Phones & tablets: cards */}
-          <ul className="mt-4 grid gap-3 lg:hidden">
+          <ul className="mt-4 grid grid-cols-1 gap-3 lg:hidden">
             {result.items.map((order) => (
               <li key={order.id}>
                 <OrderCard order={order} showMoney={showMoney} />

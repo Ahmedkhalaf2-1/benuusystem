@@ -46,6 +46,8 @@ export const PERMISSIONS = [
   "suppliers:view-balances",
   /** Company-wide money figures (dashboard money cards, monthly totals). */
   "finance:view-summary",
+  /** Customer financial documents: order invoices, order summaries, account statements (PDF). */
+  "documents:customer-financial",
   // Workers
   /** Worker names/jobs — enough to pick a worker when recording work. */
   "workers:view",
