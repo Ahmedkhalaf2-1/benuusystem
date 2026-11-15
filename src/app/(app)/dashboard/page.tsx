@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Banknote, HardHat, PackageCheck, Receipt, Truck, Wallet } from "lucide-react";
+import { AlarmClock, Banknote, CheckCircle2, HardHat, PackageCheck, Receipt, Truck, Wallet } from "lucide-react";
 import { SoonBadge } from "@/components/coming-soon";
 import { requireUser } from "@/lib/auth/current-user";
 import { hasPermission } from "@/lib/auth/permissions";
@@ -12,6 +12,8 @@ import { formatNumber } from "@/lib/numbers";
 import { getFinanceDashboard } from "@/server/services/finance-summary-service";
 import { getMonthlyWorkerSummary, getTodayAttendance } from "@/server/services/labor-service";
 import { getDashboardStats } from "@/server/services/order-service";
+import { getProductionDashboard } from "@/server/services/production-service";
+import { UNIT_LABELS } from "@/lib/orders/labels";
 import { QUICK_ACTIONS } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 
@@ -27,8 +29,9 @@ export default async function DashboardPage() {
   const user = await requireUser();
   const firstName = user.name.trim().split(/\s+/)[0];
   const canSeeMoney = hasPermission(user, "finance:view-summary");
-  const [stats, finance, attendance, workersMonth] = await Promise.all([
+  const [stats, production, finance, attendance, workersMonth] = await Promise.all([
     getDashboardStats(prisma, user),
+    getProductionDashboard(prisma, user),
     canSeeMoney ? getFinanceDashboard(prisma, user) : null,
     hasPermission(user, "workers:view") ? getTodayAttendance(prisma, user) : null,
     hasPermission(user, "workers:view-pay") ? getMonthlyWorkerSummary(prisma, user, todayDateString().slice(0, 7)) : null,
@@ -44,8 +47,36 @@ export default async function DashboardPage() {
       alert: stats.overdueOrders > 0,
       href: stats.overdueOrders > 0 ? "/orders?status=overdue" : "/orders?status=open",
     },
-    { key: "deliveries", label: "التسليمات", icon: Truck, note: "قريبًا" },
+    {
+      key: "deliveries",
+      label: "تسليمات النهارده",
+      icon: Truck,
+      value: formatNumber(production.deliveriesToday),
+      // Quantities per unit — never one total across pieces and meters.
+      note:
+        production.deliveredThisMonth.length > 0
+          ? `الشهر ده: ${production.deliveredThisMonth.map((d) => `${formatNumber(d.qty)} ${UNIT_LABELS[d.unit]}`).join(" · ")}`
+          : "مفيش تسليم الشهر ده لسه",
+    },
+    {
+      key: "completed",
+      label: "أوردرات خلصت الشهر ده",
+      icon: CheckCircle2,
+      value: formatNumber(production.completedThisMonth),
+      href: "/orders?status=COMPLETED",
+    },
   ];
+  if (stats.overdueOrders > 0) {
+    STATS.push({
+      key: "overdue",
+      label: "أوردرات متأخرة",
+      icon: AlarmClock,
+      value: formatNumber(stats.overdueOrders),
+      alert: true,
+      note: "عدّى ميعاد تسليمها",
+      href: "/orders?status=overdue",
+    });
+  }
   if (attendance) {
     STATS.push({
       key: "attendance",
@@ -137,7 +168,7 @@ export default async function DashboardPage() {
           })}
         </ul>
         <p className="mt-3 text-xs text-muted-foreground">
-          التسليمات هتظهر أرقامها لما القسم ده يتفعّل. الربح النهائي مش بيتحسب لسه — هييجي في مرحلة الحسابات.
+          الكميات معروضة بوحداتها (قطعة، متر…) ومش بتتجمع مع بعض. الربح النهائي مش بيتحسب لسه — هييجي في مرحلة الحسابات.
         </p>
       </section>
 

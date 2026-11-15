@@ -13,11 +13,12 @@ import {
   type RecordWorkdayPayload,
   type RecordWorkLogPayload,
 } from "@/lib/validations/workers";
-import { WORK_UNIT_LABELS } from "@/lib/workers/labels";
+import { WORK_TYPE_TO_OPERATION, WORK_UNIT_LABELS } from "@/lib/workers/labels";
 import { isUniqueViolation } from "@/server/repositories/prisma-errors";
 import { lockWorker } from "@/server/repositories/worker-repository";
 import type { Actor } from "./actor";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
+import { insertStageFromWorkLog } from "./production-service";
 
 function invalid(error: { issues: unknown[] } & Parameters<typeof toFieldErrors>[0]): never {
   throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: toFieldErrors(error) });
@@ -209,6 +210,32 @@ export async function recordWorkLog(db: PrismaClient, actor: Actor, payload: Rec
         },
         select: { id: true },
       });
+      // Optional, explicit: "N physical pieces finished this step" (not inferred from prints).
+      let stageProgressId: string | null = null;
+      if (input.stageQuantity !== undefined) {
+        const operation = WORK_TYPE_TO_OPERATION[input.workType];
+        if (!input.orderId || !input.orderGroupId || !operation) {
+          throw new AppError("VALIDATION_ERROR", undefined, {
+            fieldErrors: { stageQuantity: ["الشغل ده مش مرحلة إنتاج متابعة في الأوردر — سيب الخانة دي فاضية"] },
+          });
+        }
+        const stage = await insertStageFromWorkLog(tx, actor, {
+          orderId: input.orderId,
+          orderGroupId: input.orderGroupId,
+          operation,
+          quantity: input.stageQuantity,
+          workDate: input.workDate,
+          workLogId: log.id,
+        }).catch((error: unknown) => {
+          // Show stage-quantity problems on the stage field of this form.
+          if (error instanceof AppError && error.fieldErrors) {
+            const { quantity, operation: op, ...rest } = error.fieldErrors;
+            throw new AppError(error.code, error.message, { fieldErrors: { ...rest, ...(quantity || op ? { stageQuantity: [...(quantity ?? []), ...(op ?? [])] } : {}) } });
+          }
+          throw error;
+        });
+        stageProgressId = stage.id;
+      }
       await recordAudit(tx, {
         userId: actor.id,
         action: AUDIT_ACTIONS.WORK_LOG_RECORDED,
@@ -222,6 +249,7 @@ export async function recordWorkLog(db: PrismaClient, actor: Actor, payload: Rec
           workType: input.workType,
           quantity: input.quantity,
           unit: input.unit,
+          stageProgressId,
         },
       });
       return { workLogId: log.id, workdayId: day.id, created: true, createdWorkday };

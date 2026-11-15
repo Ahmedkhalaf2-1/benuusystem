@@ -61,6 +61,11 @@ export const PERMISSIONS = [
   "workers:correct",
   /** Labour cost per order. */
   "labor:view",
+  // Production & delivery (physical pieces — no money)
+  "production:record",
+  "deliveries:record",
+  /** Voiding wrong production / ready / delivery records (owner). */
+  "production:correct",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -82,6 +87,8 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "payables:pay",
     "workers:view",
     "work:record",
+    "production:record",
+    "deliveries:record",
   ],
 };
 

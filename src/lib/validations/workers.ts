@@ -110,6 +110,8 @@ export const recordWorkLogSchema = z.object({
       return Number(h);
     }),
   notes: optionalText(500),
+  /** Optional: physical pieces of the group that finished the matching step with this work. */
+  stageQuantity: optionalWhole("اكتب كام قطعة خلصت المرحلة دي"),
 });
 export type RecordWorkLogPayload = z.input<typeof recordWorkLogSchema>;
 

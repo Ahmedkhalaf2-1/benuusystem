@@ -25,6 +25,7 @@ const FILTERS: { value: OrderStatusFilter; label: string }[] = [
   { value: "overdue", label: "متأخرة" },
   { value: "NEW", label: "جديد" },
   { value: "IN_PROGRESS", label: "تحت التنفيذ" },
+  { value: "COMPLETED", label: "مكتملة" },
   { value: "CANCELLED", label: "ملغي" },
 ];
 
@@ -48,6 +49,7 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
 
   const result = await listOrders(prisma, user, { query: q, status, sort, page });
   const canCreate = hasPermission(user, "orders:create");
+  const showMoney = hasPermission(user, "payments:record");
 
   const linkWith = (patch: Record<string, string>) => {
     const params = new URLSearchParams({ ...(q ? { q } : {}), status, sort, ...patch });
@@ -141,7 +143,7 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
           <ul className="mt-4 grid gap-3 lg:hidden">
             {result.items.map((order) => (
               <li key={order.id}>
-                <OrderCard order={order} />
+                <OrderCard order={order} showMoney={showMoney} />
               </li>
             ))}
           </ul>
@@ -154,9 +156,14 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
                   <th>رقم</th>
                   <th>العميل / الأوردر</th>
                   <th>الكمية</th>
-                  <th>الإجمالي</th>
-                  <th>المدفوع</th>
-                  <th>المتبقي</th>
+                  <th>جاهز / اتسلم</th>
+                  {showMoney && (
+                    <>
+                      <th>الإجمالي</th>
+                      <th>المدفوع</th>
+                      <th>المتبقي</th>
+                    </>
+                  )}
                   <th>التسليم</th>
                   <th>الحالة</th>
                 </tr>
@@ -178,12 +185,19 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
                     <td>
                       {formatNumber(o.quantity)} {UNIT_LABELS[o.unit]}
                     </td>
-                    <td className="font-semibold">{formatMoneyString(o.totalPrice)}</td>
-                    <td className="text-emerald-700">{formatMoneyString(o.paid)}</td>
-                    <td className="font-semibold text-primary">{formatMoneyString(o.outstanding)}</td>
+                    <td>
+                      {formatNumber(o.production?.ready ?? 0)} / {formatNumber(o.production?.delivered ?? 0)}
+                    </td>
+                    {showMoney && (
+                      <>
+                        <td className="font-semibold">{formatMoneyString(o.totalPrice)}</td>
+                        <td className="text-emerald-700">{formatMoneyString(o.paid)}</td>
+                        <td className="font-semibold text-primary">{formatMoneyString(o.outstanding)}</td>
+                      </>
+                    )}
                     <td className={cn(o.overdue && "font-semibold text-destructive")}>{formatDateAr(o.deliveryDate)}</td>
                     <td>
-                      <StatusBadge status={o.status} overdue={o.overdue} />
+                      <StatusBadge status={o.status} overdue={o.overdue} partlyDelivered={!!o.production && o.production.delivered > 0 && o.status !== "COMPLETED"} />
                     </td>
                   </tr>
                 ))}

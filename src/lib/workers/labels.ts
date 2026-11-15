@@ -1,4 +1,4 @@
-import type { WorkerJob, WorkerPaymentType, WorkType, WorkUnit } from "@/generated/prisma/enums";
+import type { PrintOperation, WorkerJob, WorkerPaymentType, WorkType, WorkUnit } from "@/generated/prisma/enums";
 
 /** Arabic wording for the workers module. Safe for client and server. */
 
@@ -69,4 +69,16 @@ export const JOB_DEFAULTS: Record<WorkerJob, { workType: WorkType; unit: WorkUni
 export const WORKER_PAYMENT_TYPE_LABELS: Record<WorkerPaymentType, string> = {
   WAGE: "يومية / مستحقات",
   ADVANCE: "سلفة",
+};
+
+/**
+ * Work types that clearly finish one required order step. Only these can also
+ * confirm "N physical pieces finished this step" in the same save. (Cutting,
+ * finishing, packing… don't complete a tracked step on their own.)
+ */
+export const WORK_TYPE_TO_OPERATION: Partial<Record<WorkType, PrintOperation>> = {
+  DTF: "DTF",
+  SCREEN_PRINT: "SCREEN_PRINT",
+  EMBROIDERY: "EMBROIDERY",
+  SEWING: "MANUFACTURING",
 };

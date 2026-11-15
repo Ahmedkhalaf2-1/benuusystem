@@ -26,9 +26,11 @@ export const UNIT_LABELS: Record<QuantityUnit, string> = {
   METER: "متر",
 };
 
-export const PRINT_OPERATIONS: readonly PrintOperation[] = ["DTF", "SCREEN_PRINT", "EMBROIDERY"];
+/** Required steps a group can have (printing/embroidery, plus optional garment making). */
+export const PRINT_OPERATIONS: readonly PrintOperation[] = ["MANUFACTURING", "DTF", "SCREEN_PRINT", "EMBROIDERY"];
 
 export const OPERATION_LABELS: Record<PrintOperation, string> = {
+  MANUFACTURING: "تصنيع",
   DTF: "DTF",
   SCREEN_PRINT: "سلك سكرين",
   EMBROIDERY: "تطريز",

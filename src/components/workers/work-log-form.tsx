@@ -9,9 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { WorkType, WorkUnit } from "@/generated/prisma/enums";
 import { newRequestId } from "@/lib/request-id";
-import { UNIT_LABELS } from "@/lib/orders/labels";
+import { OPERATION_LABELS, UNIT_LABELS } from "@/lib/orders/labels";
 import { recordWorkLogSchema } from "@/lib/validations/workers";
-import { WORK_TYPE_LABELS, WORK_TYPES, WORK_UNIT_LABELS, WORK_UNITS } from "@/lib/workers/labels";
+import { WORK_TYPE_LABELS, WORK_TYPE_TO_OPERATION, WORK_TYPES, WORK_UNIT_LABELS, WORK_UNITS } from "@/lib/workers/labels";
 import type { OpenOrderOption } from "@/server/services/order-service";
 import { OrderPicker } from "./order-picker";
 
@@ -37,12 +37,17 @@ export function WorkLogForm({
   const [showHours, setShowHours] = useState(false);
   const [hours, setHours] = useState("");
   const [notes, setNotes] = useState("");
+  const [stageQuantity, setStageQuantity] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string>();
   const [pending, startTransition] = useTransition();
 
   const groups = order && order !== "none" ? order.groups : [];
   const needsGroupChoice = groups.length > 1;
+  // Optional: physical pieces that finished the matching step — only when it clearly applies.
+  const stageOp = WORK_TYPE_TO_OPERATION[workType];
+  const selectedGroup = groups.find((g) => g.id === groupId);
+  const canConfirmStage = !!stageOp && !!selectedGroup && selectedGroup.operations.includes(stageOp);
 
   function chooseOrder(o: OpenOrderOption | null | "none") {
     setOrder(o);
@@ -72,6 +77,7 @@ export function WorkLogForm({
       unit,
       hours: showHours ? hours : undefined,
       notes,
+      stageQuantity: canConfirmStage && stageQuantity.trim() ? stageQuantity : undefined,
     };
     const check = recordWorkLogSchema.safeParse(payload);
     if (!check.success) {
@@ -138,6 +144,17 @@ export function WorkLogForm({
           </NativeSelect>
         </Field>
       </div>
+      {canConfirmStage && (
+        <Field
+          label={`كام قطعة خلصت مرحلة ${OPERATION_LABELS[stageOp!]} في الشغل ده؟`}
+          htmlFor="stageQuantity"
+          optional
+          error={errors.stageQuantity}
+          hint="قطع فعلية من الأوردر (مش عدد الطبعات). لو مش متأكد سيبها فاضية."
+        >
+          <Input id="stageQuantity" inputMode="numeric" value={stageQuantity} onChange={(e) => setStageQuantity(e.target.value)} placeholder="مثال: 50" aria-invalid={errors.stageQuantity ? true : undefined} />
+        </Field>
+      )}
       {showHours ? (
         <Field label="اشتغل فيه كام ساعة؟" htmlFor="hours" error={errors.hours} hint="بنحتاجها بس لو اشتغل في نفس اليوم بوحدات مختلفة (مثلًا متر وقطعة).">
           <Input id="hours" inputMode="decimal" dir="ltr" className="text-left" value={hours} onChange={(e) => setHours(e.target.value)} placeholder="مثال: 3" />

@@ -50,6 +50,13 @@ model User {
   workLogsRecorded  WorkerWorkLog[] @relation("WorkLogRecordedBy")
   workLogsVoided    WorkerWorkLog[] @relation("WorkLogVoidedBy")
 
+  stageProgressRecorded ProductionStageProgress[] @relation("StageRecordedBy")
+  stageProgressVoided   ProductionStageProgress[] @relation("StageVoidedBy")
+  readyRecorded         ProductionReady[]         @relation("ReadyRecordedBy")
+  readyVoided           ProductionReady[]         @relation("ReadyVoidedBy")
+  deliveriesRecorded    Delivery[]                @relation("DeliveryRecordedBy")
+  deliveriesVoided      Delivery[]                @relation("DeliveryVoidedBy")
+
   @@map("users")
 }
 
@@ -152,6 +159,8 @@ enum PrintOperation {
   DTF
   SCREEN_PRINT
   EMBROIDERY
+  /// Garment making (optional required step for garment orders). Phase 5.
+  MANUFACTURING
 }
 
 enum PaymentMethod {
@@ -178,6 +187,8 @@ model Order {
   deliveryDate DateTime     @map("delivery_date") @db.Date
   notes        String?      @db.VarChar(2000)
   status       OrderStatus  @default(NEW)
+  /// When the last piece was delivered (set/cleared by production automation).
+  completedAt  DateTime?    @map("completed_at") @db.Timestamptz(3)
   /// Client-generated key: a retried/double-clicked submit returns the same order.
   idempotencyKey String?    @unique @map("idempotency_key") @db.Uuid
   createdById  String       @map("created_by_id") @db.Uuid
@@ -190,6 +201,9 @@ model Order {
   payments  OrderPayment[]
   costs     OrderCost[]
   workLogs  WorkerWorkLog[]
+  stageProgress ProductionStageProgress[]
+  ready         ProductionReady[]
+  deliveries    Delivery[]
 
   @@index([customerId])
   @@index([status, deliveryDate])
@@ -209,8 +223,11 @@ model OrderGroup {
   notes    String? @db.VarChar(500)
 
   order      Order                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  operations OrderGroupOperation[]
-  workLogs   WorkerWorkLog[]
+  operations    OrderGroupOperation[]
+  workLogs      WorkerWorkLog[]
+  stageProgress ProductionStageProgress[]
+  ready         ProductionReady[]
+  deliveries    Delivery[]
 
   @@unique([orderId, position])
   @@map("order_groups")
@@ -221,7 +238,9 @@ model OrderGroupOperation {
   groupId   String         @map("group_id") @db.Uuid
   operation PrintOperation
 
-  group OrderGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group         OrderGroup                @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  /// RESTRICT: a required operation with recorded progress can't be removed.
+  stageProgress ProductionStageProgress[]
 
   @@id([groupId, operation])
   @@map("order_group_operations")
@@ -514,10 +533,105 @@ model WorkerWorkLog {
   orderGroup OrderGroup?   @relation(fields: [orderGroupId], references: [id], onDelete: Restrict)
   recordedBy User          @relation("WorkLogRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
   voidedBy   User?         @relation("WorkLogVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  /// Physical pieces this work completed for a stage, when confirmed in the same submission.
+  stageProgress ProductionStageProgress?
 
   @@index([workdayId])
   @@index([orderId])
   @@index([orderGroupId])
   @@index([workerId, createdAt])
   @@map("worker_work_logs")
+}
+
+// ───────────────────────────── Phase 5: production & partial delivery ─────────────────────────────
+//
+// Physical units of an order group (the order's own unit), never worker
+// "prints": three kinds of records, all whole numbers, all voidable (never deleted):
+//   • ProductionStageProgress — N pieces finished ONE required operation (DTF, …).
+//   • ProductionReady         — N pieces confirmed finished with ALL operations
+//                               (the authoritative "finished" quantity).
+//   • Delivery                — N ready pieces handed to the customer.
+// Per group: stage_total(op) ≤ quantity; ready ≤ min(stage totals) and ≤ quantity;
+// delivered ≤ ready. Every write locks the order row, so these hold under concurrency.
+
+model ProductionStageProgress {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  orderId        String         @map("order_id") @db.Uuid
+  orderGroupId   String         @map("order_group_id") @db.Uuid
+  operation      PrintOperation
+  quantity       Int
+  workDate       DateTime       @map("work_date") @db.Date
+  notes          String?        @db.VarChar(500)
+  /// Set when confirmed together with a worker's output record (traceability only).
+  workLogId      String?        @unique @map("work_log_id") @db.Uuid
+  idempotencyKey String         @unique @map("idempotency_key") @db.Uuid
+  recordedById   String         @map("recorded_by_id") @db.Uuid
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  voidedAt       DateTime?      @map("voided_at") @db.Timestamptz(3)
+  voidedById     String?        @map("voided_by_id") @db.Uuid
+  voidReason     String?        @map("void_reason") @db.VarChar(300)
+
+  order      Order               @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderGroup OrderGroup          @relation(fields: [orderGroupId], references: [id], onDelete: Restrict)
+  /// The operation must be one the group actually requires.
+  requiredOperation OrderGroupOperation @relation(fields: [orderGroupId, operation], references: [groupId, operation], onDelete: Restrict)
+  workLog    WorkerWorkLog?      @relation(fields: [workLogId], references: [id], onDelete: Restrict)
+  recordedBy User                @relation("StageRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  voidedBy   User?               @relation("StageVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([orderGroupId, operation])
+  @@index([workDate])
+  @@map("production_stage_progress")
+}
+
+model ProductionReady {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  orderId        String    @map("order_id") @db.Uuid
+  orderGroupId   String    @map("order_group_id") @db.Uuid
+  quantity       Int
+  readyDate      DateTime  @map("ready_date") @db.Date
+  notes          String?   @db.VarChar(500)
+  /// The stage record saved in the same submission (single-operation groups).
+  stageProgressId String?  @unique @map("stage_progress_id") @db.Uuid
+  idempotencyKey String    @unique @map("idempotency_key") @db.Uuid
+  recordedById   String    @map("recorded_by_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  voidedAt       DateTime? @map("voided_at") @db.Timestamptz(3)
+  voidedById     String?   @map("voided_by_id") @db.Uuid
+  voidReason     String?   @map("void_reason") @db.VarChar(300)
+
+  order      Order      @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderGroup OrderGroup @relation(fields: [orderGroupId], references: [id], onDelete: Restrict)
+  recordedBy User       @relation("ReadyRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  voidedBy   User?      @relation("ReadyVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([orderGroupId])
+  @@map("production_ready")
+}
+
+model Delivery {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  orderId        String    @map("order_id") @db.Uuid
+  orderGroupId   String    @map("order_group_id") @db.Uuid
+  quantity       Int
+  deliveredAt    DateTime  @map("delivered_at") @db.Date
+  notes          String?   @db.VarChar(500)
+  idempotencyKey String    @unique @map("idempotency_key") @db.Uuid
+  recordedById   String    @map("recorded_by_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  voidedAt       DateTime? @map("voided_at") @db.Timestamptz(3)
+  voidedById     String?   @map("voided_by_id") @db.Uuid
+  voidReason     String?   @map("void_reason") @db.VarChar(300)
+
+  order      Order      @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderGroup OrderGroup @relation(fields: [orderGroupId], references: [id], onDelete: Restrict)
+  recordedBy User       @relation("DeliveryRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  voidedBy   User?      @relation("DeliveryVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([orderGroupId])
+  @@index([deliveredAt])
+  @@map("deliveries")
 }

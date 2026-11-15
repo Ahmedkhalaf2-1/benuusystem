@@ -7,7 +7,7 @@ import { dateFromString, dateToString, todayDateString } from "@/lib/dates";
 import { AppError } from "@/lib/errors";
 import { centsToDecimalString, formatMoney, toCents } from "@/lib/money";
 import { normalizeDigits } from "@/lib/numbers";
-import { OPEN_ORDER_STATUSES, describeOperations } from "@/lib/orders/labels";
+import { OPEN_ORDER_STATUSES, OPERATION_LABELS, describeOperations } from "@/lib/orders/labels";
 import {
   createOrderSchema,
   updateOrderSchema,
@@ -27,6 +27,7 @@ import { isUniqueViolation } from "@/server/repositories/prisma-errors";
 import type { Actor } from "./actor";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
 import { insertCustomer } from "./customer-service";
+import { loadGroupProgress, productionTotalsByOrder, refreshOrderStatus } from "./production-service";
 import { ORDER_SUMMARY_SELECT, isOverdue, toOrderSummary, type OrderSummary } from "./order-dto";
 
 // ───────────────────────────── Create ─────────────────────────────
@@ -252,20 +253,26 @@ async function applyGroupChanges(
 
   const removed = existing.filter((g) => !keptIds.has(g.id));
   if (removed.length > 0) {
-    const referenced = await tx.workerWorkLog.findMany({
-      where: { orderGroupId: { in: removed.map((g) => g.id) } },
-      select: { orderGroupId: true },
-      distinct: ["orderGroupId"],
-    });
-    if (referenced.length > 0) {
-      const positions = removed.filter((g) => referenced.some((r) => r.orderGroupId === g.id)).map((g) => g.position);
-      throw new AppError("CONFLICT", `مجموعة ${positions.join("، ")} عليها شغل عمال متسجل ومينفعش تتشال.`);
+    const ids = removed.map((g) => g.id);
+    const [logs, stages, ready, deliveries] = await Promise.all([
+      tx.workerWorkLog.findMany({ where: { orderGroupId: { in: ids } }, select: { orderGroupId: true }, distinct: ["orderGroupId"] }),
+      tx.productionStageProgress.findMany({ where: { orderGroupId: { in: ids } }, select: { orderGroupId: true }, distinct: ["orderGroupId"] }),
+      tx.productionReady.findMany({ where: { orderGroupId: { in: ids } }, select: { orderGroupId: true }, distinct: ["orderGroupId"] }),
+      tx.delivery.findMany({ where: { orderGroupId: { in: ids } }, select: { orderGroupId: true }, distinct: ["orderGroupId"] }),
+    ]);
+    const referenced = new Set([...logs, ...stages, ...ready, ...deliveries].map((r) => r.orderGroupId));
+    if (referenced.size > 0) {
+      const positions = removed.filter((g) => referenced.has(g.id)).map((g) => g.position);
+      throw new AppError("CONFLICT", `مجموعة ${positions.join("، ")} عليها شغل أو إنتاج أو تسليم متسجل ومينفعش تتشال.`);
     }
   }
 
   const committed = await committedQuantities(tx, [...keptIds], orderUnit);
+  const production = new Map((await loadGroupProgress(tx, orderId)).map((g) => [g.id, g]));
   groups.forEach((g, index) => {
-    const done = g.id ? (committed.get(g.id) ?? 0) : 0;
+    const p = g.id ? production.get(g.id) : undefined;
+    const produced = p ? Math.max(p.ready, ...Object.values(p.stage).map((v) => v ?? 0)) : 0;
+    const done = Math.max(g.id ? (committed.get(g.id) ?? 0) : 0, produced);
     if (g.quantity < done) {
       throw new AppError("VALIDATION_ERROR", undefined, {
         fieldErrors: { [`groups.${index}.quantity`]: [`الكمية مينفعش تقل عن اللي اتشغل فعلًا (${done})`] },
@@ -285,9 +292,27 @@ async function applyGroupChanges(
     const data = { position: index + 1, quantity: g.quantity, material: g.material, notes: g.notes ?? null };
     if (g.id) {
       await tx.orderGroup.update({ where: { id: g.id }, data });
-      await tx.orderGroupOperation.deleteMany({ where: { groupId: g.id } });
-      if (g.operations.length > 0) {
-        await tx.orderGroupOperation.createMany({ data: g.operations.map((operation) => ({ groupId: g.id!, operation })) });
+      // Change only what changed, so steps with recorded progress keep their rows.
+      const current = (await tx.orderGroupOperation.findMany({ where: { groupId: g.id }, select: { operation: true } })).map((o) => o.operation);
+      const toRemove = current.filter((op) => !g.operations.includes(op));
+      const toAdd = g.operations.filter((op) => !current.includes(op));
+      if (toRemove.length > 0) {
+        const used = await tx.productionStageProgress.findMany({
+          where: { orderGroupId: g.id, operation: { in: toRemove } },
+          select: { operation: true },
+          distinct: ["operation"],
+        });
+        if (used.length > 0) {
+          throw new AppError("VALIDATION_ERROR", undefined, {
+            fieldErrors: {
+              [`groups.${index}.operations`]: [`مينفعش تشيل ${used.map((u) => OPERATION_LABELS[u.operation]).join(" و")} — اتسجل فيها إنتاج.`],
+            },
+          });
+        }
+        await tx.orderGroupOperation.deleteMany({ where: { groupId: g.id, operation: { in: toRemove } } });
+      }
+      if (toAdd.length > 0) {
+        await tx.orderGroupOperation.createMany({ data: toAdd.map((operation) => ({ groupId: g.id!, operation })) });
       }
     } else {
       await tx.orderGroup.create({
@@ -358,6 +383,21 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
           fieldErrors: { totalPrice: [`السعر مينفعش يقل عن المدفوع (${formatMoney(paid)})`] },
         });
       }
+    }
+
+    // Production already recorded on this order?
+    const progress = await loadGroupProgress(tx, input.orderId);
+    const hasProduction =
+      progress.some((g) => g.ready > 0 || g.delivered > 0 || Object.values(g.stage).some((v) => (v ?? 0) > 0)) ||
+      (await tx.productionStageProgress.count({ where: { orderId: input.orderId } })) > 0;
+    if (hasProduction && input.unit !== before.unit) {
+      throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { unit: ["مينفعش تغيّر الوحدة بعد ما الإنتاج بدأ"] } });
+    }
+    if (hasProduction && input.status === "NEW" && before.status !== "NEW") {
+      throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { status: ["الأوردر بدأ إنتاجه — مينفعش يرجع «جديد»"] } });
+    }
+    if (input.status === "CANCELLED" && before.status !== "CANCELLED" && progress.some((g) => g.ready > 0 || g.delivered > 0 || Object.values(g.stage).some((v) => (v ?? 0) > 0))) {
+      throw new AppError("CONFLICT", "الأوردر عليه إنتاج أو تسليم متسجل. المدير يلغي السجلات دي الأول (بسبب) قبل إلغاء الأوردر.");
     }
 
     const statusChanged = before.status !== input.status;
@@ -459,6 +499,8 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
       });
     }
 
+    // Quantities may have changed: completion follows the real delivery records.
+    await refreshOrderStatus(tx, actor, input.orderId);
     return { orderId: input.orderId, changed: Object.keys(changes).length > 0 || priceChanged || statusChanged };
   });
 }
@@ -518,9 +560,12 @@ export async function listOrders(
     take: ORDERS_PAGE_SIZE,
     select: { ...ORDER_SUMMARY_SELECT, customer: { select: { id: true, name: true } } },
   });
-  const paidMap = await paidByOrderIds(db, rows.map((r) => r.id));
+  const [paidMap, production] = await Promise.all([
+    paidByOrderIds(db, rows.map((r) => r.id)),
+    productionTotalsByOrder(db, rows.map((r) => r.id)),
+  ]);
   return {
-    items: rows.map((row) => toOrderSummary(row, paidMap.get(row.id) ?? 0n)),
+    items: rows.map((row) => ({ ...toOrderSummary(row, paidMap.get(row.id) ?? 0n), production: production.get(row.id) })),
     total,
     page,
     pageCount,
@@ -706,6 +751,7 @@ export async function searchOpenOrders(db: DbClient, actor: Actor, query: string
       id: g.id,
       position: g.position,
       quantity: g.quantity,
+      operations: g.operations.map((x) => x.operation),
       description: describeOperations(g.operations.map((x) => x.operation)),
     })),
   }));

@@ -20,6 +20,9 @@ describe("permissions", () => {
     // Phase 4 financial privacy
     expect(hasPermission({ role: "STAFF" }, "work:record")).toBe(true);
     expect(hasPermission({ role: "STAFF" }, "workers:view")).toBe(true);
+    expect(hasPermission({ role: "STAFF" }, "production:record")).toBe(true);
+    expect(hasPermission({ role: "STAFF" }, "deliveries:record")).toBe(true);
+    expect(hasPermission({ role: "STAFF" }, "production:correct")).toBe(false);
     for (const p of ["costs:view", "expenses:view", "suppliers:view-balances", "finance:view-summary", "workers:view-pay", "workers:pay", "workers:manage", "labor:view", "workers:correct"] as const) {
       expect(hasPermission({ role: "STAFF" }, p)).toBe(false);
     }

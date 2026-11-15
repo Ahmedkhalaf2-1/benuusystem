@@ -27,6 +27,8 @@ export type OrderSummary = {
   status: OrderStatus;
   overdue: boolean;
   createdAt: Date;
+  /** Physical pieces ready / delivered (filled by list queries). */
+  production?: { ready: number; delivered: number };
 };
 
 export const ORDER_SUMMARY_SELECT = {

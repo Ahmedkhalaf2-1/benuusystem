@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PrintOperation } from "@/generated/prisma/enums";
 import { MAX_CENTS, parseMoney, type Cents } from "@/lib/money";
 import { isValidDateString, todayDateString } from "@/lib/dates";
 import { parseWholeNumber } from "@/lib/numbers";
@@ -79,7 +80,7 @@ const groupSchema = z.object({
   operations: z
     .array(z.enum(PRINT_OPERATIONS as [string, ...string[]]))
     .max(PRINT_OPERATIONS.length)
-    .transform((ops) => [...new Set(ops)] as ("DTF" | "SCREEN_PRINT" | "EMBROIDERY")[]),
+    .transform((ops) => [...new Set(ops)] as PrintOperation[]),
   /** "بدون طباعة أو تطريز" chosen explicitly. */
   plain: z.boolean().default(false),
   notes: optionalText(500),

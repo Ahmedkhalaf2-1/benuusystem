@@ -9,8 +9,10 @@ import type { OrderSummary } from "@/server/services/order-dto";
 import { StatusBadge } from "./status-badge";
 
 /** Mobile order card: who, what, how many, money, when. */
-export function OrderCard({ order, hideCustomer }: { order: OrderSummary; hideCustomer?: boolean }) {
+export function OrderCard({ order, hideCustomer, showMoney = true }: { order: OrderSummary; hideCustomer?: boolean; showMoney?: boolean }) {
   const settled = order.outstanding === "0.00";
+  const prod = order.production;
+  const pct = (v: number) => `${order.quantity > 0 ? Math.min(100, (v / order.quantity) * 100) : 0}%`;
   return (
     <Link
       href={`/orders/${order.id}`}
@@ -31,10 +33,23 @@ export function OrderCard({ order, hideCustomer }: { order: OrderSummary; hideCu
             {formatNumber(order.quantity)} {UNIT_LABELS[order.unit]} · {order.productType}
           </p>
         </div>
-        <StatusBadge status={order.status} overdue={order.overdue} />
+        <StatusBadge status={order.status} overdue={order.overdue} partlyDelivered={!!prod && prod.delivered > 0 && order.status !== "COMPLETED"} />
       </div>
 
-      <dl className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-muted/60 p-2.5 text-center">
+      {prod && (
+        <div className="mt-3">
+          <p className="text-sm">
+            جاهز <b>{formatNumber(prod.ready)}</b> · اتسلم <b>{formatNumber(prod.delivered)}</b> من {formatNumber(order.quantity)} {UNIT_LABELS[order.unit]}
+            {order.quantity - prod.ready > 0 && <span className="text-muted-foreground"> · باقي {formatNumber(order.quantity - prod.ready)}</span>}
+          </p>
+          <div className="relative mt-1.5 h-2 overflow-hidden rounded-full bg-muted">
+            <div className="absolute inset-y-0 start-0 bg-primary/30" style={{ width: pct(prod.ready) }} />
+            <div className="absolute inset-y-0 start-0 bg-primary" style={{ width: pct(prod.delivered) }} />
+          </div>
+        </div>
+      )}
+
+      {showMoney && <dl className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-muted/60 p-2.5 text-center">
         <div>
           <dt className="text-[0.7rem] text-muted-foreground">الإجمالي</dt>
           <dd className="whitespace-nowrap text-sm font-bold">{formatMoneyString(order.totalPrice)}</dd>
@@ -49,7 +64,7 @@ export function OrderCard({ order, hideCustomer }: { order: OrderSummary; hideCu
             {formatMoneyString(order.outstanding)}
           </dd>
         </div>
-      </dl>
+      </dl>}
 
       <p className={cn("mt-3 flex items-center gap-1.5 text-sm", order.overdue ? "font-semibold text-destructive" : "text-muted-foreground")}>
         <CalendarClock className="size-4" aria-hidden="true" />

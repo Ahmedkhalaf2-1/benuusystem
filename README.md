@@ -6,8 +6,9 @@ Management system for **Benuuprint** (garment manufacturing, DTF, screen printin
 - **Phase 2:** customers, orders (with groups and printing/embroidery work), customer payments, real dashboard numbers.
 - **Phase 3:** order costs, suppliers (balances and payments), general expenses, money-out tracking.
 - **Phase 4:** workers, daily wages (attendance), productivity, labour cost per order, wage payments and advances, financial privacy by role.
+- **Phase 5:** production by step, ready-for-delivery confirmation, partial deliveries, automatic order status.
 
-Official production, delivery and monthly accounts (profit) come in later phases. Until then they show a "قريبًا" (coming soon) state.
+Monthly accounts and profit come in a later phase. Until then they show a "قريبًا" (coming soon) state.
 
 ---
 
@@ -195,13 +196,61 @@ Environment variables are validated on first use (`src/lib/env.ts`). `next build
 
 **Financial privacy.** STAFF can create orders, record customer payments, add order costs and expenses, record attendance and output, and pick suppliers. Only the OWNER_ADMIN sees money: order cost totals, labour per order, the expense list, supplier balances, wages and balances, and the dashboard money cards. This is enforced in the services and pages; hidden buttons are just convenience.
 
+## Production & partial delivery (Phase 5)
+
+| Screen | Route |
+| --- | --- |
+| «الإنتاج والتسليم» on the order page: المطلوب / الجاهز / المسلم / جاهز ولم يسلم / متبقي للإنتاج, progress bar, groups, history | on `/orders/[id]` |
+| «تسجيل إنتاج» (a step finished N pieces, or N pieces ready for delivery) | `/orders/[id]/production/new` |
+| «تسليم قطع» | `/orders/[id]/deliveries/new` |
+
+**Three kinds of records, all in physical units of the order (whole numbers):**
+
+1. `production_stage_progress`: N pieces finished **one** required step (تصنيع / DTF / سلك سكرين / تطريز). A database foreign key ties it to the group's required step.
+2. `production_ready`: N pieces finished **all** steps. This is the authoritative "finished" quantity.
+3. `deliveries`: N ready pieces handed to the customer.
+
+**Rules per group** (all checked under a lock on the order row, so they hold even when two people save at once):
+
+- A step's total can never exceed the group's quantity.
+- Ready ≤ the least-finished step. DTF 40 and embroidery 30 means at most 30, and a multi-step group needs an explicit "these are the same physical pieces" confirmation.
+- Delivered ≤ ready.
+- Ready but not delivered = ready − delivered.
+- Remaining to produce = quantity − ready.
+- A delivery never adds production, and a piece needing two steps is counted once.
+
+**Simplest cases.** A one-step group marks pieces ready in the same save («القطع دي كمان جاهزة للتسليم»). A group with no steps uses «جاهز للتسليم» directly.
+
+**Status follows the records.** An order becomes «تحت التنفيذ» once anything is recorded. It becomes «مكتمل» (with `completed_at`) only when every group is fully delivered; nobody can set it by hand. «تم تسليم جزء» is a derived badge. «متأخر» means the agreed date has passed in Cairo time and the order isn't completed or cancelled; the date itself is never changed.
+
+**Corrections.** Only the owner can void a record, with a reason, and a void is refused if it would leave delivered > ready or ready > a step's total. Everything is audited, and nothing is deleted.
+
+**Editing an order after production has started:**
+
+- group IDs are kept;
+- a group with records can't be removed;
+- a quantity can't drop below what's been produced;
+- a step with recorded progress can't be removed;
+- the unit can't change, and the order can't go back to «جديد»;
+- cancelling needs the records voided first;
+- stale-edit protection still applies.
+
+**Worker logs.** A worker's output (e.g. 300 prints) is never treated as finished pieces. «تسجيل شغل» offers an optional «كام قطعة خلصت مرحلة …؟» field. It appears only when the work type matches a step the selected group requires (DTF/سلك سكرين/تطريز, and خياطة → تصنيع). It creates one linked stage record in the same save, never marks anything ready, and never adds wages.
+
+**Dashboard.** Shows deliveries today, delivered quantities this month **per unit** (never summed across units), orders completed this month, and overdue orders.
+
 ## Known follow-ups (next phases)
 
 These are deliberate gaps, recorded so they're handled before they can cause wrong numbers:
 
 1. ~~Restrict financial visibility by role~~ — done in Phase 4.
 2. ~~Keep order-group IDs stable when editing orders~~ — done in Phase 4.
-3. **Never double count labour and overhead.** Labour is now done: wages on worked days are its only source. Payroll should follow the cost pattern: record what's owed, pay it through `outgoing_payments` (extending the "exactly one target" CHECK), and correct by voiding. Overhead allocation should *reference* `general_expenses` rows rather than copy them into order costs. Profit = order price − order costs − allocated overhead − labour, computed from records and never stored.
+3. **Never double count labour and overhead.** Labour is now done: wages on worked days are its only source.
+4. **Decimal quantities (e.g. 12.5 meters).** Order, group, production and delivery quantities are whole numbers. Supporting decimals means changing them to `NUMERIC` together with the order form, group validation, the Phase 4 "already worked" checks and every quantity display. It was deliberately not done halfway.
+5. **Voiding worker output doesn't void linked production.** When a «تسجيل شغل» entry also confirmed pieces for a step, voiding that worker entry leaves the linked step record in place: the link is kept for tracing only. If the step record was wrong too, the owner voids it separately from the order's «سجل الإنتاج».
+6. **Deliveries are recorded one order group at a time.** There's no "deliver N pieces across all groups" shortcut yet.
+7. **Completed orders can't be edited.** To change a «مكتمل» order, the owner first voids the delivery that completed it (with a reason). The order then goes back to «تحت التنفيذ» automatically.
+8. **Real-phone testing is still pending.** All UI checks so far ran in headless Chrome at iPhone size. They still need confirming on actual iPhone and Android devices, including PWA install over HTTPS. Payroll should follow the cost pattern: record what's owed, pay it through `outgoing_payments` (extending the "exactly one target" CHECK), and correct by voiding. Overhead allocation should *reference* `general_expenses` rows rather than copy them into order costs. Profit = order price − order costs − allocated overhead − labour, computed from records and never stored.
 
 ## Database & migrations
 
@@ -233,6 +282,10 @@ Tables:
 - **workers**: name, job, daily wage, daily target and unit, active flag
 - **worker_workdays**: one valid row per worker and date; worked or absent, wage snapshot, void info
 - **worker_work_logs**: output per workday, optional order and order group, work type, quantity, unit, hours, void info
+- **production_stage_progress**: N pieces of a group finished one required step; optional link to a worker log; void info
+- **production_ready**: N pieces of a group finished all steps (ready for delivery); void info
+- **deliveries**: N pieces of a group delivered; date, who, notes, void info
+- **orders.completed_at**: set and cleared automatically together with the «مكتمل» status
 
 ## Administrator account
 

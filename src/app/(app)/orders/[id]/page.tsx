@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Banknote, CalendarClock, Factory, Pencil, Phone, ReceiptText, Truck, User } from "lucide-react";
+import { Banknote, CalendarClock, Pencil, Phone, ReceiptText, User } from "lucide-react";
 import type { ReactNode } from "react";
-import { SoonBadge } from "@/components/coming-soon";
+import { ProductionSection } from "@/components/production/production-section";
 import { OrderCostsSection } from "@/components/finance/order-costs-section";
 import { OrderLaborSection } from "@/components/workers/order-labor-section";
 import { Flash } from "@/components/flash";
@@ -21,6 +21,7 @@ import { formatOrderNumber, PAYMENT_METHOD_LABELS, UNIT_LABELS } from "@/lib/ord
 import { cn } from "@/lib/utils";
 import { getOrderCosts } from "@/server/services/cost-service";
 import { getOrderLabor } from "@/server/services/labor-service";
+import { getOrderProduction } from "@/server/services/production-service";
 import { getOrderDetails } from "@/server/services/order-service";
 
 export const metadata: Metadata = { title: "تفاصيل الأوردر" };
@@ -34,6 +35,12 @@ const FLASH: Record<string, string> = {
   "cost-voided": "تم إلغاء التكلفة",
   "paid-out": "تم تسجيل الدفعة للمورد ✓",
   "payment-voided": "تم إلغاء الدفعة",
+  stage: "تم تسجيل الإنتاج ✓",
+  "stage-ready": "تم تسجيل الإنتاج والقطع بقت جاهزة للتسليم ✓",
+  ready: "تم تسجيل القطع الجاهزة ✓",
+  delivered: "تم تسجيل التسليم ✓",
+  "production-voided": "تم إلغاء سجل الإنتاج",
+  "delivery-voided": "تم إلغاء التسليم",
 };
 
 function Section({ title, icon, children }: { title: string; icon: ReactNode; children: ReactNode }) {
@@ -65,6 +72,8 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
   if (!order) notFound();
   const costs = hasPermission(user, "costs:view") ? await getOrderCosts(prisma, user, order.id) : null;
   const labor = hasPermission(user, "labor:view") ? await getOrderLabor(prisma, user, order.id) : null;
+  const production = (await getOrderProduction(prisma, user, order.id))!;
+  const partlyDelivered = production.totals.delivered > 0 && order.status !== "COMPLETED";
 
   const outstanding = toCents(order.outstanding);
   const canPay =
@@ -86,7 +95,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
             <span dir="ltr" className="font-semibold">
               {formatOrderNumber(order.number)}
             </span>
-            <StatusBadge status={order.status} overdue={order.overdue} />
+            <StatusBadge status={order.status} overdue={order.overdue} partlyDelivered={partlyDelivered} />
           </span>
         }
       />
@@ -130,6 +139,15 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
           )}
         </div>
       </section>
+
+      <ProductionSection
+        orderId={order.id}
+        production={production}
+        canRecord={hasPermission(user, "production:record")}
+        canDeliver={hasPermission(user, "deliveries:record")}
+        canCorrect={hasPermission(user, "production:correct")}
+        closed={order.status === "CANCELLED"}
+      />
 
       <Section title="العميل" icon={<User className="size-5" />}>
         <div className="flex items-center justify-between gap-3">
@@ -255,24 +273,6 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
         )
       )}
       {labor && <OrderLaborSection labor={labor} />}
-
-      <section className="rounded-2xl border border-dashed bg-card/60 p-4">
-        <h2 className="mb-3 font-bold">قريبًا</h2>
-        <ul className="grid gap-2 sm:grid-cols-2">
-          {[
-            { label: "تسجيل إنتاج", icon: Factory },
-            { label: "تسليم قطع", icon: Truck },
-          ].map(({ label, icon: Icon }) => (
-            <li key={label} className="flex h-12 items-center justify-between gap-2 rounded-xl bg-muted px-3 text-sm text-muted-foreground">
-              <span className="flex items-center gap-2">
-                <Icon className="size-4" aria-hidden="true" />
-                {label}
-              </span>
-              <SoonBadge />
-            </li>
-          ))}
-        </ul>
-      </section>
 
       <p className="pb-2 text-center text-xs text-muted-foreground">
         سجّله {order.createdByName} · {formatDateTimeAr(order.createdAt)}
