@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { PageHeader } from "@/components/page-header";
+import { Banknote } from "lucide-react";
+import { FlowHeader } from "@/components/ds/primitives";
 import { WorkerPayForm } from "@/components/workers/worker-pay-form";
 import { requirePermission } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
@@ -17,7 +18,7 @@ export default async function PayWorkerPage(props: PageProps<"/workers/[id]/pay"
   if (!worker?.pay) notFound();
   return (
     <div className="mx-auto max-w-lg">
-      <PageHeader title={type === "ADVANCE" ? "تسجيل سلفة" : "دفع فلوس"} backHref={`/workers/${worker.id}`} backLabel={worker.name} subtitle={worker.name} />
+      <FlowHeader icon={Banknote} hue="green" title={type === "ADVANCE" ? "تسجيل سلفة" : "دفع فلوس"} backHref={`/workers/${worker.id}`} backLabel={worker.name} context={worker.name} />
       <WorkerPayForm workerId={worker.id} owed={worker.pay.owed} today={todayDateString()} initialType={type === "ADVANCE" ? "ADVANCE" : "WAGE"} />
     </div>
   );

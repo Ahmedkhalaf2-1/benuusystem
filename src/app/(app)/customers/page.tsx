@@ -38,21 +38,21 @@ export default async function CustomersPage(props: PageProps<"/customers">) {
       <SearchBox action="/customers" defaultValue={q} placeholder="دوّر بالاسم أو رقم الموبايل" />
 
       {result.items.length === 0 ? (
-        <div className="mt-6 flex flex-col items-center rounded-3xl border border-dashed bg-card px-6 py-12 text-center">
-          <span className="flex size-14 items-center justify-center rounded-2xl bg-brand-soft text-primary">
+        <div className="mt-6 flex flex-col items-center rounded-[1.6rem] border-2 border-dashed border-[#d9d2ea] bg-surface/60 px-6 py-12 text-center">
+          <span className="flex size-14 items-center justify-center rounded-2xl bg-violet-soft text-violet">
             <UsersRound className="size-7" aria-hidden="true" />
           </span>
-          <p className="mt-4 font-bold">{q ? "مفيش عميل بالبحث ده" : "لسه مفيش عملاء"}</p>
+          <p className="mt-4 font-display text-lg font-semibold">{q ? "مفيش عميل بالبحث ده" : "لسه مفيش عملاء"}</p>
           <p className="mt-1 text-sm text-muted-foreground">
             {q ? "جرّب جزء من الاسم أو آخر أرقام الموبايل." : "تقدر تضيف عميل من هنا أو وأنت بتسجّل أوردر."}
           </p>
         </div>
       ) : (
-        <ul className="mt-4 divide-y overflow-hidden rounded-2xl border bg-card">
+        <ul className="mt-4 divide-y divide-hairline overflow-hidden rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)]">
           {result.items.map((c) => (
             <li key={c.id}>
-              <Link href={`/customers/${c.id}`} className="flex min-h-16 items-center gap-3 px-4 py-3 hover:bg-muted/50 active:bg-muted">
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-soft font-semibold text-primary">
+              <Link href={`/customers/${c.id}`} className="flex min-h-16 items-center gap-3 px-4 py-3 transition-colors hover:bg-well active:bg-well">
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-violet-soft font-display font-semibold text-violet">
                   {c.name.trim().charAt(0)}
                 </span>
                 <div className="min-w-0 flex-1">

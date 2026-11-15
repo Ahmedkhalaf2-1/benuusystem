@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus, Wallet } from "lucide-react";
+import { Plus, Receipt, Wallet } from "lucide-react";
 import { SettlementBadge } from "@/components/finance/settlement-badge";
 import { NativeSelect } from "@/components/forms/field";
 import { PageHeader } from "@/components/page-header";
+import { SoftIcon } from "@/components/ds/primitives";
 import { Pagination } from "@/components/pagination";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -50,8 +51,8 @@ export default async function ExpensesPage(props: PageProps<"/expenses">) {
   };
   const chip = (active: boolean) =>
     cn(
-      "inline-flex h-10 items-center rounded-full border px-4 text-sm font-medium",
-      active ? "border-primary bg-primary text-primary-foreground" : "bg-card text-foreground",
+      "inline-flex h-10 shrink-0 items-center rounded-full px-4 text-sm font-semibold transition-[background-color,box-shadow] duration-200",
+      active ? "bg-gradient-to-b from-[#6d47ea] to-violet-deep text-white shadow-[var(--shadow-violet)]" : "bg-surface text-ink shadow-[var(--shadow-soft)] hover:bg-well",
     );
 
   return (
@@ -70,7 +71,7 @@ export default async function ExpensesPage(props: PageProps<"/expenses">) {
       />
 
       <div className="space-y-3">
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" aria-label="الفترة">
           <Link href={link({ period: "this", from: undefined, to: undefined, page: undefined })} className={chip(period === "this")}>
             الشهر ده
           </Link>
@@ -78,8 +79,8 @@ export default async function ExpensesPage(props: PageProps<"/expenses">) {
             الشهر اللي فات
           </Link>
         </div>
-        <details open={period === "custom" || !!category} className="rounded-2xl border bg-card p-3">
-          <summary className="cursor-pointer text-sm font-medium">فترة معيّنة أو نوع مصروف</summary>
+        <details open={period === "custom" || !!category} className="rounded-[1.4rem] bg-surface p-3 shadow-[var(--shadow-card)]">
+          <summary className="flex min-h-9 cursor-pointer items-center text-sm font-semibold">فترة معيّنة أو نوع مصروف</summary>
           <form action="/expenses" method="get" className="mt-3 grid grid-cols-2 gap-2">
             <input type="hidden" name="period" value="custom" />
             <label className="text-xs text-muted-foreground">
@@ -112,40 +113,41 @@ export default async function ExpensesPage(props: PageProps<"/expenses">) {
         </p>
       </div>
 
-      <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
-        <div className="rounded-2xl border bg-card p-3">
-          <dt className="text-xs text-muted-foreground">المصاريف المسجلة</dt>
-          <dd className="mt-1 whitespace-nowrap text-sm font-bold sm:text-lg" data-testid="expenses-recorded">
+      <dl className="mt-3 grid grid-cols-3 rounded-[1.4rem] bg-surface p-1.5 shadow-[var(--shadow-card)]">
+        <div className="rounded-2xl bg-amber-soft px-3 py-3">
+          <dt className="text-[0.7rem] font-semibold text-amber-ink">المصاريف المسجلة</dt>
+          <dd className="tabular mt-1 whitespace-nowrap font-display text-base font-semibold sm:text-lg" data-testid="expenses-recorded">
             {formatMoneyString(result.totals.recorded)}
           </dd>
         </div>
-        <div className="rounded-2xl border bg-emerald-50 p-3">
-          <dt className="text-xs text-emerald-800">اتدفع منها</dt>
-          <dd className="mt-1 whitespace-nowrap text-sm font-bold text-emerald-700 sm:text-lg" data-testid="expenses-paid">
+        <div className="px-3 py-3">
+          <dt className="text-[0.7rem] text-graphite">اتدفع منها (كاش)</dt>
+          <dd className="tabular mt-1 whitespace-nowrap font-display text-base font-semibold text-green-ink sm:text-lg" data-testid="expenses-paid">
             {formatMoneyString(result.totals.paid)}
           </dd>
         </div>
-        <div className="rounded-2xl border bg-amber-50 p-3">
-          <dt className="text-xs text-amber-900">لسه متدفعش</dt>
-          <dd className="mt-1 whitespace-nowrap text-sm font-bold text-amber-800 sm:text-lg">{formatMoneyString(result.totals.remaining)}</dd>
+        <div className="px-3 py-3">
+          <dt className="text-[0.7rem] text-graphite">لسه متدفعش</dt>
+          <dd className="tabular mt-1 whitespace-nowrap font-display text-base font-semibold text-amber-ink sm:text-lg">{formatMoneyString(result.totals.remaining)}</dd>
         </div>
       </dl>
 
       {result.items.length === 0 ? (
-        <div className="mt-6 flex flex-col items-center rounded-3xl border border-dashed bg-card px-6 py-12 text-center">
-          <span className="flex size-14 items-center justify-center rounded-2xl bg-brand-soft text-primary">
+        <div className="mt-6 flex flex-col items-center rounded-[1.6rem] border-2 border-dashed border-[#d9d2ea] bg-surface/60 px-6 py-12 text-center">
+          <span className="flex size-14 items-center justify-center rounded-2xl bg-violet-soft text-violet">
             <Wallet className="size-7" aria-hidden="true" />
           </span>
-          <p className="mt-4 font-bold">مفيش مصاريف في الفترة دي</p>
+          <p className="mt-4 font-display text-lg font-semibold">مفيش مصاريف في الفترة دي</p>
           <p className="mt-1 text-sm text-muted-foreground">أي مصروف تسجله (إيجار، كهرباء، …) هيظهر هنا.</p>
         </div>
       ) : (
-        <ul className="mt-4 divide-y overflow-hidden rounded-2xl border bg-card">
+        <ul className="mt-4 divide-y divide-hairline overflow-hidden rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)]">
           {result.items.map((e) => (
             <li key={e.id}>
-              <Link href={`/expenses/${e.id}`} className="block px-4 py-3 hover:bg-muted/50 active:bg-muted">
+              <Link href={`/expenses/${e.id}`} className="block px-4 py-3 transition-colors hover:bg-well active:bg-well">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
+                  <SoftIcon icon={Receipt} hue="amber" className={cn("mt-0.5", e.voided && "opacity-50")} />
+                  <div className="min-w-0 flex-1">
                     <p className={cn("font-semibold", e.voided && "text-muted-foreground line-through")}>{EXPENSE_CATEGORY_LABELS[e.category]}</p>
                     <p className="truncate text-sm text-muted-foreground">
                       {formatDateAr(e.expenseDate)}
@@ -153,7 +155,7 @@ export default async function ExpensesPage(props: PageProps<"/expenses">) {
                     </p>
                   </div>
                   <div className="shrink-0 text-end">
-                    <p className={cn("whitespace-nowrap font-bold", e.voided && "text-muted-foreground line-through")}>{formatMoneyString(e.amount)}</p>
+                    <p className={cn("tabular whitespace-nowrap font-display font-semibold", e.voided && "text-graphite line-through")}>{formatMoneyString(e.amount)}</p>
                     <SettlementBadge status={e.status} voided={e.voided} />
                   </div>
                 </div>

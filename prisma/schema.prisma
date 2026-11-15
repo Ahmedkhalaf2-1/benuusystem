@@ -224,6 +224,8 @@ model OrderGroup {
 
   order      Order                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
   operations    OrderGroupOperation[]
+  /// Optional garment-size breakdown; when present, sizes add up to `quantity`.
+  sizes         OrderGroupSize[]
   workLogs      WorkerWorkLog[]
   stageProgress ProductionStageProgress[]
   ready         ProductionReady[]
@@ -557,6 +559,8 @@ model WorkerWorkLog {
 model ProductionStageProgress {
   id             String         @id @default(uuid(7)) @db.Uuid
   orderId        String         @map("order_id") @db.Uuid
+  /// Set for groups with a size breakdown (then every record names its size).
+  orderGroupSizeId String?     @map("order_group_size_id") @db.Uuid
   orderGroupId   String         @map("order_group_id") @db.Uuid
   operation      PrintOperation
   quantity       Int
@@ -573,6 +577,7 @@ model ProductionStageProgress {
 
   order      Order               @relation(fields: [orderId], references: [id], onDelete: Restrict)
   orderGroup OrderGroup          @relation(fields: [orderGroupId], references: [id], onDelete: Restrict)
+  orderGroupSize OrderGroupSize? @relation(fields: [orderGroupSizeId], references: [id], onDelete: Restrict)
   /// The operation must be one the group actually requires.
   requiredOperation OrderGroupOperation @relation(fields: [orderGroupId, operation], references: [groupId, operation], onDelete: Restrict)
   workLog    WorkerWorkLog?      @relation(fields: [workLogId], references: [id], onDelete: Restrict)
@@ -580,6 +585,7 @@ model ProductionStageProgress {
   voidedBy   User?               @relation("StageVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
 
   @@index([orderId])
+  @@index([orderGroupSizeId])
   @@index([orderGroupId, operation])
   @@index([workDate])
   @@map("production_stage_progress")
@@ -588,6 +594,8 @@ model ProductionStageProgress {
 model ProductionReady {
   id             String    @id @default(uuid(7)) @db.Uuid
   orderId        String    @map("order_id") @db.Uuid
+  /// Set for groups with a size breakdown (then every record names its size).
+  orderGroupSizeId String?     @map("order_group_size_id") @db.Uuid
   orderGroupId   String    @map("order_group_id") @db.Uuid
   quantity       Int
   readyDate      DateTime  @map("ready_date") @db.Date
@@ -603,10 +611,12 @@ model ProductionReady {
 
   order      Order      @relation(fields: [orderId], references: [id], onDelete: Restrict)
   orderGroup OrderGroup @relation(fields: [orderGroupId], references: [id], onDelete: Restrict)
+  orderGroupSize OrderGroupSize? @relation(fields: [orderGroupSizeId], references: [id], onDelete: Restrict)
   recordedBy User       @relation("ReadyRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
   voidedBy   User?      @relation("ReadyVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
 
   @@index([orderId])
+  @@index([orderGroupSizeId])
   @@index([orderGroupId])
   @@map("production_ready")
 }
@@ -614,6 +624,8 @@ model ProductionReady {
 model Delivery {
   id             String    @id @default(uuid(7)) @db.Uuid
   orderId        String    @map("order_id") @db.Uuid
+  /// Set for groups with a size breakdown (then every record names its size).
+  orderGroupSizeId String?     @map("order_group_size_id") @db.Uuid
   orderGroupId   String    @map("order_group_id") @db.Uuid
   quantity       Int
   deliveredAt    DateTime  @map("delivered_at") @db.Date
@@ -627,11 +639,41 @@ model Delivery {
 
   order      Order      @relation(fields: [orderId], references: [id], onDelete: Restrict)
   orderGroup OrderGroup @relation(fields: [orderGroupId], references: [id], onDelete: Restrict)
+  orderGroupSize OrderGroupSize? @relation(fields: [orderGroupSizeId], references: [id], onDelete: Restrict)
   recordedBy User       @relation("DeliveryRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
   voidedBy   User?      @relation("DeliveryVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
 
   @@index([orderId])
+  @@index([orderGroupSizeId])
   @@index([orderGroupId])
   @@index([deliveredAt])
   @@map("deliveries")
+}
+
+// ───────────────────────────── Garment sizes ─────────────────────────────
+//
+// A lightweight size breakdown per work group (e.g. S 50 · M 50 · L 50 · XL 50).
+// Not a variant/SKU system: just labels and quantities that add up to the
+// group's quantity. Production, ready and delivery records of a sized group
+// each name their size, so every per-size balance is computed from events.
+// Unsized groups (and all records created before sizes existed) keep working.
+
+model OrderGroupSize {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  orderGroupId String   @map("order_group_id") @db.Uuid
+  /// Normalized label: "S", "2XL", "38", "10 سنين" (see src/lib/orders/sizes.ts).
+  label        String   @db.VarChar(24)
+  position     Int
+  quantity     Int
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  orderGroup    OrderGroup                @relation(fields: [orderGroupId], references: [id], onDelete: Cascade)
+  stageProgress ProductionStageProgress[]
+  ready         ProductionReady[]
+  deliveries    Delivery[]
+
+  @@unique([orderGroupId, label])
+  @@index([orderGroupId, position])
+  @@map("order_group_sizes")
 }

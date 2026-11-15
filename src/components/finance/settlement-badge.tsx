@@ -2,8 +2,8 @@ import { SETTLEMENT_LABELS, type SettlementStatus } from "@/lib/finance/labels";
 import { cn } from "@/lib/utils";
 
 const TONES: Record<SettlementStatus, string> = {
-  PAID: "bg-emerald-50 text-emerald-800",
-  PARTIAL: "bg-amber-50 text-amber-800",
+  PAID: "bg-green-soft text-green-ink",
+  PARTIAL: "bg-amber-soft text-amber-ink",
   UNPAID: "bg-destructive/10 text-destructive",
 };
 

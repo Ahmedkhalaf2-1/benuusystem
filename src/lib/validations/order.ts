@@ -3,6 +3,7 @@ import type { PrintOperation } from "@/generated/prisma/enums";
 import { MAX_CENTS, parseMoney, type Cents } from "@/lib/money";
 import { isValidDateString, todayDateString } from "@/lib/dates";
 import { parseWholeNumber } from "@/lib/numbers";
+import { MAX_SIZES_PER_GROUP, normalizeSizeLabel } from "@/lib/orders/sizes";
 import { PAYMENT_METHODS, PRINT_OPERATIONS, QUANTITY_UNITS } from "@/lib/orders/labels";
 import { customerNameSchema, phoneSchema } from "./customer";
 
@@ -71,6 +72,24 @@ const customerChoiceSchema = z.discriminatedUnion(
   { error: "اختار العميل أو اكتب اسم عميل جديد" },
 );
 
+/** One size of a group: label + pieces. `id` keeps an existing size's identity on edit. */
+const sizeSchema = z.object({
+  id: z.uuid().optional(),
+  label: z
+    .string({ error: "اكتب المقاس" })
+    .transform((v) => normalizeSizeLabel(v))
+    .refine((v) => v.length > 0, "اكتب المقاس")
+    .refine((v) => v.length <= 24, "اسم المقاس طويل جدًا"),
+  quantity: z.union([z.string(), z.number()]).transform((v, ctx) => {
+    const n = parseWholeNumber(v);
+    if (n === null || n <= 0) {
+      ctx.addIssue({ code: "custom", message: "اكتب العدد" });
+      return z.NEVER;
+    }
+    return n;
+  }),
+});
+
 const groupSchema = z.object({
   /** Existing group id when editing — kept so records pointing at the group stay valid. */
   id: z.uuid().optional(),
@@ -84,6 +103,8 @@ const groupSchema = z.object({
   /** "بدون طباعة أو تطريز" chosen explicitly. */
   plain: z.boolean().default(false),
   notes: optionalText(500),
+  /** Size breakdown (only used when the order has sizes switched on). */
+  sizes: z.array(sizeSchema).max(MAX_SIZES_PER_GROUP, "عدد المقاسات كبير جدًا").default([]),
 });
 
 /** Fields shared by "new order" and "edit order". */
@@ -95,6 +116,8 @@ const orderCoreShape = {
   quantity: quantitySchema("اكتب الكمية المطلوبة"),
   unit: z.enum(QUANTITY_UNITS as [string, ...string[]]).transform((u) => u as (typeof QUANTITY_UNITS)[number]),
   groups: z.array(groupSchema).min(1).max(MAX_ORDER_GROUPS, "عدد المجموعات كبير جدًا"),
+  /** "المقاسات": when on, every group lists sizes that add up to its quantity. */
+  sizesEnabled: z.boolean().default(false),
   totalPrice: moneySchema({ required: "اكتب إجمالي سعر الأوردر" }),
   receivedDate: dateStringSchema("اختار تاريخ استلام الأوردر"),
   deliveryDate: dateStringSchema("اختار موعد التسليم"),
@@ -106,6 +129,7 @@ type CoreParsed = {
   material: string;
   receivedDate: string;
   deliveryDate: string;
+  sizesEnabled: boolean;
   groups: z.infer<typeof groupSchema>[];
 };
 
@@ -133,6 +157,30 @@ function checkOrderRules(data: CoreParsed, ctx: z.RefinementCtx) {
     }
   });
 
+  if (data.sizesEnabled) {
+    data.groups.forEach((group, index) => {
+      const groupQty = multiple ? parseWholeNumber(group.quantity ?? null) : data.quantity;
+      const seen = new Set<string>();
+      for (const size of group.sizes) {
+        if (seen.has(size.label)) {
+          ctx.addIssue({ code: "custom", path: ["groups", index, "sizes"], message: `المقاس ${size.label} متكرر` });
+          return;
+        }
+        seen.add(size.label);
+      }
+      const sizeSum = group.sizes.reduce((s, x) => s + x.quantity, 0);
+      if (group.sizes.length === 0) {
+        ctx.addIssue({ code: "custom", path: ["groups", index, "sizes"], message: "اكتب كمية كل مقاس (أو اقفل «المقاسات» لو الأوردر من غير مقاسات)" });
+      } else if (groupQty !== null && groupQty > 0 && sizeSum !== groupQty) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["groups", index, "sizes"],
+          message: sizeSum < groupQty ? `لسه ${groupQty - sizeSum} قطعة محتاجة توزيع على المقاسات` : `المقاسات زيادة ${sizeSum - groupQty} قطعة عن كمية المجموعة`,
+        });
+      }
+    });
+  }
+
   if (multiple && sum > 0 && sum !== data.quantity) {
     ctx.addIssue({
       code: "custom",
@@ -151,6 +199,8 @@ function normalizeGroups(data: CoreParsed) {
     material: group.material ?? data.material,
     operations: group.plain ? [] : group.operations,
     notes: group.notes,
+    // Sizes switched off → no breakdown is stored, whatever the form still holds.
+    sizes: data.sizesEnabled ? group.sizes : [],
   }));
 }
 

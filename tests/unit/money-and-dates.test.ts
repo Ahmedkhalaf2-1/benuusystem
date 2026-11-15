@@ -77,7 +77,7 @@ describe("order form validation (shared by client and server)", () => {
   it("treats an empty advance as zero and fills single-group quantity", () => {
     const result = createOrderSchema.parse({ ...base, groups: [{ operations: ["DTF", "EMBROIDERY"], plain: false }] });
     expect(result.advance).toBe(0n);
-    expect(result.groups).toEqual([{ quantity: 200, material: "قطن", operations: ["DTF", "EMBROIDERY"], notes: undefined }]);
+    expect(result.groups).toEqual([{ quantity: 200, material: "قطن", operations: ["DTF", "EMBROIDERY"], notes: undefined, sizes: [] }]);
   });
 
   it("reports Arabic messages at the right fields", () => {

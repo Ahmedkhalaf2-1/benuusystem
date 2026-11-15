@@ -18,9 +18,9 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       <SidebarNav extraKeys={SIDEBAR_EXTRA_NAV.filter((i) => hasPermission(user, i.permission)).map((i) => i.key)} />
       <div className="lg:ps-64">
         <AppHeader user={user} />
-        <main className="mx-auto max-w-5xl px-4 pt-5 pb-28 lg:px-8 lg:pt-8 lg:pb-12">{children}</main>
+        <main className="mx-auto max-w-6xl px-4 pt-3 pb-36 lg:px-8 lg:pt-8 lg:pb-12">{children}</main>
       </div>
-      <BottomNav />
+      <BottomNav canCreateOrder={hasPermission(user, "orders:create")} />
     </div>
   );
 }

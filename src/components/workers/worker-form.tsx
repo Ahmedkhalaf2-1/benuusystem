@@ -1,12 +1,12 @@
 "use client";
 
+import { hueSubmit, STICKY_SUBMIT } from "@/components/ds/primitives";
 import { useState, useTransition } from "react";
 import { Loader2 } from "lucide-react";
 import { saveWorkerAction } from "@/app/(app)/workers/actions";
 import { ChoiceCards } from "@/components/finance/choice-cards";
 import { MoneyField } from "@/components/finance/money-field";
 import { Field, FormMessage, NativeSelect, Textarea } from "@/components/forms/field";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { WorkerJob, WorkUnit } from "@/generated/prisma/enums";
 import { workerInputSchema } from "@/lib/validations/workers";
@@ -75,7 +75,7 @@ export function WorkerForm({ worker }: { worker?: WorkerFormInitial }) {
   }
 
   return (
-    <form onSubmit={submit} noValidate className="space-y-5 rounded-2xl border bg-card p-4 sm:p-5">
+    <form onSubmit={submit} noValidate className="space-y-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4 sm:p-5">
       <Field label="اسم العامل" htmlFor="name" error={errors.name}>
         <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="مثال: يوسف" aria-invalid={errors.name ? true : undefined} />
       </Field>
@@ -128,10 +128,12 @@ export function WorkerForm({ worker }: { worker?: WorkerFormInitial }) {
         <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-20" />
       </Field>
       <FormMessage message={message} />
-      <Button type="submit" size="lg" className="h-14 w-full text-lg" disabled={pending}>
+      <div className={STICKY_SUBMIT}>
+        <button type="submit" className={hueSubmit("violet")} disabled={pending}>
         {pending && <Loader2 className="size-5 animate-spin" aria-hidden="true" />}
         {worker ? "حفظ التعديلات" : "حفظ العامل"}
-      </Button>
+      </button>
+      </div>
     </form>
   );
 }

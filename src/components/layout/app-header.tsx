@@ -1,28 +1,34 @@
 import Link from "next/link";
-import { BrandMark, BrandName } from "@/components/brand/brand-mark";
+import { BrandMark } from "@/components/brand/brand-mark";
 import { ROLE_LABELS } from "@/lib/auth/permissions";
 import type { PublicUser } from "@/server/repositories/user-repository";
-import { LogoutButton } from "./logout-button";
 import { UserAvatar } from "./user-avatar";
 
-/** Top bar on mobile; on desktop the sidebar carries the brand, so only the user block shows. */
+/**
+ * Top bar: the mark and name on phones, and the signed-in person — which opens
+ * the account page («المزيد»), where sign-out lives behind a confirmation.
+ */
 export function AppHeader({ user }: { user: Pick<PublicUser, "name" | "role"> }) {
   return (
-    <header className="pt-safe sticky top-0 z-30 border-b bg-surface/90 backdrop-blur supports-[backdrop-filter]:bg-surface/75">
-      <div className="mx-auto flex h-16 max-w-5xl items-center gap-3 px-4 lg:px-8">
-        <Link href="/dashboard" className="flex items-center gap-2.5 lg:hidden" aria-label="Benuuprint — الرئيسية">
-          <BrandMark className="size-9" />
-          <BrandName className="text-lg" />
+    <header className="pt-safe sticky top-0 z-30 bg-canvas/80 backdrop-blur-xl">
+      <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-4 lg:px-8">
+        <Link href="/dashboard" className="flex items-center gap-2.5 rounded-xl lg:hidden" aria-label="Benuuprint — الرئيسية">
+          <BrandMark className="size-9 rounded-[11px] shadow-[var(--shadow-violet)]" />
+          <span dir="ltr" className="font-display text-[1.08rem] font-semibold tracking-[-0.02em] text-ink">
+            Benuuprint
+          </span>
         </Link>
-
-        <div className="ms-auto flex items-center gap-2">
-          <UserAvatar name={user.name} />
-          <div className="min-w-0 leading-tight">
-            <p className="max-w-[9rem] truncate text-sm font-semibold sm:max-w-xs">{user.name}</p>
-            <p className="text-xs text-muted-foreground">{ROLE_LABELS[user.role]}</p>
-          </div>
-          <LogoutButton />
-        </div>
+        <Link
+          href="/more"
+          aria-label={`حسابي: ${user.name}`}
+          className="ms-auto flex items-center gap-2.5 rounded-full py-1 ps-1 pe-1 transition-colors hover:bg-surface sm:pe-3"
+        >
+          <UserAvatar name={user.name} className="size-10" />
+          <span className="hidden min-w-0 text-start leading-tight sm:block">
+            <span className="block max-w-[12rem] truncate text-sm font-semibold">{user.name}</span>
+            <span className="block text-xs text-graphite">{ROLE_LABELS[user.role]}</span>
+          </span>
+        </Link>
       </div>
     </header>
   );

@@ -13,15 +13,15 @@ export function ComingSoon({
   icon: LucideIcon;
 }) {
   return (
-    <section className="flex flex-col items-center rounded-3xl border border-dashed bg-card px-6 py-12 text-center">
-      <span className="flex size-14 items-center justify-center rounded-2xl bg-brand-soft text-primary">
+    <section className="flex flex-col items-center rounded-[1.6rem] border-2 border-dashed border-[#d9d2ea] bg-surface/60 px-6 py-12 text-center">
+      <span className="flex size-14 items-center justify-center rounded-2xl bg-violet-soft text-violet">
         <Icon className="size-7" aria-hidden="true" />
       </span>
       <Badge variant="secondary" className="mt-5 h-6 gap-1.5 px-2.5 text-xs">
         <Clock aria-hidden="true" />
         قريبًا
       </Badge>
-      <h1 className="mt-3 text-xl font-bold">{title}</h1>
+      <h1 className="mt-3 font-display text-xl font-semibold">{title}</h1>
       <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">{description}</p>
     </section>
   );

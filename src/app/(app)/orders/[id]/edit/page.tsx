@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { PageHeader } from "@/components/page-header";
+import { BackLink } from "@/components/page-header";
 import { OrderForm } from "@/components/orders/order-form";
 import { draftFromOrder } from "@/components/orders/order-draft";
 import { requirePermission } from "@/lib/auth/current-user";
@@ -19,17 +19,14 @@ export default async function EditOrderPage(props: PageProps<"/orders/[id]/edit"
 
   return (
     <div className="mx-auto max-w-2xl">
-      <PageHeader
-        title={`تعديل الأوردر ${formatOrderNumber(order.number)}`}
-        backHref={`/orders/${order.id}`}
-        backLabel="رجوع للأوردر"
-      />
+      <BackLink href={`/orders/${order.id}`} label="رجوع للأوردر" />
       {order.status === "COMPLETED" ? (
         <p className="rounded-xl bg-muted p-4 text-sm">الأوردر ده مكتمل ومينفعش يتعدل.</p>
       ) : (
         <OrderForm
           mode="edit"
           orderId={order.id}
+          orderLabel={`${formatOrderNumber(order.number)} · ${order.customerName} — ${order.title}`}
           version={order.updatedAt}
           initial={draftFromOrder(order)}
           paid={order.paid}

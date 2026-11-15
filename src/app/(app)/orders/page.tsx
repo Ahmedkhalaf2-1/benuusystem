@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ClipboardList, Plus } from "lucide-react";
 import { OrderCard } from "@/components/orders/order-card";
+import { ProductionTrack } from "@/components/ds/production-track";
 import { StatusBadge } from "@/components/orders/status-badge";
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/pagination";
@@ -83,15 +84,19 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
           placeholder="دوّر برقم الأوردر أو اسم العميل أو الموبايل"
           hidden={{ status: status === "all" ? undefined : status, sort: sort === "newest" ? undefined : sort }}
         />
-        <div className="flex flex-wrap gap-2" aria-label="فلترة بالحالة">
+        <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] lg:mx-0 lg:flex-wrap lg:px-0" aria-label="فلترة بالحالة">
           {FILTERS.map((f) => (
             <Link
               key={f.value}
               href={linkWith({ status: f.value, page: "1" })}
               aria-current={status === f.value ? "true" : undefined}
               className={cn(
-                "inline-flex h-10 shrink-0 items-center rounded-full border px-4 text-sm font-medium",
-                status === f.value ? "border-primary bg-primary text-primary-foreground" : "bg-card text-foreground",
+                "inline-flex h-10 shrink-0 items-center rounded-full px-4 text-sm font-semibold transition-[background-color,box-shadow] duration-200",
+                status === f.value
+                  ? f.value === "overdue"
+                    ? "bg-red text-white shadow-[0_8px_18px_-8px_rgb(220_59_59/0.7)]"
+                    : "bg-gradient-to-b from-[#6d47ea] to-violet-deep text-white shadow-[var(--shadow-violet)]"
+                  : "bg-surface text-ink shadow-[var(--shadow-soft)] hover:bg-well",
               )}
             >
               {f.label}
@@ -99,29 +104,31 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
           ))}
         </div>
         <div className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">الترتيب:</span>
+          <span className="text-graphite">الترتيب</span>
+          <span className="inline-flex rounded-full bg-surface p-1 shadow-[var(--shadow-soft)]">
           {SORTS.map((s) => (
             <Link
               key={s.value}
               href={linkWith({ sort: s.value, page: "1" })}
               aria-current={sort === s.value ? "true" : undefined}
               className={cn(
-                "rounded-lg px-2 py-1.5",
-                sort === s.value ? "bg-brand-soft font-semibold text-primary" : "text-muted-foreground hover:text-foreground",
+                "inline-flex h-8 items-center rounded-full px-3 transition-colors",
+                sort === s.value ? "bg-violet-soft font-semibold text-violet" : "text-graphite hover:text-ink",
               )}
             >
               {s.label}
             </Link>
           ))}
+          </span>
         </div>
       </div>
 
       {result.items.length === 0 ? (
-        <div className="mt-6 flex flex-col items-center rounded-3xl border border-dashed bg-card px-6 py-12 text-center">
-          <span className="flex size-14 items-center justify-center rounded-2xl bg-brand-soft text-primary">
+        <div className="mt-6 flex flex-col items-center rounded-[1.6rem] border-2 border-dashed border-[#d9d2ea] bg-surface/60 px-6 py-12 text-center">
+          <span className="flex size-14 items-center justify-center rounded-2xl bg-violet-soft text-violet">
             <ClipboardList className="size-7" aria-hidden="true" />
           </span>
-          <p className="mt-4 font-bold">{filtered ? "مفيش أوردرات بالبحث ده" : "لسه مفيش أوردرات"}</p>
+          <p className="mt-4 font-display text-lg font-semibold">{filtered ? "مفيش أوردرات بالبحث ده" : "لسه مفيش أوردرات"}</p>
           <p className="mt-1 text-sm text-muted-foreground">
             {filtered ? "جرّب كلمة تانية أو شيل الفلتر." : "أول أوردر تسجله هيظهر هنا."}
           </p>
@@ -149,9 +156,9 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
           </ul>
 
           {/* Desktop: table */}
-          <div className="mt-5 hidden overflow-hidden rounded-2xl border bg-card lg:block">
+          <div className="mt-5 hidden overflow-hidden rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] lg:block">
             <table className="w-full text-sm">
-              <thead className="bg-muted/60 text-xs text-muted-foreground">
+              <thead className="bg-well text-xs text-graphite">
                 <tr className="[&>th]:px-4 [&>th]:py-3 [&>th]:text-start [&>th]:font-medium">
                   <th>رقم</th>
                   <th>العميل / الأوردر</th>
@@ -168,9 +175,9 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
                   <th>الحالة</th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody className="divide-y divide-hairline">
                 {result.items.map((o) => (
-                  <tr key={o.id} className={cn("hover:bg-muted/40 [&>td]:px-4 [&>td]:py-3", o.overdue && "bg-destructive/[0.03]")}>
+                  <tr key={o.id} className={cn("hover:bg-well [&>td]:px-4 [&>td]:py-3", o.overdue && "bg-destructive/[0.03]")}>
                     <td dir="ltr" className="text-end font-medium text-muted-foreground">
                       <Link href={`/orders/${o.id}`} className="hover:text-primary">
                         {formatOrderNumber(o.number)}
@@ -185,13 +192,16 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
                     <td>
                       {formatNumber(o.quantity)} {UNIT_LABELS[o.unit]}
                     </td>
-                    <td>
-                      {formatNumber(o.production?.ready ?? 0)} / {formatNumber(o.production?.delivered ?? 0)}
+                    <td className="min-w-36">
+                      <ProductionTrack size="sm" required={o.quantity} ready={o.production?.ready ?? 0} delivered={o.production?.delivered ?? 0} />
+                      <span className="mt-1 block text-xs text-graphite">
+                        جاهز {formatNumber(o.production?.ready ?? 0)} · اتسلم {formatNumber(o.production?.delivered ?? 0)}
+                      </span>
                     </td>
                     {showMoney && (
                       <>
                         <td className="font-semibold">{formatMoneyString(o.totalPrice)}</td>
-                        <td className="text-emerald-700">{formatMoneyString(o.paid)}</td>
+                        <td className="text-green-ink">{formatMoneyString(o.paid)}</td>
                         <td className="font-semibold text-primary">{formatMoneyString(o.outstanding)}</td>
                       </>
                     )}

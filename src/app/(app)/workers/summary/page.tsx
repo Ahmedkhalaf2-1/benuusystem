@@ -15,7 +15,7 @@ export const metadata: Metadata = { title: "حساب العمال" };
 
 function Card({ label, value, tone, testid }: { label: string; value: string; tone?: string; testid?: string }) {
   return (
-    <div className={cn("rounded-xl p-3", tone ?? "bg-muted/60")}>
+    <div className={cn("rounded-xl p-3", tone ?? "bg-well")}>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 whitespace-nowrap text-lg font-bold" data-testid={testid}>
         {value}
@@ -40,47 +40,47 @@ export default async function WorkersSummaryPage(props: PageProps<"/workers/summ
         </Button>
       </form>
 
-      <section className="rounded-2xl border bg-card p-4">
-        <h2 className="font-bold">1. شغل الشهر ده كلّف كام؟</h2>
+      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+        <h2 className="font-display text-[1.05rem] font-semibold">1. شغل الشهر ده كلّف كام؟</h2>
         <p className="mb-3 text-xs text-muted-foreground">اليوميات اللي اتكسبت في أيام الشهر ده (حتى لو لسه متدفعتش).</p>
         <div className="grid grid-cols-2 gap-2">
           <Card label="عدد العمال" value={formatNumber(s.expense.workersCount)} />
           <Card label="أيام الشغل" value={formatNumber(s.expense.workedDays)} />
           <Card label="اليوميات المستحقة" value={formatMoneyString(s.expense.wagesEarned)} tone="bg-brand-soft" testid="sum-earned" />
-          <Card label="يوميات مش متوزعة على أوردرات" value={formatMoneyString(s.expense.unallocatedLabor)} tone="bg-amber-50" testid="sum-unallocated" />
+          <Card label="يوميات مش متوزعة على أوردرات" value={formatMoneyString(s.expense.unallocatedLabor)} tone="bg-amber-soft" testid="sum-unallocated" />
         </div>
       </section>
 
-      <section className="rounded-2xl border bg-card p-4">
-        <h2 className="font-bold">2. اتدفع للعمال كام في الشهر ده؟</h2>
+      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+        <h2 className="font-display text-[1.05rem] font-semibold">2. اتدفع للعمال كام في الشهر ده؟</h2>
         <p className="mb-3 text-xs text-muted-foreground">الفلوس اللي خرجت فعلًا في الشهر ده (حتى لو كانت عن شغل شهر قبله).</p>
         <div className="grid grid-cols-3 gap-2">
-          <Card label="يوميات" value={formatMoneyString(s.cash.wagePayments)} tone="bg-emerald-50" testid="sum-wage-paid" />
-          <Card label="سلف" value={formatMoneyString(s.cash.advances)} tone="bg-amber-50" testid="sum-advances" />
+          <Card label="يوميات" value={formatMoneyString(s.cash.wagePayments)} tone="bg-green-soft" testid="sum-wage-paid" />
+          <Card label="سلف" value={formatMoneyString(s.cash.advances)} tone="bg-amber-soft" testid="sum-advances" />
           <Card label="الإجمالي" value={formatMoneyString(s.cash.total)} />
         </div>
       </section>
 
-      <section className="rounded-2xl border bg-card p-4">
-        <h2 className="font-bold">3. الحساب في آخر الشهر</h2>
+      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+        <h2 className="font-display text-[1.05rem] font-semibold">3. الحساب في آخر الشهر</h2>
         <p className="mb-3 text-xs text-muted-foreground">لحد {formatDateAr(s.to)}.</p>
         <div className="grid grid-cols-2 gap-2">
           <Card label="لسه ليهم" value={formatMoneyString(s.balances.owedToWorkers)} tone="bg-brand-soft" testid="sum-owed" />
-          <Card label="سلف لسه متخصمتش" value={formatMoneyString(s.balances.advancesOutstanding)} tone="bg-amber-50" />
+          <Card label="سلف لسه متخصمتش" value={formatMoneyString(s.balances.advancesOutstanding)} tone="bg-amber-soft" />
         </div>
       </section>
 
-      <section className="rounded-2xl border bg-card p-4">
-        <h2 className="mb-2 font-bold">كل عامل</h2>
+      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+        <h2 className="mb-2 font-display text-[1.05rem] font-semibold">كل عامل</h2>
         {s.workers.length === 0 ? (
           <p className="text-sm text-muted-foreground">مفيش عمال.</p>
         ) : (
-          <ul className="divide-y">
+          <ul className="divide-y divide-hairline">
             {s.workers.map((w) => {
               const bal = toCents(w.balanceAtEnd);
               return (
                 <li key={w.id}>
-                  <Link href={`/workers/${w.id}`} className="block py-3 hover:bg-muted/40">
+                  <Link href={`/workers/${w.id}`} className="block py-3 hover:bg-well">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="font-semibold">
@@ -93,7 +93,7 @@ export default async function WorkersSummaryPage(props: PageProps<"/workers/summ
                       </div>
                       <div className="shrink-0 text-end">
                         <p className="text-[0.7rem] text-muted-foreground">{bal >= 0n ? "لسه له" : "عليه سلفة"}</p>
-                        <p className={cn("whitespace-nowrap font-bold", bal >= 0n ? "text-primary" : "text-amber-800")}>
+                        <p className={cn("whitespace-nowrap font-bold", bal >= 0n ? "text-primary" : "text-amber-ink")}>
                           {formatMoneyString(bal >= 0n ? w.balanceAtEnd : w.balanceAtEnd.slice(1))}
                         </p>
                       </div>

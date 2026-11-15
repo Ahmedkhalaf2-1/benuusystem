@@ -1,11 +1,11 @@
 "use client";
 
+import { hueSubmit, STICKY_SUBMIT } from "@/components/ds/primitives";
 import { useState, useTransition } from "react";
 import { Loader2 } from "lucide-react";
 import { recordWorkLogAction } from "@/app/(app)/workers/actions";
 import { ChoiceCards } from "@/components/finance/choice-cards";
 import { Field, FormMessage, NativeSelect, Textarea } from "@/components/forms/field";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { WorkType, WorkUnit } from "@/generated/prisma/enums";
 import { newRequestId } from "@/lib/request-id";
@@ -100,7 +100,7 @@ export function WorkLogForm({
   }
 
   return (
-    <form onSubmit={submit} noValidate className="space-y-5 rounded-2xl border bg-card p-4 sm:p-5">
+    <form onSubmit={submit} noValidate className="space-y-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4 sm:p-5">
       <Field label="الأوردر" error={undefined}>
         <OrderPicker value={order} onChange={chooseOrder} error={errors.orderId} />
       </Field>
@@ -172,10 +172,12 @@ export function WorkLogForm({
       </Field>
       <p className="text-xs text-muted-foreground">لو اليومية مش متسجلة لليوم ده، هتتسجل تلقائيًا إنه حضر.</p>
       <FormMessage message={message} />
-      <Button type="submit" size="lg" className="h-14 w-full text-lg" disabled={pending}>
+      <div className={STICKY_SUBMIT}>
+        <button type="submit" className={hueSubmit("blue")} disabled={pending}>
         {pending && <Loader2 className="size-5 animate-spin" aria-hidden="true" />}
         حفظ الشغل
-      </Button>
+      </button>
+      </div>
     </form>
   );
 }

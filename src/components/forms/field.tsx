@@ -21,7 +21,7 @@ export function Field({
 }) {
   return (
     <div className={cn("space-y-1.5", className)}>
-      <label htmlFor={htmlFor} className="flex items-baseline gap-1.5 text-[0.95rem] font-medium">
+      <label htmlFor={htmlFor} className="flex items-baseline gap-1.5 text-sm font-semibold text-ink">
         {label}
         {optional && <span className="text-xs font-normal text-muted-foreground">(اختياري)</span>}
       </label>
@@ -50,7 +50,7 @@ export function Textarea({ className, ...props }: React.ComponentProps<"textarea
 export function FormMessage({ message }: { message?: string }) {
   if (!message) return null;
   return (
-    <div role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
+    <div role="alert" className="rounded-2xl bg-red-soft p-3.5 text-sm font-medium text-red">
       {message}
     </div>
   );
@@ -59,7 +59,7 @@ export function FormMessage({ message }: { message?: string }) {
 /** A titled white card used to group form sections. */
 export function FormSection({ title, children, aside }: { title: string; children: ReactNode; aside?: ReactNode }) {
   return (
-    <section className="space-y-4 rounded-2xl border bg-card p-4 sm:p-5">
+    <section className="space-y-4 rounded-3xl bg-surface p-4 shadow-[var(--shadow-card)] sm:p-5">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-base font-bold">{title}</h2>
         {aside}

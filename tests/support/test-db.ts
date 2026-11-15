@@ -36,7 +36,7 @@ export async function resetDatabase(db: PrismaClient): Promise<void> {
     'TRUNCATE TABLE "deliveries", "production_ready", "production_stage_progress", ' +
       '"worker_work_logs", "worker_workdays", "workers", ' +
       '"outgoing_payments", "order_costs", "general_expenses", "suppliers", ' +
-      '"order_group_operations", "order_groups", "order_payments", "orders", "customers", ' +
+      '"order_group_sizes", "order_group_operations", "order_groups", "order_payments", "orders", "customers", ' +
       '"audit_logs", "sessions", "login_attempts", "users" CASCADE',
   );
   await db.$executeRawUnsafe(

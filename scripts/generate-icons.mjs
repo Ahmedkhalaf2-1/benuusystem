@@ -3,7 +3,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import sharp from "sharp";
 
-const PURPLE = "#4b1fa0";
+const PURPLE = "#5730b8";
 
 // The "B" and ink dots on a 48×48 grid (same artwork as BrandMark).
 const glyph = `<g transform="translate(-4 0)">

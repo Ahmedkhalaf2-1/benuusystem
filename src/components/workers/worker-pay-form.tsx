@@ -1,12 +1,12 @@
 "use client";
 
+import { hueSubmit, STICKY_SUBMIT } from "@/components/ds/primitives";
 import { useState, useTransition } from "react";
 import { Loader2 } from "lucide-react";
 import { payWorkerAction } from "@/app/(app)/workers/actions";
 import { ChoiceCards } from "@/components/finance/choice-cards";
 import { MoneyField } from "@/components/finance/money-field";
 import { Field, FormMessage, Textarea } from "@/components/forms/field";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatAmount, formatMoney, toCents } from "@/lib/money";
 import { PAYMENT_METHOD_LABELS, PAYMENT_METHODS } from "@/lib/orders/labels";
@@ -41,7 +41,7 @@ export function WorkerPayForm({ workerId, owed, today, initialType }: { workerId
   }
 
   return (
-    <form onSubmit={submit} noValidate className="space-y-5 rounded-2xl border bg-card p-4 sm:p-5">
+    <form onSubmit={submit} noValidate className="space-y-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4 sm:p-5">
       <ChoiceCards
         label="نوع الدفعة"
         options={[
@@ -73,10 +73,12 @@ export function WorkerPayForm({ workerId, owed, today, initialType }: { workerId
         <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-16" />
       </Field>
       <FormMessage message={message} />
-      <Button type="submit" size="lg" className="h-14 w-full text-lg" disabled={pending}>
+      <div className={STICKY_SUBMIT}>
+        <button type="submit" className={hueSubmit("green")} disabled={pending}>
         {pending && <Loader2 className="size-5 animate-spin" aria-hidden="true" />}
         {type === "WAGE" ? "حفظ الدفعة" : "حفظ السلفة"}
-      </Button>
+      </button>
+      </div>
     </form>
   );
 }

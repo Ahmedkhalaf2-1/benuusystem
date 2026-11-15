@@ -1,5 +1,8 @@
 import Link from "next/link";
-import { CalendarClock } from "lucide-react";
+import { CalendarDays } from "lucide-react";
+import { dueText } from "@/components/ds/date-stamp";
+import { ProductIcon } from "@/components/ds/order-cards";
+import { ProductionTrack } from "@/components/ds/production-track";
 import { formatDateAr } from "@/lib/dates";
 import { formatMoneyString } from "@/lib/money";
 import { formatNumber } from "@/lib/numbers";
@@ -8,68 +11,71 @@ import { cn } from "@/lib/utils";
 import type { OrderSummary } from "@/server/services/order-dto";
 import { StatusBadge } from "./status-badge";
 
-/** Mobile order card: who, what, how many, money, when. */
+/** An order on a list: product, who and what, status, deadline, production, and money for those allowed. */
 export function OrderCard({ order, hideCustomer, showMoney = true }: { order: OrderSummary; hideCustomer?: boolean; showMoney?: boolean }) {
   const settled = order.outstanding === "0.00";
-  const prod = order.production;
-  const pct = (v: number) => `${order.quantity > 0 ? Math.min(100, (v / order.quantity) * 100) : 0}%`;
+  const prod = order.production ?? { ready: 0, delivered: 0 };
+  const open = order.status === "NEW" || order.status === "IN_PROGRESS";
+  const due = dueText(order.deliveryDate);
   return (
     <Link
       href={`/orders/${order.id}`}
       className={cn(
-        "block rounded-2xl border bg-card p-4 transition-colors hover:border-primary/40 active:bg-muted",
-        order.overdue && "border-destructive/40",
+        "block rounded-[1.4rem] bg-surface p-4 shadow-[var(--shadow-card)] transition-[transform,box-shadow] duration-200 hover:shadow-[var(--shadow-lift)] active:scale-[0.985]",
+        order.overdue && "ring-1 ring-red/25",
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-muted-foreground" dir="ltr">
-            {formatOrderNumber(order.number)}
-          </p>
-          <p className="mt-0.5 truncate font-bold">
-            {hideCustomer ? order.title : `${order.customerName} — ${order.title}`}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {formatNumber(order.quantity)} {UNIT_LABELS[order.unit]} · {order.productType}
+      <div className="flex items-start gap-3">
+        <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-well text-violet">
+          <ProductIcon productType={order.productType} className="size-6" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <p className="truncate font-display text-[1.02rem] font-semibold">{hideCustomer ? order.title : order.customerName}</p>
+            <StatusBadge status={order.status} overdue={order.overdue} partlyDelivered={prod.delivered > 0 && order.status !== "COMPLETED"} />
+          </div>
+          <p className="truncate text-sm text-graphite">
+            {hideCustomer ? order.productType : order.title}{" "}
+            <span dir="ltr" className="tabular text-xs text-graphite/80">
+              {formatOrderNumber(order.number)}
+            </span>
           </p>
         </div>
-        <StatusBadge status={order.status} overdue={order.overdue} partlyDelivered={!!prod && prod.delivered > 0 && order.status !== "COMPLETED"} />
       </div>
 
-      {prod && (
-        <div className="mt-3">
-          <p className="text-sm">
-            جاهز <b>{formatNumber(prod.ready)}</b> · اتسلم <b>{formatNumber(prod.delivered)}</b> من {formatNumber(order.quantity)} {UNIT_LABELS[order.unit]}
-            {order.quantity - prod.ready > 0 && <span className="text-muted-foreground"> · باقي {formatNumber(order.quantity - prod.ready)}</span>}
-          </p>
-          <div className="relative mt-1.5 h-2 overflow-hidden rounded-full bg-muted">
-            <div className="absolute inset-y-0 start-0 bg-primary/30" style={{ width: pct(prod.ready) }} />
-            <div className="absolute inset-y-0 start-0 bg-primary" style={{ width: pct(prod.delivered) }} />
+      <ProductionTrack className="mt-3.5" required={order.quantity} ready={prod.ready} delivered={prod.delivered} />
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
+        <span className="text-graphite">
+          جاهز <b className="tabular text-teal-ink">{formatNumber(prod.ready)}</b> · اتسلم <b className="tabular font-display text-sm text-ink">{formatNumber(prod.delivered)}</b> من{" "}
+          {formatNumber(order.quantity)} {UNIT_LABELS[order.unit]}
+        </span>
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 font-semibold",
+            !open ? "text-graphite" : due.tone === "late" ? "text-red" : due.tone === "today" || due.tone === "soon" ? "text-amber-ink" : "text-graphite",
+          )}
+        >
+          <CalendarDays className="size-3.5" aria-hidden="true" />
+          {open ? due.text : formatDateAr(order.deliveryDate)}
+        </span>
+      </div>
+
+      {showMoney && (
+        <dl className="mt-3 grid grid-cols-3 gap-1 rounded-2xl bg-well px-1 py-2 text-center">
+          <div>
+            <dt className="text-[0.68rem] text-graphite">الإجمالي</dt>
+            <dd className="tabular font-display text-sm font-semibold whitespace-nowrap">{formatMoneyString(order.totalPrice)}</dd>
           </div>
-        </div>
+          <div className="border-x border-hairline">
+            <dt className="text-[0.68rem] text-graphite">المدفوع</dt>
+            <dd className="tabular font-display text-sm font-semibold whitespace-nowrap text-green-ink">{formatMoneyString(order.paid)}</dd>
+          </div>
+          <div>
+            <dt className="text-[0.68rem] text-graphite">المتبقي</dt>
+            <dd className={cn("tabular font-display text-sm font-semibold whitespace-nowrap", settled ? "text-graphite" : "text-violet")}>{formatMoneyString(order.outstanding)}</dd>
+          </div>
+        </dl>
       )}
-
-      {showMoney && <dl className="mt-3 grid grid-cols-3 gap-2 rounded-xl bg-muted/60 p-2.5 text-center">
-        <div>
-          <dt className="text-[0.7rem] text-muted-foreground">الإجمالي</dt>
-          <dd className="whitespace-nowrap text-sm font-bold">{formatMoneyString(order.totalPrice)}</dd>
-        </div>
-        <div>
-          <dt className="text-[0.7rem] text-muted-foreground">المدفوع</dt>
-          <dd className="whitespace-nowrap text-sm font-bold text-emerald-700">{formatMoneyString(order.paid)}</dd>
-        </div>
-        <div>
-          <dt className="text-[0.7rem] text-muted-foreground">المتبقي</dt>
-          <dd className={cn("whitespace-nowrap text-sm font-bold", settled ? "text-muted-foreground" : "text-primary")}>
-            {formatMoneyString(order.outstanding)}
-          </dd>
-        </div>
-      </dl>}
-
-      <p className={cn("mt-3 flex items-center gap-1.5 text-sm", order.overdue ? "font-semibold text-destructive" : "text-muted-foreground")}>
-        <CalendarClock className="size-4" aria-hidden="true" />
-        موعد التسليم: {formatDateAr(order.deliveryDate)}
-      </p>
     </Link>
   );
 }

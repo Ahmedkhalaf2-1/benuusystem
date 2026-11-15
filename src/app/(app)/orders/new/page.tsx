@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { PageHeader } from "@/components/page-header";
+import { BackLink } from "@/components/page-header";
 import { OrderForm } from "@/components/orders/order-form";
 import { emptyOrderDraft } from "@/components/orders/order-draft";
 import { requirePermission } from "@/lib/auth/current-user";
@@ -20,7 +20,7 @@ export default async function NewOrderPage(props: PageProps<"/orders/new">) {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <PageHeader title="أوردر جديد" backHref="/orders" backLabel="كل الأوردرات" />
+      <BackLink href="/orders" label="كل الأوردرات" />
       <OrderForm
         mode="create"
         initial={emptyOrderDraft(preselected ? { mode: "existing", ...preselected } : null)}

@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { HardHat } from "lucide-react";
 import { formatDateAr } from "@/lib/dates";
 import { formatMoneyString } from "@/lib/money";
 import { formatNumber } from "@/lib/numbers";
@@ -9,13 +8,12 @@ import type { OrderLabor } from "@/server/services/labor-service";
 /** Internal labour of an order: shares of workers' daily wages (computed, never copied). */
 export function OrderLaborSection({ labor }: { labor: OrderLabor }) {
   return (
-    <section className="rounded-2xl border bg-card p-4">
+    <section className="py-1">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 font-bold">
-          <HardHat className="size-5 text-primary" aria-hidden="true" />
-          شغل العمال على الأوردر
+        <h2 className="text-sm text-graphite">
+          تكلفة العمالة على الأوردر
         </h2>
-        <span className="whitespace-nowrap text-lg font-bold" data-testid="order-labor-total">
+        <span className="tabular whitespace-nowrap font-display text-lg font-semibold" data-testid="order-labor-total">
           {formatMoneyString(labor.total)}
         </span>
       </div>

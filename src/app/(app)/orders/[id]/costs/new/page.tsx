@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CostForm } from "@/components/finance/cost-form";
-import { PageHeader } from "@/components/page-header";
+import { ReceiptText } from "lucide-react";
+import { FlowHeader } from "@/components/ds/primitives";
 import { requirePermission } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
 import { todayDateString } from "@/lib/dates";
@@ -19,11 +20,11 @@ export default async function NewOrderCostPage(props: PageProps<"/orders/[id]/co
 
   return (
     <div className="mx-auto max-w-lg">
-      <PageHeader
+      <FlowHeader icon={ReceiptText} hue="amber"
         title="إضافة تكلفة"
         backHref={`/orders/${order.id}`}
         backLabel="رجوع للأوردر"
-        subtitle={
+        context={
           <>
             <span dir="ltr">{formatOrderNumber(order.number)}</span> · {order.customer.name} — {order.title}
           </>

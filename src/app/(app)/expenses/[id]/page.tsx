@@ -50,19 +50,19 @@ export default async function ExpensePage(props: PageProps<"/expenses/[id]">) {
         }
       />
 
-      <section className="rounded-2xl border bg-card p-4">
+      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
         <dl className="grid grid-cols-3 gap-2 text-center">
-          <div className="rounded-xl bg-muted/60 p-3">
+          <div className="rounded-2xl bg-well p-3">
             <dt className="text-xs text-muted-foreground">المبلغ</dt>
             <dd className={cn("mt-1 whitespace-nowrap font-bold", e.voided && "line-through")}>{formatMoneyString(e.amount)}</dd>
           </div>
-          <div className="rounded-xl bg-emerald-50 p-3">
-            <dt className="text-xs text-emerald-800">اتدفع</dt>
-            <dd className="mt-1 whitespace-nowrap font-bold text-emerald-700">{formatMoneyString(e.paid)}</dd>
+          <div className="rounded-2xl bg-green-soft p-3">
+            <dt className="text-xs text-green-ink">اتدفع</dt>
+            <dd className="mt-1 whitespace-nowrap font-bold text-green-ink">{formatMoneyString(e.paid)}</dd>
           </div>
-          <div className="rounded-xl bg-amber-50 p-3">
-            <dt className="text-xs text-amber-900">لسه</dt>
-            <dd className="mt-1 whitespace-nowrap font-bold text-amber-800">{formatMoneyString(e.remaining)}</dd>
+          <div className="rounded-2xl bg-amber-soft p-3">
+            <dt className="text-xs text-amber-ink">لسه</dt>
+            <dd className="mt-1 whitespace-nowrap font-bold text-amber-ink">{formatMoneyString(e.remaining)}</dd>
           </div>
         </dl>
         {canPay && (
@@ -79,12 +79,12 @@ export default async function ExpensePage(props: PageProps<"/expenses/[id]">) {
         )}
       </section>
 
-      <section className="rounded-2xl border bg-card p-4">
-        <h2 className="mb-2 font-bold">الدفعات ({e.payments.length})</h2>
+      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+        <h2 className="mb-2 font-display text-[1.05rem] font-semibold">الدفعات ({e.payments.length})</h2>
         {e.payments.length === 0 ? (
           <p className="text-sm text-muted-foreground">لسه متدفعش حاجة من المصروف ده.</p>
         ) : (
-          <ul className="divide-y">
+          <ul className="divide-y divide-hairline">
             {e.payments.map((p) => (
               <li key={p.id} className="py-3">
                 <div className="flex items-start justify-between gap-3">
@@ -94,7 +94,7 @@ export default async function ExpensePage(props: PageProps<"/expenses/[id]">) {
                     </p>
                     {p.notes && <p className="text-xs">{p.notes}</p>}
                   </div>
-                  <p className={cn("shrink-0 whitespace-nowrap font-bold", p.voided ? "text-muted-foreground line-through" : "text-emerald-700")}>
+                  <p className={cn("shrink-0 whitespace-nowrap font-bold", p.voided ? "text-muted-foreground line-through" : "text-green-ink")}>
                     {formatMoneyString(p.amount)}
                   </p>
                 </div>
@@ -121,7 +121,7 @@ export default async function ExpensePage(props: PageProps<"/expenses/[id]">) {
       </section>
 
       {canVoid && !e.voided && (
-        <section className="rounded-2xl border bg-card p-4">
+        <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
           {toCents(e.paid) > 0n ? (
             <p className="text-sm text-muted-foreground">عشان تلغي المصروف ده، ألغِ مدفوعاته الأول.</p>
           ) : (

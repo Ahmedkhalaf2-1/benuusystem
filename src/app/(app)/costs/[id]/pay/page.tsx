@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { payCostAction } from "@/app/(app)/finance/actions";
 import { PayOutForm } from "@/components/finance/pay-out-form";
-import { PageHeader } from "@/components/page-header";
+import { Banknote } from "lucide-react";
+import { FlowHeader } from "@/components/ds/primitives";
 import { requirePermission } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
 import { todayDateString } from "@/lib/dates";
@@ -26,8 +27,8 @@ export default async function PayCostPage(props: PageProps<"/costs/[id]/pay">) {
 
   return (
     <div className="mx-auto max-w-md">
-      <PageHeader title={cost.supplier ? `دفعة لـ ${cost.supplier.name}` : "دفع تكلفة"} backHref={backHref} backLabel="رجوع" />
-      <div className="mb-5 rounded-2xl border bg-card p-4">
+      <FlowHeader icon={Banknote} hue="amber" title={cost.supplier ? `دفعة لـ ${cost.supplier.name}` : "دفع تكلفة"} backHref={backHref} backLabel="رجوع" />
+      <div className="mb-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
         <p className="font-bold">{cost.description ?? COST_CATEGORY_LABELS[cost.category]}</p>
         <p className="text-sm text-muted-foreground">
           <span dir="ltr">{formatOrderNumber(cost.order.number)}</span> · {cost.order.customer.name} — {cost.order.title}
@@ -39,7 +40,7 @@ export default async function PayCostPage(props: PageProps<"/costs/[id]/pay">) {
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">اتدفع</dt>
-            <dd className="font-bold text-emerald-700">{formatMoneyString(cost.paid)}</dd>
+            <dd className="font-bold text-green-ink">{formatMoneyString(cost.paid)}</dd>
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">لسه</dt>

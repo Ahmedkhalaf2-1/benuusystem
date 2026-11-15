@@ -46,7 +46,7 @@ export function OrderPicker({
 
   if (value) {
     return (
-      <div data-error={error ? "true" : undefined} className="flex min-h-12 items-center gap-3 rounded-xl border border-primary/30 bg-brand-soft px-3.5 py-2">
+      <div data-error={error ? "true" : undefined} className="flex min-h-12 items-center gap-3 rounded-2xl bg-violet-soft px-3.5 py-2 ring-1 ring-violet/30">
         <Check className="size-5 shrink-0 text-primary" aria-hidden="true" />
         <div className="min-w-0 flex-1">
           {value === "none" ? (
@@ -60,7 +60,7 @@ export function OrderPicker({
             </>
           )}
         </div>
-        <button type="button" onClick={() => onChange(null)} className="inline-flex h-10 shrink-0 items-center gap-1 rounded-lg px-2 text-sm font-medium text-primary hover:bg-primary/10">
+        <button type="button" onClick={() => onChange(null)} className="inline-flex h-10 shrink-0 items-center gap-1 rounded-full px-3 text-sm font-semibold text-violet hover:bg-surface">
           <X className="size-4" aria-hidden="true" />
           تغيير
         </button>
@@ -84,10 +84,10 @@ export function OrderPicker({
         />
         {loading && <Loader2 className="absolute inset-y-0 end-3.5 my-auto size-4 animate-spin text-muted-foreground" aria-hidden="true" />}
       </div>
-      <ul role="listbox" className="mt-2 max-h-72 overflow-y-auto rounded-xl border bg-popover p-1">
+      <ul role="listbox" className="mt-2 max-h-72 overflow-y-auto rounded-2xl bg-popover p-1.5 shadow-[var(--shadow-lift)] ring-1 ring-hairline">
         {results.map((o) => (
           <li key={o.id} role="option" aria-selected={false}>
-            <button type="button" onClick={() => onChange(o)} className="flex min-h-12 w-full flex-col items-start rounded-lg px-3 py-2 text-start hover:bg-muted">
+            <button type="button" onClick={() => onChange(o)} className="flex min-h-12 w-full flex-col items-start rounded-xl px-3 py-2 text-start transition-colors hover:bg-well">
               <span className="font-medium">
                 <span dir="ltr">#{String(o.number).padStart(4, "0")}</span> {o.customerName}
               </span>

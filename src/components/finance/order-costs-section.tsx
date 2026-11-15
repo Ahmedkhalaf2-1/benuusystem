@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus, ReceiptText } from "lucide-react";
+import { Plus } from "lucide-react";
 import { voidOrderCostAction, voidOutgoingPaymentAction } from "@/app/(app)/finance/actions";
 import { buttonVariants } from "@/components/ui/button";
 import { formatDateAr } from "@/lib/dates";
@@ -30,36 +30,33 @@ export function OrderCostsSection({
 }) {
   const returnTo = `/orders/${orderId}#costs`;
   return (
-    <section id="costs" className="scroll-mt-20 rounded-2xl border bg-card p-4">
+    <section id="costs" className="scroll-mt-20 py-1">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 font-bold">
-          <ReceiptText className="size-5 text-primary" aria-hidden="true" />
-          تكاليف الأوردر
-        </h2>
+        <h2 className="sr-only">تكاليف الأوردر</h2>
         {canRecord && (
-          <Link href={`/orders/${orderId}/costs/new`} className={buttonVariants({ size: "default" })}>
+          <Link href={`/orders/${orderId}/costs/new`} className={buttonVariants({ variant: "outline", className: "ms-auto" })}>
             <Plus className="size-5" aria-hidden="true" />
             إضافة تكلفة
           </Link>
         )}
       </div>
 
-      <dl className="grid grid-cols-3 gap-2 text-center">
-        <div className="rounded-xl bg-muted/60 p-2.5">
-          <dt className="text-[0.7rem] text-muted-foreground">إجمالي التكاليف</dt>
-          <dd className="mt-0.5 whitespace-nowrap text-sm font-bold" data-testid="costs-total">
+      <dl className="grid grid-cols-3 divide-x divide-rule border-y border-rule py-2.5">
+        <div className="px-2.5 first:ps-0">
+          <dt className="text-[0.72rem] text-graphite">إجمالي التكاليف</dt>
+          <dd className="tabular mt-0.5 whitespace-nowrap font-display font-semibold" data-testid="costs-total">
             {formatMoneyString(summary.totals.costs)}
           </dd>
         </div>
-        <div className="rounded-xl bg-emerald-50 p-2.5">
-          <dt className="text-[0.7rem] text-emerald-800">اتدفع منها</dt>
-          <dd className="mt-0.5 whitespace-nowrap text-sm font-bold text-emerald-700" data-testid="costs-paid">
+        <div className="px-2.5">
+          <dt className="text-[0.72rem] text-graphite">اتدفع منها</dt>
+          <dd className="tabular mt-0.5 whitespace-nowrap font-display font-semibold text-success-ink" data-testid="costs-paid">
             {formatMoneyString(summary.totals.paid)}
           </dd>
         </div>
-        <div className="rounded-xl bg-amber-50 p-2.5">
-          <dt className="text-[0.7rem] text-amber-900">لسه متدفعش</dt>
-          <dd className="mt-0.5 whitespace-nowrap text-sm font-bold text-amber-800" data-testid="costs-outstanding">
+        <div className="px-2.5 last:pe-0">
+          <dt className="text-[0.72rem] text-graphite">لسه متدفعش</dt>
+          <dd className="tabular mt-0.5 whitespace-nowrap font-display font-semibold text-warning-ink" data-testid="costs-outstanding">
             {formatMoneyString(summary.totals.outstanding)}
           </dd>
         </div>
@@ -68,7 +65,7 @@ export function OrderCostsSection({
       {summary.entries.length === 0 ? (
         <p className="mt-3 text-sm text-muted-foreground">لسه مفيش تكاليف على الأوردر ده.</p>
       ) : (
-        <ul className="mt-3 divide-y">
+        <ul className="mt-3 divide-y divide-hairline">
           {summary.entries.map((c) => {
             const voided = c.voided !== null;
             const remaining = toCents(c.remaining);

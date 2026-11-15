@@ -1,10 +1,10 @@
 "use client";
 
+import { hueSubmit, STICKY_SUBMIT } from "@/components/ds/primitives";
 import { useActionState, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { ActionResult } from "@/lib/actions";
 import { Field, FormMessage, Textarea } from "@/components/forms/field";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatAmount, formatMoney, parseMoney, toCents } from "@/lib/money";
 import { PAYMENT_METHOD_LABELS, PAYMENT_METHODS } from "@/lib/orders/labels";
@@ -89,7 +89,8 @@ export function PayOutForm({
       </Field>
 
       <FormMessage message={state?.message} />
-      <Button type="submit" size="lg" className="h-14 w-full text-lg" disabled={pending}>
+      <div className={STICKY_SUBMIT}>
+        <button type="submit" className={hueSubmit("amber")} disabled={pending}>
         {pending ? (
           <>
             <Loader2 className="size-5 animate-spin" aria-hidden="true" />
@@ -98,7 +99,8 @@ export function PayOutForm({
         ) : (
           "حفظ الدفعة"
         )}
-      </Button>
+      </button>
+      </div>
     </form>
   );
 }

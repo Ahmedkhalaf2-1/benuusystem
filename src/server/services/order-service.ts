@@ -78,7 +78,83 @@ function groupsCreateData(groups: CreateOrderInput["groups"]) {
     material: group.material,
     notes: group.notes,
     operations: { create: group.operations.map((operation) => ({ operation })) },
+    sizes: { create: group.sizes.map((size, i) => ({ label: size.label, quantity: size.quantity, position: i + 1 })) },
   }));
+}
+
+/**
+ * Applies an edited size breakdown to an existing group IN PLACE (matched by
+ * label, so "M" keeps its identity when its quantity changes). Refuses edits
+ * that would rewrite history: splitting a group into sizes after unsized
+ * production/deliveries exist, removing a size with records, or cutting a size
+ * below what was already produced or made ready for it.
+ */
+async function applySizeChanges(
+  tx: DbTransaction,
+  groupId: string,
+  index: number,
+  sizes: UpdateOrderInput["groups"][number]["sizes"],
+) {
+  const fail = (message: string): never => {
+    throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { [`groups.${index}.sizes`]: [message] } });
+  };
+  const current = await tx.orderGroupSize.findMany({ where: { orderGroupId: groupId }, select: { id: true, label: true } });
+  const anyWhere = { orderGroupId: groupId };
+  const [unsizedStage, unsizedReady, unsizedDelivered] = await Promise.all([
+    tx.productionStageProgress.count({ where: { ...anyWhere, orderGroupSizeId: null } }),
+    tx.productionReady.count({ where: { ...anyWhere, orderGroupSizeId: null } }),
+    tx.delivery.count({ where: { ...anyWhere, orderGroupSizeId: null } }),
+  ]);
+  if (sizes.length > 0 && current.length === 0 && unsizedStage + unsizedReady + unsizedDelivered > 0) {
+    fail("المجموعة دي اتسجل عليها إنتاج أو تسليم من غير مقاسات، فمينفعش نقسّمها على مقاسات دلوقتي (مش هنخترع أرقام قديمة).");
+  }
+
+  // Sizes referenced by any record (voided too: their rows still point here).
+  const referenced = new Set(
+    (
+      await Promise.all([
+        tx.productionStageProgress.findMany({ where: { ...anyWhere, orderGroupSizeId: { not: null } }, select: { orderGroupSizeId: true }, distinct: ["orderGroupSizeId"] }),
+        tx.productionReady.findMany({ where: { ...anyWhere, orderGroupSizeId: { not: null } }, select: { orderGroupSizeId: true }, distinct: ["orderGroupSizeId"] }),
+        tx.delivery.findMany({ where: { ...anyWhere, orderGroupSizeId: { not: null } }, select: { orderGroupSizeId: true }, distinct: ["orderGroupSizeId"] }),
+      ])
+    )
+      .flat()
+      .map((r) => r.orderGroupSizeId!),
+  );
+  // Already produced per size: the most any one step or "ready" reached.
+  const [stageRows, readyRows] = await Promise.all([
+    tx.productionStageProgress.groupBy({ by: ["orderGroupSizeId", "operation"], where: { ...anyWhere, voidedAt: null, orderGroupSizeId: { not: null } }, _sum: { quantity: true } }),
+    tx.productionReady.groupBy({ by: ["orderGroupSizeId"], where: { ...anyWhere, voidedAt: null, orderGroupSizeId: { not: null } }, _sum: { quantity: true } }),
+  ]);
+  const produced = new Map<string, number>();
+  for (const row of [...stageRows, ...readyRows]) {
+    const id = row.orderGroupSizeId!;
+    produced.set(id, Math.max(produced.get(id) ?? 0, row._sum.quantity ?? 0));
+  }
+
+  const byLabel = new Map(current.map((c) => [c.label, c]));
+  const keptLabels = new Set(sizes.map((x) => x.label));
+  for (const old of current) {
+    if (!keptLabels.has(old.label) && referenced.has(old.id)) {
+      fail(`المقاس ${old.label} عليه إنتاج أو تسليم متسجل ومينفعش يتشال.`);
+    }
+  }
+  for (const size of sizes) {
+    const existing = byLabel.get(size.label);
+    const done = existing ? (produced.get(existing.id) ?? 0) : 0;
+    if (size.quantity < done) fail(`المقاس ${size.label} اتعمل منه ${done} بالفعل — الكمية مينفعش تقل عن كده.`);
+  }
+
+  const removed = current.filter((c) => !keptLabels.has(c.label));
+  if (removed.length > 0) await tx.orderGroupSize.deleteMany({ where: { id: { in: removed.map((r) => r.id) } } });
+  for (const [i, size] of sizes.entries()) {
+    const existing = byLabel.get(size.label);
+    if (existing) {
+      await tx.orderGroupSize.update({ where: { id: existing.id }, data: { quantity: size.quantity, position: i + 1 } });
+    } else {
+      await tx.orderGroupSize.create({ data: { orderGroupId: groupId, label: size.label, quantity: size.quantity, position: i + 1 } });
+    }
+  }
 }
 
 /**
@@ -187,10 +263,10 @@ export function parseUpdateOrder(payload: UpdateOrderPayload): UpdateOrderInput 
   return parsed.data;
 }
 
-type GroupSnapshot = { id: string | null; quantity: number; material: string; notes: string | null; operations: PrintOperation[] };
+type GroupSnapshot = { id: string | null; quantity: number; material: string; notes: string | null; operations: PrintOperation[]; sizes: string[] };
 
 function snapshotGroups(
-  groups: { id?: string | null; quantity: number; material: string; notes?: string | null; operations: PrintOperation[] }[],
+  groups: { id?: string | null; quantity: number; material: string; notes?: string | null; operations: PrintOperation[]; sizes?: { label: string; quantity: number }[] }[],
 ): GroupSnapshot[] {
   return groups.map((g) => ({
     id: g.id ?? null,
@@ -198,6 +274,7 @@ function snapshotGroups(
     material: g.material,
     notes: g.notes ?? null,
     operations: [...g.operations].sort(),
+    sizes: (g.sizes ?? []).map((x) => `${x.label}:${x.quantity}`),
   }));
 }
 
@@ -314,9 +391,15 @@ async function applyGroupChanges(
       if (toAdd.length > 0) {
         await tx.orderGroupOperation.createMany({ data: toAdd.map((operation) => ({ groupId: g.id!, operation })) });
       }
+      await applySizeChanges(tx, g.id, index, g.sizes);
     } else {
       await tx.orderGroup.create({
-        data: { ...data, orderId, operations: { create: g.operations.map((operation) => ({ operation })) } },
+        data: {
+          ...data,
+          orderId,
+          operations: { create: g.operations.map((operation) => ({ operation })) },
+          sizes: { create: g.sizes.map((size, i) => ({ label: size.label, quantity: size.quantity, position: i + 1 })) },
+        },
       });
     }
   }
@@ -357,7 +440,15 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
         updatedAt: true,
         groups: {
           orderBy: { position: "asc" },
-          select: { id: true, position: true, quantity: true, material: true, notes: true, operations: { select: { operation: true } } },
+          select: {
+            id: true,
+            position: true,
+            quantity: true,
+            material: true,
+            notes: true,
+            operations: { select: { operation: true } },
+            sizes: { orderBy: { position: "asc" }, select: { id: true, label: true, quantity: true } },
+          },
         },
       },
     });
@@ -588,7 +679,18 @@ export type OrderDetails = OrderSummary & {
   customerPhone: string | null;
   notes: string | null;
   createdByName: string;
-  groups: { id: string; position: number; quantity: number; material: string; notes: string | null; operations: PrintOperation[]; description: string }[];
+  groups: {
+    id: string;
+    position: number;
+    quantity: number;
+    material: string;
+    notes: string | null;
+    operations: PrintOperation[];
+    description: string;
+    sizes: { id: string; label: string; quantity: number }[];
+  }[];
+  /** True when the order has a size breakdown. */
+  sizesEnabled: boolean;
   /** ISO timestamp — sent back by the edit form for stale-edit protection. */
   updatedAt: string;
   payments: OrderPaymentView[];
@@ -606,7 +708,15 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
       createdBy: { select: { name: true } },
       groups: {
         orderBy: { position: "asc" },
-        select: { id: true, position: true, quantity: true, material: true, notes: true, operations: { select: { operation: true } } },
+        select: {
+            id: true,
+            position: true,
+            quantity: true,
+            material: true,
+            notes: true,
+            operations: { select: { operation: true } },
+            sizes: { orderBy: { position: "asc" }, select: { id: true, label: true, quantity: true } },
+          },
       },
       payments: {
         orderBy: [{ paidAt: "asc" }, { createdAt: "asc" }],
@@ -648,8 +758,10 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
         notes: g.notes,
         operations,
         description: describeOperations(operations),
+        sizes: g.sizes,
       };
     }),
+    sizesEnabled: order.groups.some((g) => g.sizes.length > 0),
     payments: order.payments.map((p) => ({
       id: p.id,
       amount: centsToDecimalString(toCents(p.amount)),
@@ -715,6 +827,83 @@ export async function getDashboardStats(db: DbClient, actor: Actor): Promise<Das
     overdueOrders,
     paymentsThisMonth: payments ? centsToDecimalString(toCents(payments._sum.amount)) : null,
   };
+}
+
+/**
+ * Dashboard "today" overview — every number from real records, nothing stored:
+ * status counts, open orders with pieces ready to hand over, orders that need
+ * attention (overdue, or due within 3 days) and the latest orders.
+ */
+export async function getDashboardOverview(db: DbClient, actor: Actor) {
+  assertPermission(actor, "orders:view");
+  const today = todayDateString();
+  const todayDate = dateFromString(today);
+  const soon = dateFromString(new Date(todayDate.getTime() + 3 * 86_400_000).toISOString().slice(0, 10));
+  const open = { status: { in: [...OPEN_ORDER_STATUSES] } } satisfies Prisma.OrderWhereInput;
+  const select = { ...ORDER_SUMMARY_SELECT, customer: { select: { id: true, name: true } } };
+
+  const [byStatus, readyRows, attentionRows, recentRows, readyWaitingIds] = await Promise.all([
+    db.order.groupBy({ by: ["status"], _count: { _all: true } }),
+    db.$queryRaw<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM orders o
+      WHERE o.status IN ('NEW', 'IN_PROGRESS')
+        AND COALESCE((SELECT SUM(quantity) FROM production_ready r WHERE r.order_id = o.id AND r.voided_at IS NULL), 0)
+          > COALESCE((SELECT SUM(quantity) FROM deliveries d WHERE d.order_id = o.id AND d.voided_at IS NULL), 0)`,
+    db.order.findMany({ where: { ...open, deliveryDate: { lte: soon } }, orderBy: [{ deliveryDate: "asc" }, { number: "asc" }], take: 4, select }),
+    db.order.findMany({ orderBy: [{ createdAt: "desc" }, { number: "desc" }], take: 4, select }),
+    // Open orders holding finished pieces the customer hasn't received yet.
+    db.$queryRaw<{ id: string }[]>`
+      SELECT o.id FROM orders o
+      WHERE o.status IN ('NEW', 'IN_PROGRESS')
+        AND COALESCE((SELECT SUM(quantity) FROM production_ready r WHERE r.order_id = o.id AND r.voided_at IS NULL), 0)
+          > COALESCE((SELECT SUM(quantity) FROM deliveries d WHERE d.order_id = o.id AND d.voided_at IS NULL), 0)
+      ORDER BY o.delivery_date ASC, o.number ASC
+      LIMIT 4`,
+  ]);
+  const readyWaitingRows = readyWaitingIds.length
+    ? await db.order.findMany({ where: { id: { in: readyWaitingIds.map((r) => r.id) } }, orderBy: [{ deliveryDate: "asc" }, { number: "asc" }], select })
+    : [];
+  const ids = [...new Set([...attentionRows, ...recentRows, ...readyWaitingRows].map((o) => o.id))];
+  const [paid, production] = await Promise.all([paidByOrderIds(db, ids), productionTotalsByOrder(db, ids)]);
+  const summary = (row: (typeof recentRows)[number]) => ({ ...toOrderSummary(row, paid.get(row.id) ?? 0n), production: production.get(row.id) });
+  const count = (status: OrderStatus) => byStatus.find((b) => b.status === status)?._count._all ?? 0;
+
+  return {
+    newCount: count("NEW"),
+    inProgressCount: count("IN_PROGRESS"),
+    readyToDeliverCount: readyRows[0]?.n ?? 0,
+    attention: attentionRows.map(summary),
+    readyWaiting: readyWaitingRows.map(summary),
+    recent: recentRows.map(summary),
+  };
+}
+
+export type OrderAction = "production" | "delivery" | "payment";
+
+/**
+ * Open orders on which a quick action can actually be done right now:
+ * production → anything open; delivery → finished pieces still with us;
+ * payment → money still owed. Searchable by customer, title or number.
+ */
+export async function listOrdersForAction(db: DbClient, actor: Actor, action: OrderAction, query: string) {
+  assertPermission(actor, "orders:view");
+  const where: Prisma.OrderWhereInput = { AND: [{ status: { in: [...OPEN_ORDER_STATUSES] } }, orderListWhere(query, "all")] };
+  const rows = await db.order.findMany({
+    where,
+    orderBy: [{ deliveryDate: "asc" }, { number: "asc" }],
+    take: 80,
+    select: { ...ORDER_SUMMARY_SELECT, customer: { select: { id: true, name: true } } },
+  });
+  const ids = rows.map((r) => r.id);
+  const [paid, production] = await Promise.all([paidByOrderIds(db, ids), productionTotalsByOrder(db, ids)]);
+  const items = rows.map((row) => ({ ...toOrderSummary(row, paid.get(row.id) ?? 0n), production: production.get(row.id) }));
+  const fits = (o: (typeof items)[number]) => {
+    const p = o.production ?? { ready: 0, delivered: 0 };
+    if (action === "delivery") return p.ready > p.delivered;
+    if (action === "payment") return toCents(o.outstanding) > 0n;
+    return p.ready < o.quantity;
+  };
+  return items.filter(fits).slice(0, 30);
 }
 
 /** Open orders for the "تسجيل شغل" picker, with their groups. */

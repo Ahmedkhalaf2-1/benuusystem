@@ -5,6 +5,9 @@ import type { PaymentMethod, PrintOperation, QuantityUnit, OrderStatus } from "@
 import type { CustomerChoice } from "./customer-picker";
 
 /** Form state of the order form (strings exactly as typed). Shared by server and client. */
+/** One size row as typed: label + pieces (empty pieces = not included). */
+export type SizeDraft = { label: string; quantity: string };
+
 export type GroupDraft = {
   key: string;
   /** Existing group id (edit only) — preserved so linked worker records stay valid. */
@@ -14,6 +17,7 @@ export type GroupDraft = {
   operations: PrintOperation[];
   plain: boolean;
   notes: string;
+  sizes: SizeDraft[];
 };
 
 export type OrderDraft = {
@@ -31,11 +35,15 @@ export type OrderDraft = {
   deliveryDate: string;
   notes: string;
   status: OrderStatus;
+  /** "تقسيم بالمقاسات" switch. */
+  sizesEnabled: boolean;
+  /** The employee changed the switch themselves: stop suggesting it from the product type. */
+  sizesTouched: boolean;
 };
 
 export function newGroupDraft(partial: Partial<GroupDraft> = {}): GroupDraft {
   const key = `g-${Math.random().toString(36).slice(2, 10)}`;
-  return { key, quantity: "", material: "", operations: [], plain: false, notes: "", ...partial };
+  return { key, quantity: "", material: "", operations: [], plain: false, notes: "", sizes: [], ...partial };
 }
 
 export function emptyOrderDraft(customer: OrderDraft["customer"] = null): OrderDraft {
@@ -54,6 +62,8 @@ export function emptyOrderDraft(customer: OrderDraft["customer"] = null): OrderD
     deliveryDate: "",
     notes: "",
     status: "NEW",
+    sizesEnabled: false,
+    sizesTouched: false,
   };
 }
 
@@ -74,6 +84,7 @@ export function draftFromOrder(order: OrderDetails): OrderDraft {
         operations: g.operations,
         plain: g.operations.length === 0,
         notes: g.notes ?? "",
+        sizes: g.sizes.map((x) => ({ label: x.label, quantity: String(x.quantity) })),
       }),
     ),
     totalPrice: formatAmount(toCents(order.totalPrice)).replace(/,/g, ""),
@@ -83,5 +94,7 @@ export function draftFromOrder(order: OrderDetails): OrderDraft {
     deliveryDate: order.deliveryDate,
     notes: order.notes ?? "",
     status: order.status,
+    sizesEnabled: order.sizesEnabled,
+    sizesTouched: true,
   };
 }

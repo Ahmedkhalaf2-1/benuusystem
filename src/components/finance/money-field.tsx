@@ -31,10 +31,10 @@ export function MoneyField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder ?? "0"}
-        className="h-14 ps-14 text-left text-xl font-bold placeholder:text-base placeholder:font-normal"
+        className="tabular h-16 rounded-2xl ps-14 text-left font-display text-[1.75rem] font-semibold tracking-[-0.02em] placeholder:text-ink/20"
         aria-invalid={invalid ? true : undefined}
       />
-      <span className="pointer-events-none absolute inset-y-0 left-3.5 flex items-center text-sm text-muted-foreground">ج.م</span>
+      <span className="pointer-events-none absolute inset-y-0 left-3.5 flex items-center text-sm font-medium text-graphite">ج.م</span>
     </div>
   );
 }

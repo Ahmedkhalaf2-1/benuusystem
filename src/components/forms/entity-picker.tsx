@@ -92,7 +92,7 @@ export function EntityPicker({
       <div className="space-y-3">
         <div
           data-error={error ? "true" : undefined}
-          className="flex min-h-12 items-center gap-3 rounded-xl border border-primary/30 bg-brand-soft px-3.5 py-2"
+          className="flex min-h-12 items-center gap-3 rounded-2xl bg-violet-soft px-3.5 py-2 ring-1 ring-violet/30"
         >
           {value.mode === "existing" ? (
             <Check className="size-5 shrink-0 text-primary" aria-hidden="true" />
@@ -112,7 +112,7 @@ export function EntityPicker({
               onChange(null);
               setOpen(true);
             }}
-            className="inline-flex h-10 shrink-0 items-center gap-1 rounded-lg px-2 text-sm font-medium text-primary hover:bg-primary/10"
+            className="inline-flex h-10 shrink-0 items-center gap-1 rounded-full px-3 text-sm font-semibold text-violet hover:bg-surface"
           >
             <X className="size-4" aria-hidden="true" />
             تغيير
@@ -169,7 +169,7 @@ export function EntityPicker({
         <ul
           id={`${inputId}-list`}
           role="listbox"
-          className="mt-2 max-h-80 overflow-y-auto rounded-xl border bg-popover p-1 shadow-lg"
+          className="mt-2 max-h-80 overflow-y-auto rounded-2xl bg-popover p-1.5 shadow-[var(--shadow-lift)] ring-1 ring-hairline"
         >
           {matches.map((match) => (
             <li key={match.id} role="option" aria-selected={false}>
@@ -179,7 +179,7 @@ export function EntityPicker({
                   onChange({ mode: "existing", ...match });
                   setOpen(false);
                 }}
-                className="flex min-h-12 w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-start hover:bg-muted active:bg-muted"
+                className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-start transition-colors hover:bg-well active:bg-well"
               >
                 <span className="font-medium">{match.name}</span>
                 {match.phone && (

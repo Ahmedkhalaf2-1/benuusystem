@@ -2,44 +2,63 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Plus } from "lucide-react";
 import { MAIN_NAV, isNavItemActive } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 
-/** Fixed bottom tab bar for phones; hidden on desktop (sidebar takes over). */
-export function BottomNav() {
+/**
+ * Floating tab bar for phones. People who take orders get the raised
+ * «أوردر جديد» button in the middle — the shop's most common action, under the thumb.
+ */
+export function BottomNav({ canCreateOrder = false }: { canCreateOrder?: boolean }) {
   const pathname = usePathname();
+  const half = MAIN_NAV.length / 2;
+  const tab = (item: (typeof MAIN_NAV)[number]) => {
+    const active = isNavItemActive(pathname, item.href);
+    const Icon = item.icon;
+    return (
+      <li key={item.key}>
+        <Link
+          href={item.href}
+          aria-current={active ? "page" : undefined}
+          className={cn(
+            "group flex h-full flex-col items-center justify-center gap-0.5 text-[0.68rem] transition-colors",
+            active ? "font-bold text-violet" : "font-medium text-graphite hover:text-ink",
+          )}
+        >
+          <span
+            className={cn(
+              "flex h-8 w-12 items-center justify-center rounded-full transition-[background-color,transform] duration-300 ease-[var(--ease-out-expo)] group-active:scale-90",
+              active && "bg-violet-soft",
+            )}
+          >
+            <Icon className="size-[1.3rem]" strokeWidth={active ? 2.3 : 1.8} aria-hidden="true" />
+          </span>
+          {item.label}
+        </Link>
+      </li>
+    );
+  };
   return (
     <nav
       aria-label="التنقل الرئيسي"
-      className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t bg-surface/95 backdrop-blur lg:hidden"
+      className="fixed inset-x-3 bottom-[calc(0.6rem+env(safe-area-inset-bottom))] z-40 rounded-[1.6rem] border border-white/60 bg-surface/92 shadow-[var(--shadow-bar)] backdrop-blur-xl lg:hidden"
     >
-      <ul className="mx-auto grid h-16 max-w-md grid-cols-4">
-        {MAIN_NAV.map((item) => {
-          const active = isNavItemActive(pathname, item.href);
-          const Icon = item.icon;
-          return (
-            <li key={item.key}>
-              <Link
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  "flex h-full flex-col items-center justify-center gap-1 text-xs font-medium transition-colors",
-                  active ? "text-primary" : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <span
-                  className={cn(
-                    "flex h-7 w-12 items-center justify-center rounded-full transition-colors",
-                    active && "bg-brand-soft",
-                  )}
-                >
-                  <Icon className="size-5" strokeWidth={active ? 2.25 : 1.75} aria-hidden="true" />
-                </span>
-                {item.label}
-              </Link>
-            </li>
-          );
-        })}
+      <ul className={cn("mx-auto grid h-16 max-w-md", canCreateOrder ? "grid-cols-5" : "grid-cols-4")}>
+        {MAIN_NAV.slice(0, half).map(tab)}
+        {canCreateOrder && (
+          <li className="flex justify-center">
+            <Link
+              href="/orders/new"
+              aria-current={pathname === "/orders/new" ? "page" : undefined}
+              className="-mt-6 flex size-[3.6rem] items-center justify-center rounded-full bg-gradient-to-b from-[#6d47ea] to-violet-deep text-white shadow-[var(--shadow-violet)] ring-4 ring-canvas transition-transform duration-200 active:scale-90"
+            >
+              <Plus className="size-7" strokeWidth={2.5} aria-hidden="true" />
+              <span className="sr-only">أوردر جديد</span>
+            </Link>
+          </li>
+        )}
+        {MAIN_NAV.slice(half).map(tab)}
       </ul>
     </nav>
   );

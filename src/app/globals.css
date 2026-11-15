@@ -2,13 +2,28 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-/* Benuuprint theme — light only, deep purple brand. */
+/* Light-only app: "dark:" utilities apply only under an explicit .dark class, never from the OS setting. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Benuuprint — layered, alive, printed.
+ * Cool lilac canvas, white raised surfaces, one deep-violet brand stage with a
+ * halftone texture (the printer's own dot). Each daily action owns a hue, and
+ * the same hues mean the same thing everywhere:
+ *   violet = the brand, a new order, delivered pieces
+ *   blue   = production        teal  = ready, waiting to be handed over
+ *   green  = money received    amber = expenses / due soon
+ *   rose   = workers           red   = overdue
+ * Contrast (text on white): ink 17:1 · graphite 5.9:1 · violet 7.2:1 ·
+ * blue-ink 6.6:1 · teal-ink 5.4:1 · green-ink 5.6:1 · amber-ink 6:1 · rose-ink 5.7:1.
+ */
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-arabic), ui-sans-serif, system-ui, sans-serif;
-  --font-heading: var(--font-arabic), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-display), var(--font-arabic), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display), var(--font-arabic), ui-sans-serif, system-ui, sans-serif;
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
@@ -28,47 +43,113 @@
   --color-surface: var(--surface);
   --color-brand-soft: var(--brand-soft);
   --color-highlight: var(--highlight);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --color-canvas: var(--background);
+  --color-paper: var(--background);
+  --color-sheet: var(--surface);
+  --color-well: var(--well);
+  --color-ink: var(--ink);
+  --color-graphite: var(--muted-foreground);
+  --color-rule: var(--hairline);
+  --color-hairline: var(--hairline);
+  --color-violet: var(--violet);
+  --color-violet-deep: var(--violet-deep);
+  --color-violet-night: var(--violet-night);
+  --color-violet-soft: var(--brand-soft);
+  --color-blue: var(--blue);
+  --color-blue-ink: var(--blue-ink);
+  --color-blue-soft: var(--blue-soft);
+  --color-teal: var(--teal);
+  --color-teal-ink: var(--teal-ink);
+  --color-teal-soft: var(--teal-soft);
+  --color-green: var(--green);
+  --color-green-ink: var(--green-ink);
+  --color-green-soft: var(--green-soft);
+  --color-amber: var(--amber);
+  --color-amber-ink: var(--amber-ink);
+  --color-amber-soft: var(--amber-soft);
+  --color-rose: var(--rose);
+  --color-rose-ink: var(--rose-ink);
+  --color-rose-soft: var(--rose-soft);
+  --color-register: var(--red);
+  --color-register-soft: var(--red-soft);
+  --color-red: var(--red);
+  --color-red-soft: var(--red-soft);
+  --color-success: var(--green);
+  --color-success-ink: var(--green-ink);
+  --color-success-soft: var(--green-soft);
+  --color-warning: var(--amber);
+  --color-warning-ink: var(--amber-ink);
+  --color-warning-soft: var(--amber-soft);
+  --color-danger-soft: var(--red-soft);
+  --color-lime: var(--teal);
+  --color-lime-soft: var(--teal-soft);
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 0.875rem;
+  --radius-xl: 1.125rem;
+  --radius-2xl: 1.375rem;
+  --radius-3xl: 1.75rem;
+  --radius-4xl: 2.25rem;
+  --shadow-soft: 0 1px 2px rgb(22 18 43 / 0.05), 0 6px 18px -10px rgb(44 20 117 / 0.16);
+  --shadow-card: 0 1px 2px rgb(22 18 43 / 0.04), 0 12px 32px -16px rgb(44 20 117 / 0.22);
+  --shadow-lift: 0 2px 6px rgb(22 18 43 / 0.06), 0 22px 44px -20px rgb(44 20 117 / 0.34);
+  --shadow-violet: 0 2px 6px rgb(61 31 160 / 0.22), 0 14px 30px -12px rgb(91 52 214 / 0.55);
+  --shadow-bar: 0 -1px 0 rgb(22 18 43 / 0.04), 0 18px 40px -12px rgb(44 20 117 / 0.32);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 :root {
   color-scheme: light;
 
-  /* Page background is a faint lavender-white; cards are pure white. */
-  --background: oklch(0.985 0.004 295);
-  --surface: oklch(1 0 0);
-  --foreground: oklch(0.22 0.03 290);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.22 0.03 290);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.22 0.03 290);
+  --background: #f3f1f8; /* cool lilac canvas */
+  --surface: #ffffff;
+  --well: #f6f4fb; /* recessed areas inside cards */
+  --card: #ffffff;
+  --popover: #ffffff;
+  --hairline: #ebe7f3;
 
-  /* Deep purple brand (≈ #4b1fa0). */
-  --primary: oklch(0.42 0.19 292);
-  --primary-foreground: oklch(0.99 0.005 295);
-  --brand-soft: oklch(0.955 0.03 295);
+  --ink: #16122b;
+  --foreground: #16122b;
+  --card-foreground: #16122b;
+  --popover-foreground: #16122b;
+  --muted-foreground: #625b78;
 
-  --secondary: oklch(0.965 0.012 295);
-  --secondary-foreground: oklch(0.32 0.1 292);
-  --muted: oklch(0.965 0.008 295);
-  --muted-foreground: oklch(0.5 0.025 290);
-  --accent: oklch(0.955 0.03 295);
-  --accent-foreground: oklch(0.36 0.16 292);
+  --violet: #5b34d6;
+  --violet-deep: #4322b0;
+  --violet-night: #24106b; /* the stage */
+  --primary: #5b34d6;
+  --primary-foreground: #ffffff;
+  --brand-soft: #eee9fd;
+  --accent: #eee9fd;
+  --accent-foreground: #4322b0;
+  --secondary: #eeebf5;
+  --secondary-foreground: #16122b;
+  --muted: #eeebf5;
 
-  /* Subtle warm magenta accent (a nod to print ink), used sparingly. */
-  --highlight: oklch(0.62 0.2 350);
+  --blue: #2f6bea;
+  --blue-ink: #1f50bd;
+  --blue-soft: #e8effe;
+  --teal: #12a594;
+  --teal-ink: #0b766a;
+  --teal-soft: #ddf4f0;
+  --green: #22a05a;
+  --green-ink: #167444;
+  --green-soft: #e1f5e8;
+  --amber: #e8960c;
+  --amber-ink: #8f5a00;
+  --amber-soft: #fdf1da;
+  --rose: #e0457b;
+  --rose-ink: #b02a5b;
+  --rose-soft: #fde8f0;
+  --red: #dc3b3b;
+  --red-soft: #fde9e9;
 
-  --destructive: oklch(0.56 0.22 27);
-  --border: oklch(0.915 0.012 295);
-  --input: oklch(0.885 0.015 295);
-  --ring: oklch(0.42 0.19 292 / 55%);
-  --radius: 0.75rem;
+  --highlight: #5b34d6;
+  --destructive: #dc3b3b;
+  --border: #e6e1f0;
+  --input: #dcd6e8;
+  --ring: rgb(91 52 214 / 0.4);
+  --radius: 0.875rem;
 }
 
 @layer base {
@@ -77,15 +158,53 @@
   }
   html {
     @apply font-sans;
+    /* Focused fields scroll clear of the sticky header and the floating action/tab bars. */
+    scroll-padding-top: 5rem;
+    scroll-padding-bottom: 10rem;
     -webkit-tap-highlight-color: transparent;
     text-size-adjust: 100%;
   }
   body {
     @apply bg-background text-foreground antialiased;
+    font-feature-settings: "tnum" 0;
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-heading);
+    letter-spacing: -0.01em;
+    text-wrap: balance;
   }
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
+  }
+  /* Browser surfaces carry the palette too. */
+  ::selection {
+    background: #d9cdfb;
+    color: var(--ink);
+  }
+  input,
+  textarea {
+    caret-color: var(--violet);
+  }
+  :focus-visible {
+    outline: 2px solid var(--violet);
+    outline-offset: 2px;
+  }
+  * {
+    scrollbar-color: #c7bde4 transparent;
+    scrollbar-width: thin;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
@@ -94,4 +213,45 @@
 }
 @utility pt-safe {
   padding-top: env(safe-area-inset-top);
+}
+/* Figures in data and money line up. */
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+@utility font-display {
+  font-family: var(--font-display);
+}
+
+/* One authored motion: content settles up into place, once, on screen entry. */
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@utility animate-settle {
+  animation: settle 420ms var(--ease-out-expo) both;
+}
+
+/* The brand stage: deep violet with a halftone dot screen fading across it. */
+@utility stage {
+  background-color: var(--violet-night);
+  background-image:
+    radial-gradient(circle at 1px 1px, rgb(255 255 255 / 0.13) 1px, transparent 1.6px),
+    radial-gradient(120% 90% at 100% 0%, #6c45e6 0%, transparent 60%),
+    linear-gradient(160deg, #3a1a9c 0%, #24106b 70%);
+  background-size: 14px 14px, 100% 100%, 100% 100%;
+  -webkit-mask-image: none;
+}
+/* Kept for compatibility: ready segments are teal now. */
+@utility hatch {
+  background-color: var(--teal);
+}
+@utility leader {
+  flex: 1 1 0%;
+  min-width: 1rem;
 }

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { SupplierForm } from "@/components/finance/supplier-form";
-import { PageHeader } from "@/components/page-header";
+import { Pencil } from "lucide-react";
+import { FlowHeader } from "@/components/ds/primitives";
 import { requirePermission } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
 import { getSupplierForEdit } from "@/server/services/supplier-service";
@@ -15,7 +16,7 @@ export default async function EditSupplierPage(props: PageProps<"/suppliers/[id]
   if (!supplier) notFound();
   return (
     <div className="mx-auto max-w-lg">
-      <PageHeader title="تعديل بيانات المورد" backHref={`/suppliers/${supplier.id}`} backLabel={supplier.name} />
+      <FlowHeader icon={Pencil} hue="blue" title="تعديل بيانات المورد" backHref={`/suppliers/${supplier.id}`} backLabel={supplier.name} />
       <SupplierForm supplier={supplier} />
     </div>
   );

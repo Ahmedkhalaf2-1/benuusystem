@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
-import { PageHeader } from "@/components/page-header";
+import { HandCoins } from "lucide-react";
+import { FlowHeader } from "@/components/ds/primitives";
 import { PaymentForm } from "@/components/orders/payment-form";
 import { requirePermission } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
@@ -20,8 +21,8 @@ export default async function NewPaymentPage(props: PageProps<"/orders/[id]/paym
 
   return (
     <div className="mx-auto max-w-md">
-      <PageHeader title="استلام دفعة" backHref={`/orders/${order.id}`} backLabel="رجوع للأوردر" />
-      <div className="mb-5 rounded-2xl border bg-card p-4">
+      <FlowHeader icon={HandCoins} hue="green" title="استلام دفعة" backHref={`/orders/${order.id}`} backLabel="رجوع للأوردر" />
+      <div className="mb-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
         <p className="text-sm text-muted-foreground">
           <span dir="ltr">{formatOrderNumber(order.number)}</span> · {order.customerName}
         </p>
@@ -33,7 +34,7 @@ export default async function NewPaymentPage(props: PageProps<"/orders/[id]/paym
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">المدفوع</dt>
-            <dd className="font-bold text-emerald-700">{formatMoneyString(order.paid)}</dd>
+            <dd className="font-bold text-green-ink">{formatMoneyString(order.paid)}</dd>
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">المتبقي</dt>

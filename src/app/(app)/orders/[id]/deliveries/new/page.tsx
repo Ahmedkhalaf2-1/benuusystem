@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
-import { PageHeader } from "@/components/page-header";
+import { Truck } from "lucide-react";
+import { FlowHeader } from "@/components/ds/primitives";
 import { DeliveryForm } from "@/components/production/delivery-form";
 import { requirePermission } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
@@ -20,14 +21,16 @@ export default async function NewDeliveryPage(props: PageProps<"/orders/[id]/del
   if (order.status === "CANCELLED") redirect(`/orders/${order.id}`);
   const production = (await getOrderProduction(prisma, user, order.id))!;
   return (
-    <div className="mx-auto max-w-lg">
-      <PageHeader
+    <div className="mx-auto max-w-xl">
+      <FlowHeader
+        icon={Truck}
+        hue="teal"
         title="تسليم قطع"
         backHref={`/orders/${order.id}#production`}
         backLabel="رجوع للأوردر"
-        subtitle={
+        context={
           <>
-            <span dir="ltr">{formatOrderNumber(order.number)}</span> · {order.customer.name} — {order.title}
+            <span dir="ltr" className="tabular">{formatOrderNumber(order.number)}</span> · {order.customer.name} — {order.title}
           </>
         }
       />

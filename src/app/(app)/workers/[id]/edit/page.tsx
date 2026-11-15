@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { PageHeader } from "@/components/page-header";
+import { Pencil } from "lucide-react";
+import { FlowHeader } from "@/components/ds/primitives";
 import { WorkerForm } from "@/components/workers/worker-form";
 import { requirePermission } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
@@ -15,7 +16,7 @@ export default async function EditWorkerPage(props: PageProps<"/workers/[id]/edi
   if (!worker) notFound();
   return (
     <div className="mx-auto max-w-lg">
-      <PageHeader title={`تعديل: ${worker.name}`} backHref={`/workers/${worker.id}`} backLabel="رجوع" />
+      <FlowHeader icon={Pencil} hue="rose" title={`تعديل: ${worker.name}`} backHref={`/workers/${worker.id}`} backLabel="رجوع" />
       <WorkerForm worker={worker} />
     </div>
   );

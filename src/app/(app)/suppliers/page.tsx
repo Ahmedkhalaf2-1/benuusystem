@@ -37,31 +37,31 @@ export default async function SuppliersPage(props: PageProps<"/suppliers">) {
           )
         }
       />
-      <div className="mb-4 flex items-center justify-between rounded-2xl border bg-card p-4">
+      <div className="mb-4 flex items-center justify-between rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
         <span className="text-sm text-muted-foreground">إجمالي اللي علينا للموردين</span>
-        <span className="text-xl font-bold text-amber-800" data-testid="suppliers-owed">
+        <span className="text-xl font-bold text-amber-ink" data-testid="suppliers-owed">
           {formatMoneyString(owed)}
         </span>
       </div>
       <SearchBox action="/suppliers" defaultValue={q} placeholder="دوّر بالاسم أو رقم الموبايل" />
 
       {result.items.length === 0 ? (
-        <div className="mt-6 flex flex-col items-center rounded-3xl border border-dashed bg-card px-6 py-12 text-center">
-          <span className="flex size-14 items-center justify-center rounded-2xl bg-brand-soft text-primary">
+        <div className="mt-6 flex flex-col items-center rounded-[1.6rem] border-2 border-dashed border-[#d9d2ea] bg-surface/60 px-6 py-12 text-center">
+          <span className="flex size-14 items-center justify-center rounded-2xl bg-violet-soft text-violet">
             <Truck className="size-7" aria-hidden="true" />
           </span>
-          <p className="mt-4 font-bold">{q ? "مفيش مورد بالبحث ده" : "لسه مفيش موردين"}</p>
+          <p className="mt-4 font-display text-lg font-semibold">{q ? "مفيش مورد بالبحث ده" : "لسه مفيش موردين"}</p>
           <p className="mt-1 text-sm text-muted-foreground">
             {q ? "جرّب جزء من الاسم أو آخر أرقام الموبايل." : "تقدر تضيف مورد من هنا أو وأنت بتسجّل تكلفة على أوردر."}
           </p>
         </div>
       ) : (
-        <ul className="mt-4 divide-y overflow-hidden rounded-2xl border bg-card">
+        <ul className="mt-4 divide-y divide-hairline overflow-hidden rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)]">
           {result.items.map((s) => {
             const owes = toCents(s.outstanding) > 0n;
             return (
               <li key={s.id}>
-                <Link href={`/suppliers/${s.id}`} className="flex min-h-16 items-center gap-3 px-4 py-3 hover:bg-muted/50 active:bg-muted">
+                <Link href={`/suppliers/${s.id}`} className="flex min-h-16 items-center gap-3 px-4 py-3 transition-colors hover:bg-well active:bg-well">
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-semibold">{s.name}</p>
                     <p className="text-sm text-muted-foreground">
@@ -70,7 +70,7 @@ export default async function SuppliersPage(props: PageProps<"/suppliers">) {
                   </div>
                   <div className="shrink-0 text-end">
                     <p className="text-[0.7rem] text-muted-foreground">لسه ليه</p>
-                    <p className={cn("whitespace-nowrap font-bold", owes ? "text-amber-800" : "text-muted-foreground")}>{formatMoneyString(s.outstanding)}</p>
+                    <p className={cn("whitespace-nowrap font-bold", owes ? "text-amber-ink" : "text-muted-foreground")}>{formatMoneyString(s.outstanding)}</p>
                   </div>
                   <ChevronLeft className="size-5 text-muted-foreground" aria-hidden="true" />
                 </Link>

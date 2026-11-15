@@ -43,7 +43,7 @@ export function LoginForm() {
       {formMessage && (
         <div
           role="alert"
-          className="flex items-start gap-2 rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive"
+          className="flex items-start gap-2 rounded-2xl bg-red-soft p-3.5 text-sm font-medium text-red"
         >
           <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span>{formMessage}</span>

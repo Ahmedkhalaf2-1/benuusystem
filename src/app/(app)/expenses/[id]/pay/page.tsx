@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { payExpenseAction } from "@/app/(app)/finance/actions";
 import { PayOutForm } from "@/components/finance/pay-out-form";
-import { PageHeader } from "@/components/page-header";
+import { Banknote } from "lucide-react";
+import { FlowHeader } from "@/components/ds/primitives";
 import { requirePermission } from "@/lib/auth/current-user";
 import { hasPermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db/prisma";
@@ -23,8 +24,8 @@ export default async function PayExpensePage(props: PageProps<"/expenses/[id]/pa
 
   return (
     <div className="mx-auto max-w-md">
-      <PageHeader title="دفع مصروف" backHref={`/expenses/${expense.id}`} backLabel="رجوع" />
-      <div className="mb-5 rounded-2xl border bg-card p-4">
+      <FlowHeader icon={Banknote} hue="amber" title="دفع مصروف" backHref={`/expenses/${expense.id}`} backLabel="رجوع" />
+      <div className="mb-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
         <p className="font-bold">{EXPENSE_CATEGORY_LABELS[expense.category]}</p>
         <p className="text-sm text-muted-foreground">
           {formatDateAr(expense.expenseDate)}
@@ -37,7 +38,7 @@ export default async function PayExpensePage(props: PageProps<"/expenses/[id]/pa
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">اتدفع</dt>
-            <dd className="font-bold text-emerald-700">{formatMoneyString(expense.paid)}</dd>
+            <dd className="font-bold text-green-ink">{formatMoneyString(expense.paid)}</dd>
           </div>
           <div>
             <dt className="text-xs text-muted-foreground">لسه</dt>

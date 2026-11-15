@@ -1,10 +1,10 @@
 "use client";
 
+import { hueSubmit, STICKY_SUBMIT } from "@/components/ds/primitives";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Loader2 } from "lucide-react";
 import { recordOrderCostAction } from "@/app/(app)/finance/actions";
 import { Field, FormMessage, Textarea } from "@/components/forms/field";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { CostCategory, PaymentMethod } from "@/generated/prisma/enums";
 import { COST_CATEGORIES, COST_CATEGORY_LABELS, type PayStatus } from "@/lib/finance/labels";
@@ -85,7 +85,7 @@ export function CostForm({ orderId, today }: { orderId: string; today: string })
   const clear = (key: string) => setErrors((e) => (e[key] ? { ...e, [key]: "" } : e));
 
   return (
-    <form ref={formRef} onSubmit={submit} noValidate className="space-y-5 rounded-2xl border bg-card p-4 sm:p-5">
+    <form ref={formRef} onSubmit={submit} noValidate className="space-y-5 rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4 sm:p-5">
       <ChoiceCards
         label="نوع التكلفة"
         options={COST_CATEGORIES.map((c) => ({ value: c, label: COST_CATEGORY_LABELS[c] }))}
@@ -147,7 +147,8 @@ export function CostForm({ orderId, today }: { orderId: string; today: string })
         <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} className="min-h-20" placeholder="مثال: رقم الفاتورة" />
       </Field>
       <FormMessage message={message} />
-      <Button type="submit" size="lg" className="h-14 w-full text-lg" disabled={pending}>
+      <div className={STICKY_SUBMIT}>
+        <button type="submit" className={hueSubmit("amber")} disabled={pending}>
         {pending ? (
           <>
             <Loader2 className="size-5 animate-spin" aria-hidden="true" />
@@ -156,7 +157,8 @@ export function CostForm({ orderId, today }: { orderId: string; today: string })
         ) : (
           "حفظ التكلفة"
         )}
-      </Button>
+      </button>
+      </div>
     </form>
   );
 }

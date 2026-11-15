@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { PageHeader } from "@/components/page-header";
+import { UserPlus } from "lucide-react";
+import { FlowHeader } from "@/components/ds/primitives";
 import { WorkerForm } from "@/components/workers/worker-form";
 import { requirePermission } from "@/lib/auth/current-user";
 
@@ -9,7 +10,7 @@ export default async function NewWorkerPage() {
   await requirePermission("workers:manage");
   return (
     <div className="mx-auto max-w-lg">
-      <PageHeader title="عامل جديد" backHref="/workers" backLabel="العمال" subtitle="العامل مش محتاج يوزر أو باسورد." />
+      <FlowHeader icon={UserPlus} hue="rose" title="عامل جديد" backHref="/workers" backLabel="العمال" context="العامل مش محتاج يوزر أو باسورد." />
       <WorkerForm />
     </div>
   );

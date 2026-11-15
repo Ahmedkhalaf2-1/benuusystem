@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { PageHeader } from "@/components/page-header";
+import { CalendarCheck } from "lucide-react";
+import { FlowHeader } from "@/components/ds/primitives";
 import { WorkdayForm } from "@/components/workers/workday-form";
 import { requirePermission } from "@/lib/auth/current-user";
 import { hasPermission } from "@/lib/auth/permissions";
@@ -19,7 +20,7 @@ export default async function WorkdayPage(props: PageProps<"/workers/[id]/workda
   const standardWage = hasPermission(user, "workers:manage") ? formatAmount(toCents(worker.dailyWage)) : null;
   return (
     <div className="mx-auto max-w-lg">
-      <PageHeader title="تسجيل يومية" backHref={`/workers/${worker.id}`} backLabel={worker.name} subtitle={worker.name} />
+      <FlowHeader icon={CalendarCheck} hue="rose" title="تسجيل يومية" backHref={`/workers/${worker.id}`} backLabel={worker.name} context={worker.name} />
       <WorkdayForm workerId={worker.id} today={todayDateString()} standardWage={standardWage} />
     </div>
   );

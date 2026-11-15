@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CustomerForm } from "@/components/customers/customer-form";
-import { PageHeader } from "@/components/page-header";
+import { Pencil } from "lucide-react";
+import { FlowHeader } from "@/components/ds/primitives";
 import { requirePermission } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
 import { getCustomerForEdit } from "@/server/services/customer-service";
@@ -15,7 +16,7 @@ export default async function EditCustomerPage(props: PageProps<"/customers/[id]
   if (!customer) notFound();
   return (
     <div className="mx-auto max-w-lg">
-      <PageHeader title="تعديل بيانات العميل" backHref={`/customers/${customer.id}`} backLabel={customer.name} />
+      <FlowHeader icon={Pencil} hue="violet" title="تعديل بيانات العميل" backHref={`/customers/${customer.id}`} backLabel={customer.name} />
       <CustomerForm customer={customer} />
     </div>
   );

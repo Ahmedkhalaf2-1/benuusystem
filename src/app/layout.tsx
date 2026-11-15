@@ -1,7 +1,16 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Sans_Arabic } from "next/font/google";
+import { IBM_Plex_Sans_Arabic, Readex_Pro } from "next/font/google";
 import "./globals.css";
 
+/** Headlines and every quantity: Readex Pro (OFL, Arabic + Latin, variable). */
+const displayFont = Readex_Pro({
+  variable: "--font-display",
+  subsets: ["arabic", "latin"],
+  weight: "variable",
+  display: "swap",
+});
+
+/** UI and body text: IBM Plex Sans Arabic (OFL). */
 const arabicFont = IBM_Plex_Sans_Arabic({
   variable: "--font-arabic",
   subsets: ["arabic", "latin"],
@@ -30,13 +39,13 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#4b1fa0",
+  themeColor: "#f3f1f8",
   colorScheme: "light",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="ar" dir="rtl" className={`${arabicFont.variable} h-full`}>
+    <html lang="ar" dir="rtl" className={`${arabicFont.variable} ${displayFont.variable} h-full`}>
       <body className="min-h-full">{children}</body>
     </html>
   );

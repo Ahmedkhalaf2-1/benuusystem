@@ -63,21 +63,21 @@ export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) 
         }
       />
 
-      <section className="rounded-2xl border bg-card p-4">
+      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
         <dl className="grid grid-cols-3 gap-2 text-center">
-          <div className="rounded-xl bg-muted/60 p-3">
+          <div className="rounded-2xl bg-well p-3">
             <dt className="text-xs text-muted-foreground">اشترينا منه</dt>
             <dd className="mt-1 whitespace-nowrap text-sm font-bold sm:text-base">{formatMoneyString(supplier.totals.purchased)}</dd>
           </div>
-          <div className="rounded-xl bg-emerald-50 p-3">
-            <dt className="text-xs text-emerald-800">دفعناله</dt>
-            <dd className="mt-1 whitespace-nowrap text-sm font-bold text-emerald-700 sm:text-base" data-testid="supplier-paid">
+          <div className="rounded-2xl bg-green-soft p-3">
+            <dt className="text-xs text-green-ink">دفعناله</dt>
+            <dd className="mt-1 whitespace-nowrap text-sm font-bold text-green-ink sm:text-base" data-testid="supplier-paid">
               {formatMoneyString(supplier.totals.paid)}
             </dd>
           </div>
-          <div className="rounded-xl bg-amber-50 p-3">
-            <dt className="text-xs text-amber-900">لسه ليه</dt>
-            <dd className="mt-1 whitespace-nowrap text-sm font-bold text-amber-800 sm:text-base" data-testid="supplier-outstanding">
+          <div className="rounded-2xl bg-amber-soft p-3">
+            <dt className="text-xs text-amber-ink">لسه ليه</dt>
+            <dd className="mt-1 whitespace-nowrap text-sm font-bold text-amber-ink sm:text-base" data-testid="supplier-outstanding">
               {formatMoneyString(supplier.totals.outstanding)}
             </dd>
           </div>
@@ -85,15 +85,15 @@ export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) 
       </section>
 
       {unpaid.length > 0 && canPay && (
-        <section className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4">
-          <h2 className="mb-1 font-bold">تسجيل دفعة للمورد</h2>
+        <section className="rounded-[1.4rem] bg-amber-soft/70 p-4">
+          <h2 className="mb-1 font-display text-[1.05rem] font-semibold">تسجيل دفعة للمورد</h2>
           <p className="mb-3 text-sm text-muted-foreground">اختار الحاجة اللي بتدفع تمنها:</p>
           <ul className="space-y-2">
             {unpaid.map((p) => (
               <li key={p.id}>
                 <Link
                   href={`/costs/${p.id}/pay?from=supplier`}
-                  className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3 hover:border-primary/40 active:bg-muted"
+                  className="flex items-center justify-between gap-3 rounded-2xl bg-surface p-3 shadow-[var(--shadow-card)] transition-shadow hover:shadow-[var(--shadow-lift)] active:scale-[0.99]"
                 >
                   <div className="min-w-0">
                     <p className="truncate font-semibold">{p.description ?? COST_CATEGORY_LABELS[p.category]}</p>
@@ -103,7 +103,7 @@ export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) 
                   </div>
                   <div className="shrink-0 text-end">
                     <p className="text-[0.7rem] text-muted-foreground">لسه</p>
-                    <p className="whitespace-nowrap font-bold text-amber-800">{formatMoneyString(p.remaining)}</p>
+                    <p className="whitespace-nowrap font-bold text-amber-ink">{formatMoneyString(p.remaining)}</p>
                   </div>
                   <span className={buttonVariants({ size: "sm", className: "h-9 shrink-0 px-3" })}>ادفع</span>
                 </Link>
@@ -113,12 +113,12 @@ export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) 
         </section>
       )}
 
-      <section className="rounded-2xl border bg-card p-4">
-        <h2 className="mb-2 font-bold">المشتريات ({supplier.purchases.length})</h2>
+      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+        <h2 className="mb-2 font-display text-[1.05rem] font-semibold">المشتريات ({supplier.purchases.length})</h2>
         {supplier.purchases.length === 0 ? (
           <p className="text-sm text-muted-foreground">لسه مفيش مشتريات من المورد ده. المشتريات بتتسجل من صفحة الأوردر («إضافة تكلفة»).</p>
         ) : (
-          <ul className="divide-y">
+          <ul className="divide-y divide-hairline">
             {supplier.purchases.map((p) => (
               <li key={p.id} className="py-3">
                 <div className="flex items-start justify-between gap-3">
@@ -142,12 +142,12 @@ export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) 
         )}
       </section>
 
-      <section className="rounded-2xl border bg-card p-4">
-        <h2 className="mb-2 font-bold">الدفعات ({supplier.payments.length})</h2>
+      <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
+        <h2 className="mb-2 font-display text-[1.05rem] font-semibold">الدفعات ({supplier.payments.length})</h2>
         {supplier.payments.length === 0 ? (
           <p className="text-sm text-muted-foreground">لسه مفيش دفعات للمورد ده.</p>
         ) : (
-          <ul className="divide-y">
+          <ul className="divide-y divide-hairline">
             {supplier.payments.map((p) => (
               <li key={p.id} className="py-3">
                 <div className="flex items-start justify-between gap-3">
@@ -158,7 +158,7 @@ export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) 
                     </p>
                     {p.notes && <p className="text-xs">{p.notes}</p>}
                   </div>
-                  <p className={cn("shrink-0 whitespace-nowrap font-bold", p.voided ? "text-muted-foreground line-through" : "text-emerald-700")}>
+                  <p className={cn("shrink-0 whitespace-nowrap font-bold", p.voided ? "text-muted-foreground line-through" : "text-green-ink")}>
                     {formatMoneyString(p.amount)}
                   </p>
                 </div>
@@ -185,7 +185,7 @@ export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) 
       </section>
 
       {supplier.notes && (
-        <section className="rounded-2xl border bg-card p-4">
+        <section className="rounded-[1.4rem] bg-surface shadow-[var(--shadow-card)] p-4">
           <h2 className="mb-1 text-sm text-muted-foreground">ملاحظات</h2>
           <p className="whitespace-pre-wrap">{supplier.notes}</p>
         </section>
