@@ -22,7 +22,7 @@ Monthly accounts and profit come in a later phase. Until then they show a "قر�
 | Auth | Own implementation: Argon2id passwords, database sessions, HttpOnly cookies |
 | Validation | Zod 4 (shared by client and server) |
 | Tests | Vitest (unit + PostgreSQL integration tests) |
-| Hosting | Ubuntu VPS, Node.js, PM2, Caddy (HTTPS), PostgreSQL |
+| Hosting | Ubuntu VPS, Node.js, systemd, Caddy (HTTPS), PostgreSQL |
 
 There are no external paid services, no Supabase/Firebase/Vercel dependencies and no separate backend. Next.js serves the UI, server actions and API routes from one repository.
 
@@ -35,6 +35,7 @@ prisma/
 prisma.config.ts           Prisma CLI config (reads DATABASE_URL)
 scripts/
   create-admin.ts          `npm run admin:create`: first owner account
+  manage-users.ts          `npm run users -- …`: staff accounts, password resets, sign-out everywhere
   generate-icons.mjs       `npm run icons`: regenerate PWA icons
 src/
   proxy.ts                 Optimistic route guard (no session cookie → /login)
@@ -68,8 +69,7 @@ src/
 tests/
   unit/                    Pure logic, proxy, API error handling
   integration/             Real PostgreSQL: login, sessions, rate limits, owner CLI
-deploy/Caddyfile.example
-ecosystem.config.cjs       PM2 process file
+deploy/                    systemd units, Caddy block, env templates, deploy/backup/restore scripts
 docker-compose.yml         Local PostgreSQL for development
 ```
 
@@ -111,7 +111,7 @@ CREATE DATABASE benuuprint_test OWNER benuuprint;   -- optional, for integration
 | `TEST_DATABASE_URL` | for integration tests | A **separate, disposable** database. Tests wipe it. |
 | `SESSION_COOKIE_SECURE` | no | Defaults to `true` in production. Set `false` only to try a production build over plain http on your own machine. |
 
-Environment variables are validated on first use (`src/lib/env.ts`). `next build` does not need a database. No session secret is needed: sessions are random tokens stored (hashed) in PostgreSQL. **Never commit `.env`.** Only `.env.example` is tracked.
+Environment variables are validated on first use (`src/lib/env.ts`), and a production server refuses to start (exit code 1) when `DATABASE_URL` is missing or invalid, uses the local development password, or points at a `*_test` database (`src/instrumentation.ts`). `next build` does not need a database. No session secret is needed: sessions are random tokens stored (hashed) in PostgreSQL. **Never commit `.env`.** Only `.env.example` is tracked.
 
 ## Customers & orders (Phase 2)
 
@@ -330,31 +330,15 @@ npm start            # listens on 127.0.0.1:3000
 
 ## VPS deployment (preparation; not deployed yet)
 
-Target: Ubuntu VPS with Node.js 20.19+, PostgreSQL, PM2 and Caddy. Existing apps on the server are not touched. This app uses its own directory, its own database/user, its own PM2 process name (`benuuprint-erp`) and its own Caddy site block.
+Target: Ubuntu VPS with Node.js 26 LTS, PostgreSQL 17, **systemd** and Caddy. The app gets its own system user, directory, database role, systemd unit and Caddy site block, so other projects on the server are not touched.
 
-1. **Database.** Create a dedicated user and database (see SQL above) with a strong password.
-2. **Code.** Clone into e.g. `/srv/benuuprint-erp` as a non-root user.
-3. **Environment.** Create `/srv/benuuprint-erp/.env` with the production `DATABASE_URL`, then `chmod 600 .env`.
-4. **Build.**
-   ```bash
-   npm ci
-   npm run build
-   npm run db:deploy
-   npm run admin:create      # once
-   ```
-5. **Run with PM2.**
-   ```bash
-   pm2 start ecosystem.config.cjs
-   pm2 save
-   pm2 startup               # follow the printed instruction once
-   ```
-   Use a free port if 3000 is taken: change `-p 3000` in `ecosystem.config.cjs` and in the Caddy block.
-6. **HTTPS with Caddy.** Add the block from `deploy/Caddyfile.example` with your domain to `/etc/caddy/Caddyfile`, then `sudo systemctl reload caddy`. The app listens only on `127.0.0.1`, so Caddy is the only public entry point. That is also what makes the client IP used for rate limiting trustworthy.
-7. **Check.** `curl https://your-domain/api/health` should return `{"ok":true,"data":{"status":"ok","database":"ok"}}`.
+- [`docs/production-readiness.md`](docs/production-readiness.md): security audit, architecture, environment variables, what is left before go-live.
+- [`docs/deployment-runbook.md`](docs/deployment-runbook.md): first-time server setup, deploying, rollback, health checks, common failures.
+- [`docs/backup-restore.md`](docs/backup-restore.md): encrypted daily backups, off-server copies, restore drills, disaster recovery.
 
-**Updating later:** `git pull && npm ci && npm run build && npm run db:deploy && pm2 reload benuuprint-erp`.
+Files in `deploy/`: `benuuprint.service` (app), `benuuprint-backup.service` + `.timer` (daily backup), `Caddyfile.example`, `benuuprint.env.example` and `backup.env.example` (templates, no secrets), `deploy.sh`, `backup.sh`, `restore-drill.sh`, `backup-status.sh`.
 
-**Backups:** schedule `pg_dump` of the database (e.g. a nightly cron) and copy the dumps off the server.
+Accounts on the server: `npm run admin:create` (first owner, once) and `npm run users -- list | create-staff | reset-password <email> | deactivate <email> | activate <email> | revoke-sessions <email>`.
 
 ## Installing the app on phones (PWA)
 
