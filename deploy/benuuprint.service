@@ -8,6 +8,9 @@
 Description=Benuuprint ERP (Next.js)
 After=network-online.target postgresql.service
 Wants=network-online.target
+# Give up after 5 failed starts in 2 minutes so a broken deploy is visible.
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -22,12 +25,10 @@ ExecStart=/usr/bin/env node node_modules/next/dist/bin/next start -H 127.0.0.1 -
 # Graceful shutdown: Next.js finishes in-flight requests on SIGTERM.
 KillSignal=SIGTERM
 TimeoutStopSec=30
-# Restart on crashes and on a refused start (bad configuration), with backoff;
-# give up after 5 failures in 2 minutes so a broken deploy is visible.
+# Restart on crashes and on a refused start (bad configuration), with backoff
+# (the give-up limit is in [Unit] above).
 Restart=on-failure
 RestartSec=5
-StartLimitIntervalSec=120
-StartLimitBurst=5
 # Memory guard for a small VPS (the app normally uses well under this).
 MemoryMax=900M
 
