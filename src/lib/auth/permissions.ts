@@ -4,7 +4,11 @@ import { AppError } from "@/lib/errors";
 /**
  * Permission-based authorization.
  *
- * Code checks permissions, never roles directly. Roles map to sets of
+ * Code checks permissions, never roles directly.
+ *
+ * Financial privacy: STAFF can record operational things (orders, customer
+ * payments, costs, expenses, attendance, output) but cannot see company-wide
+ * money: cost totals, expense lists, supplier balances, wages or summaries. Roles map to sets of
  * permissions here, so future phases can add permissions (e.g. "orders:create")
  * and assign them to roles — or later to individual users — without touching
  * the call sites.
@@ -38,6 +42,25 @@ export const PERMISSIONS = [
   "payables:pay",
   /** Voiding order costs, general expenses and money paid out (owner). */
   "finance:void",
+  /** Supplier balances (what we owe each supplier). */
+  "suppliers:view-balances",
+  /** Company-wide money figures (dashboard money cards, monthly totals). */
+  "finance:view-summary",
+  // Workers
+  /** Worker names/jobs — enough to pick a worker when recording work. */
+  "workers:view",
+  /** Add/edit workers, including their daily wage. */
+  "workers:manage",
+  /** Wages, earnings, payments, balances. */
+  "workers:view-pay",
+  /** Paying wages and advances. */
+  "workers:pay",
+  /** Recording attendance (يومية) and output (شغل). Never shows money. */
+  "work:record",
+  /** Voiding wrong attendance / output records (owner). */
+  "workers:correct",
+  /** Labour cost per order. */
+  "labor:view",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -54,11 +77,11 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "payments:record",
     "suppliers:view",
     "suppliers:manage",
-    "costs:view",
     "costs:record",
-    "expenses:view",
     "expenses:record",
     "payables:pay",
+    "workers:view",
+    "work:record",
   ],
 };
 

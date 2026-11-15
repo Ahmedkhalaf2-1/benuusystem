@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { toActionResult, type ActionResult } from "@/lib/actions";
 import { requireUser } from "@/lib/auth/current-user";
+import { hasPermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db/prisma";
 import type { RecordExpensePayload, RecordOrderCostPayload } from "@/lib/validations/finance";
 import { recordOrderCost, voidOrderCost } from "@/server/services/cost-service";
@@ -90,7 +91,8 @@ export async function recordExpenseAction(payload: RecordExpensePayload): Promis
     expenseId = (await recordExpense(prisma, user, payload)).expenseId;
   });
   if (failure) return failure;
-  redirect(`/expenses/${expenseId}?saved=created`);
+  // Staff may record expenses without access to the expenses list.
+  redirect(hasPermission(user, "expenses:view") ? `/expenses/${expenseId}?saved=created` : "/accounts?saved=expense");
 }
 
 export async function voidExpenseAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {

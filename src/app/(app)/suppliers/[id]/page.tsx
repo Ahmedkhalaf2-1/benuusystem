@@ -28,7 +28,7 @@ const FLASH: Record<string, string> = {
 };
 
 export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) {
-  const user = await requirePermission("suppliers:view");
+  const user = await requirePermission("suppliers:view-balances");
   const { id } = await props.params;
   const { saved } = await props.searchParams;
   const supplier = /^[0-9a-f-]{36}$/i.test(id) ? await getSupplierDetails(prisma, user, id) : null;

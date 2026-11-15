@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
-import type { OrderStatus, PaymentMethod, PrintOperation } from "@/generated/prisma/enums";
+import type { OrderStatus, PaymentMethod, PrintOperation, QuantityUnit, WorkUnit } from "@/generated/prisma/enums";
 import { assertPermission, hasPermission } from "@/lib/auth/permissions";
 import type { DbClient, DbTransaction } from "@/lib/db/prisma";
 import { dateFromString, dateToString, todayDateString } from "@/lib/dates";
@@ -186,17 +186,115 @@ export function parseUpdateOrder(payload: UpdateOrderPayload): UpdateOrderInput 
   return parsed.data;
 }
 
-type GroupSnapshot = { quantity: number; material: string; notes: string | null; operations: PrintOperation[] };
+type GroupSnapshot = { id: string | null; quantity: number; material: string; notes: string | null; operations: PrintOperation[] };
 
 function snapshotGroups(
-  groups: { quantity: number; material: string; notes?: string | null; operations: PrintOperation[] }[],
+  groups: { id?: string | null; quantity: number; material: string; notes?: string | null; operations: PrintOperation[] }[],
 ): GroupSnapshot[] {
   return groups.map((g) => ({
+    id: g.id ?? null,
     quantity: g.quantity,
     material: g.material,
     notes: g.notes ?? null,
     operations: [...g.operations].sort(),
   }));
+}
+
+/** Order units that a worker-log unit can be compared with (same physical thing). */
+const COMPARABLE_UNITS: Partial<Record<QuantityUnit, WorkUnit>> = { PIECE: "PIECE", METER: "METER" };
+
+/**
+ * Pieces of a group already worked on: for each kind of work, the logged
+ * quantity in the order's own unit; the largest of those (cutting, sewing… each
+ * handle the same pieces, so they are not added together).
+ */
+async function committedQuantities(tx: DbTransaction, groupIds: string[], orderUnit: QuantityUnit) {
+  const unit = COMPARABLE_UNITS[orderUnit];
+  const result = new Map<string, number>();
+  if (!unit || groupIds.length === 0) return result;
+  const rows = await tx.workerWorkLog.groupBy({
+    by: ["orderGroupId", "workType"],
+    where: { orderGroupId: { in: groupIds }, voidedAt: null, unit },
+    _sum: { quantity: true },
+  });
+  for (const row of rows) {
+    const id = row.orderGroupId!;
+    result.set(id, Math.max(result.get(id) ?? 0, row._sum.quantity ?? 0));
+  }
+  return result;
+}
+
+type ExistingGroup = { id: string; position: number; quantity: number };
+
+/**
+ * Applies edited groups IN PLACE: existing ids are updated (so worker logs and
+ * future production records keep pointing at them), new ones created, removed
+ * ones deleted only if nothing references them.
+ */
+async function applyGroupChanges(
+  tx: DbTransaction,
+  orderId: string,
+  orderUnit: QuantityUnit,
+  existing: ExistingGroup[],
+  groups: UpdateOrderInput["groups"],
+) {
+  const byId = new Map(existing.map((g) => [g.id, g]));
+  const keptIds = new Set<string>();
+  groups.forEach((g, index) => {
+    if (!g.id) return;
+    if (!byId.has(g.id) || keptIds.has(g.id)) {
+      throw new AppError("VALIDATION_ERROR", undefined, {
+        fieldErrors: { [`groups.${index}`]: ["المجموعة دي مش تبع الأوردر ده. افتح صفحة التعديل من جديد."] },
+      });
+    }
+    keptIds.add(g.id);
+  });
+
+  const removed = existing.filter((g) => !keptIds.has(g.id));
+  if (removed.length > 0) {
+    const referenced = await tx.workerWorkLog.findMany({
+      where: { orderGroupId: { in: removed.map((g) => g.id) } },
+      select: { orderGroupId: true },
+      distinct: ["orderGroupId"],
+    });
+    if (referenced.length > 0) {
+      const positions = removed.filter((g) => referenced.some((r) => r.orderGroupId === g.id)).map((g) => g.position);
+      throw new AppError("CONFLICT", `مجموعة ${positions.join("، ")} عليها شغل عمال متسجل ومينفعش تتشال.`);
+    }
+  }
+
+  const committed = await committedQuantities(tx, [...keptIds], orderUnit);
+  groups.forEach((g, index) => {
+    const done = g.id ? (committed.get(g.id) ?? 0) : 0;
+    if (g.quantity < done) {
+      throw new AppError("VALIDATION_ERROR", undefined, {
+        fieldErrors: { [`groups.${index}.quantity`]: [`الكمية مينفعش تقل عن اللي اتشغل فعلًا (${done})`] },
+      });
+    }
+  });
+
+  // Park kept groups on temporary positions so reordering never collides
+  // with the (order_id, position) unique index.
+  for (const g of existing.filter((x) => keptIds.has(x.id))) {
+    await tx.orderGroup.update({ where: { id: g.id }, data: { position: g.position + 1000 } });
+  }
+  if (removed.length > 0) {
+    await tx.orderGroup.deleteMany({ where: { id: { in: removed.map((g) => g.id) } } });
+  }
+  for (const [index, g] of groups.entries()) {
+    const data = { position: index + 1, quantity: g.quantity, material: g.material, notes: g.notes ?? null };
+    if (g.id) {
+      await tx.orderGroup.update({ where: { id: g.id }, data });
+      await tx.orderGroupOperation.deleteMany({ where: { groupId: g.id } });
+      if (g.operations.length > 0) {
+        await tx.orderGroupOperation.createMany({ data: g.operations.map((operation) => ({ groupId: g.id!, operation })) });
+      }
+    } else {
+      await tx.orderGroup.create({
+        data: { ...data, orderId, operations: { create: g.operations.map((operation) => ({ operation })) } },
+      });
+    }
+  }
 }
 
 /**
@@ -231,12 +329,18 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
         deliveryDate: true,
         notes: true,
         status: true,
+        updatedAt: true,
         groups: {
           orderBy: { position: "asc" },
-          select: { quantity: true, material: true, notes: true, operations: { select: { operation: true } } },
+          select: { id: true, position: true, quantity: true, material: true, notes: true, operations: { select: { operation: true } } },
         },
       },
     });
+
+    // Someone saved this order after the edit screen was opened: don't overwrite their changes.
+    if (input.expectedUpdatedAt && new Date(input.expectedUpdatedAt).getTime() !== before.updatedAt.getTime()) {
+      throw new AppError("CONFLICT", "الأوردر اتعدّل من حد تاني بعد ما فتحت الصفحة. افتح صفحة التعديل من جديد عشان تشوف آخر نسخة.");
+    }
 
     if (before.status === "COMPLETED") {
       throw new AppError("CONFLICT", "الأوردر ده مكتمل ومينفعش يتعدل");
@@ -303,7 +407,7 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
     if (groupsChanged) changes.groups = { from: beforeGroups, to: afterGroups };
 
     if (groupsChanged) {
-      await tx.orderGroup.deleteMany({ where: { orderId: input.orderId } });
+      await applyGroupChanges(tx, input.orderId, input.unit, before.groups, input.groups);
     }
     await tx.order.update({
       where: { id: input.orderId },
@@ -319,7 +423,6 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
         deliveryDate: dateFromString(input.deliveryDate),
         notes: input.notes ?? null,
         status: input.status,
-        ...(groupsChanged ? { groups: { create: groupsCreateData(input.groups) } } : {}),
       },
     });
 
@@ -440,7 +543,9 @@ export type OrderDetails = OrderSummary & {
   customerPhone: string | null;
   notes: string | null;
   createdByName: string;
-  groups: { position: number; quantity: number; material: string; notes: string | null; operations: PrintOperation[]; description: string }[];
+  groups: { id: string; position: number; quantity: number; material: string; notes: string | null; operations: PrintOperation[]; description: string }[];
+  /** ISO timestamp — sent back by the edit form for stale-edit protection. */
+  updatedAt: string;
   payments: OrderPaymentView[];
 };
 
@@ -451,11 +556,12 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
     select: {
       ...ORDER_SUMMARY_SELECT,
       notes: true,
+      updatedAt: true,
       customer: { select: { id: true, name: true, phone: true } },
       createdBy: { select: { name: true } },
       groups: {
         orderBy: { position: "asc" },
-        select: { position: true, quantity: true, material: true, notes: true, operations: { select: { operation: true } } },
+        select: { id: true, position: true, quantity: true, material: true, notes: true, operations: { select: { operation: true } } },
       },
       payments: {
         orderBy: [{ paidAt: "asc" }, { createdAt: "asc" }],
@@ -486,9 +592,11 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
     customerPhone: order.customer.phone,
     notes: order.notes,
     createdByName: order.createdBy.name,
+    updatedAt: order.updatedAt.toISOString(),
     groups: order.groups.map((g) => {
       const operations = g.operations.map((o) => o.operation);
       return {
+        id: g.id,
         position: g.position,
         quantity: g.quantity,
         material: g.material,
@@ -536,8 +644,8 @@ export async function recentMaterials(db: DbClient, actor: Actor, limit = 15): P
 export type DashboardStats = {
   activeOrders: number;
   overdueOrders: number;
-  /** Valid payments dated in the current (Cairo) month, decimal string. */
-  paymentsThisMonth: string;
+  /** Valid customer payments dated this (Cairo) month — null unless allowed to see company money. */
+  paymentsThisMonth: string | null;
 };
 
 export async function getDashboardStats(db: DbClient, actor: Actor): Promise<DashboardStats> {
@@ -546,19 +654,63 @@ export async function getDashboardStats(db: DbClient, actor: Actor): Promise<Das
   const monthStart = dateFromString(`${today.slice(0, 8)}01`);
   const todayDate = dateFromString(today);
 
+  const canSeeMoney = hasPermission(actor, "finance:view-summary");
   const [activeOrders, overdueOrders, payments] = await Promise.all([
     db.order.count({ where: { status: { in: [...OPEN_ORDER_STATUSES] } } }),
     db.order.count({ where: { status: { in: [...OPEN_ORDER_STATUSES] }, deliveryDate: { lt: todayDate } } }),
-    db.orderPayment.aggregate({
-      where: { voidedAt: null, paidAt: { gte: monthStart, lte: todayDate } },
-      _sum: { amount: true },
-    }),
+    canSeeMoney
+      ? db.orderPayment.aggregate({
+          where: { voidedAt: null, paidAt: { gte: monthStart, lte: todayDate } },
+          _sum: { amount: true },
+        })
+      : null,
   ]);
   return {
     activeOrders,
     overdueOrders,
-    paymentsThisMonth: centsToDecimalString(toCents(payments._sum.amount)),
+    paymentsThisMonth: payments ? centsToDecimalString(toCents(payments._sum.amount)) : null,
   };
 }
+
+/** Open orders for the "تسجيل شغل" picker, with their groups. */
+export async function searchOpenOrders(db: DbClient, actor: Actor, query: string, limit = 8) {
+  assertPermission(actor, "orders:view");
+  const where: Prisma.OrderWhereInput = {
+    AND: [{ status: { in: [...OPEN_ORDER_STATUSES] } }, orderListWhere(query, "all")],
+  };
+  const rows = await db.order.findMany({
+    where,
+    orderBy: [{ deliveryDate: "asc" }, { number: "asc" }],
+    take: limit,
+    select: {
+      id: true,
+      number: true,
+      title: true,
+      quantity: true,
+      unit: true,
+      customer: { select: { name: true } },
+      groups: {
+        orderBy: { position: "asc" },
+        select: { id: true, position: true, quantity: true, operations: { select: { operation: true } } },
+      },
+    },
+  });
+  return rows.map((o) => ({
+    id: o.id,
+    number: o.number,
+    title: o.title,
+    customerName: o.customer.name,
+    quantity: o.quantity,
+    unit: o.unit,
+    groups: o.groups.map((g) => ({
+      id: g.id,
+      position: g.position,
+      quantity: g.quantity,
+      description: describeOperations(g.operations.map((x) => x.operation)),
+    })),
+  }));
+}
+
+export type OpenOrderOption = Awaited<ReturnType<typeof searchOpenOrders>>[number];
 
 export { isOverdue };

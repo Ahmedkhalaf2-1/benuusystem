@@ -266,6 +266,7 @@ export async function getOrderCosts(db: DbClient, actor: Actor, orderId: string)
 /** One cost with what is left to pay — for the "pay this cost" page. */
 export async function getCostForPayment(db: DbClient, actor: Actor, costId: string) {
   assertPermission(actor, "payables:pay");
+  assertPermission(actor, "costs:view");
   const cost = await db.orderCost.findUnique({
     where: { id: costId },
     select: {

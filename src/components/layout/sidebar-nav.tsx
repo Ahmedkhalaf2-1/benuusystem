@@ -7,7 +7,8 @@ import { MAIN_NAV, SIDEBAR_EXTRA_NAV, isNavItemActive } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 
 /** Desktop sidebar (≥ lg). Sits on the right because the layout is RTL. */
-export function SidebarNav() {
+/** `extraKeys`: which extra links this user may see (decided on the server). */
+export function SidebarNav({ extraKeys }: { extraKeys: string[] }) {
   const pathname = usePathname();
   return (
     <aside className="fixed inset-y-0 start-0 z-30 hidden w-64 flex-col border-e bg-surface lg:flex">
@@ -17,7 +18,7 @@ export function SidebarNav() {
       </Link>
       <nav aria-label="التنقل الرئيسي" className="flex-1 px-3 py-4">
         <ul className="space-y-1">
-          {[...MAIN_NAV.slice(0, 2), ...SIDEBAR_EXTRA_NAV, ...MAIN_NAV.slice(2)].map((item) => {
+          {[...MAIN_NAV.slice(0, 2), ...SIDEBAR_EXTRA_NAV.filter((i) => extraKeys.includes(i.key)), ...MAIN_NAV.slice(2)].map((item) => {
             const active = isNavItemActive(pathname, item.href);
             const Icon = item.icon;
             return (

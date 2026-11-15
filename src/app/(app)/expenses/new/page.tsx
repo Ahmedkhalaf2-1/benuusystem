@@ -14,7 +14,7 @@ export default async function NewExpensePage(props: PageProps<"/expenses/new">) 
   const initial = EXPENSE_CATEGORIES.includes(category as ExpenseCategory) ? (category as ExpenseCategory) : undefined;
   return (
     <div className="mx-auto max-w-lg">
-      <PageHeader title="سجل مصروف" backHref="/expenses" backLabel="المصاريف" subtitle="مصاريف المحل العامة (مش تكلفة أوردر معيّن)" />
+      <PageHeader title="سجل مصروف" backHref="/accounts" backLabel="الحسابات" subtitle="مصاريف المحل العامة (مش تكلفة أوردر معيّن)" />
       <ExpenseForm today={todayDateString()} initialCategory={initial} />
     </div>
   );

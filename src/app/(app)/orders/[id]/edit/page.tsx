@@ -30,6 +30,7 @@ export default async function EditOrderPage(props: PageProps<"/orders/[id]/edit"
         <OrderForm
           mode="edit"
           orderId={order.id}
+          version={order.updatedAt}
           initial={draftFromOrder(order)}
           paid={order.paid}
           canEditPrice={hasPermission(user, "orders:edit-price")}

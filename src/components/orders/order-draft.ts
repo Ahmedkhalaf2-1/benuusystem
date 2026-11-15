@@ -7,6 +7,8 @@ import type { CustomerChoice } from "./customer-picker";
 /** Form state of the order form (strings exactly as typed). Shared by server and client. */
 export type GroupDraft = {
   key: string;
+  /** Existing group id (edit only) — preserved so linked worker records stay valid. */
+  id?: string;
   quantity: string;
   material: string;
   operations: PrintOperation[];
@@ -66,6 +68,7 @@ export function draftFromOrder(order: OrderDetails): OrderDraft {
     unit: order.unit,
     groups: order.groups.map((g) =>
       newGroupDraft({
+        id: g.id,
         quantity: multiple ? String(g.quantity) : "",
         material: multiple && g.material !== order.material ? g.material : "",
         operations: g.operations,

@@ -9,6 +9,7 @@ import { payPayableSchema, voidRecordSchema } from "@/lib/validations/finance";
 import { toFieldErrors } from "@/lib/validations/utils";
 import { lockPayable, sumPaidFor, type PayableKind } from "@/server/repositories/payable-repository";
 import { isUniqueViolation } from "@/server/repositories/prisma-errors";
+import { lockWorker } from "@/server/repositories/worker-repository";
 import type { Actor } from "./actor";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
 
@@ -130,7 +131,7 @@ export async function voidOutgoingPayment(
   db: PrismaClient,
   actor: Actor,
   payload: { id?: unknown; reason?: unknown },
-): Promise<{ orderCostId: string | null; expenseId: string | null }> {
+): Promise<{ orderCostId: string | null; expenseId: string | null; workerId: string | null }> {
   assertPermission(actor, "finance:void");
   const parsed = voidRecordSchema.safeParse(payload);
   if (!parsed.success) {
@@ -141,11 +142,12 @@ export async function voidOutgoingPayment(
   return db.$transaction(async (tx) => {
     const payment = await tx.outgoingPayment.findUnique({
       where: { id },
-      select: { orderCostId: true, expenseId: true, amount: true },
+      select: { orderCostId: true, expenseId: true, workerId: true, amount: true },
     });
     if (!payment) throw new AppError("NOT_FOUND", "الدفعة مش موجودة");
     if (payment.orderCostId) await lockPayable(tx, "cost", payment.orderCostId);
     if (payment.expenseId) await lockPayable(tx, "expense", payment.expenseId);
+    if (payment.workerId) await lockWorker(tx, payment.workerId);
 
     const updated = await tx.outgoingPayment.updateMany({
       where: { id, voidedAt: null },
@@ -161,10 +163,11 @@ export async function voidOutgoingPayment(
       metadata: {
         orderCostId: payment.orderCostId,
         expenseId: payment.expenseId,
+        workerId: payment.workerId,
         amount: centsToDecimalString(toCents(payment.amount)),
         reason,
       },
     });
-    return { orderCostId: payment.orderCostId, expenseId: payment.expenseId };
+    return { orderCostId: payment.orderCostId, expenseId: payment.expenseId, workerId: payment.workerId };
   });
 }

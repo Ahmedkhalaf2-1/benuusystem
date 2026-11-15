@@ -18,11 +18,10 @@ function between(range: Range) {
   return { gte: dateFromString(range.from), lte: dateFromString(range.to) };
 }
 
-/** Cash in from customers and cash out to suppliers/expenses within a period. */
+/** Cash in from customers and cash out (suppliers/costs, expenses, workers) within a period. */
 export async function getCashMovement(db: DbClient, actor: Actor, range: Range) {
-  assertPermission(actor, "expenses:view");
-  assertPermission(actor, "costs:view");
-  const [incoming, outgoingCosts, outgoingExpenses] = await Promise.all([
+  assertPermission(actor, "finance:view-summary");
+  const [incoming, outgoingCosts, outgoingExpenses, outgoingWorkers] = await Promise.all([
     db.orderPayment.aggregate({ where: { voidedAt: null, paidAt: between(range) }, _sum: { amount: true } }),
     db.outgoingPayment.aggregate({
       where: { voidedAt: null, paidAt: between(range), orderCostId: { not: null } },
@@ -32,16 +31,23 @@ export async function getCashMovement(db: DbClient, actor: Actor, range: Range) 
       where: { voidedAt: null, paidAt: between(range), expenseId: { not: null } },
       _sum: { amount: true },
     }),
+    // Wages AND advances: both are cash that left (an advance is not a wage expense).
+    db.outgoingPayment.aggregate({
+      where: { voidedAt: null, paidAt: between(range), workerId: { not: null } },
+      _sum: { amount: true },
+    }),
   ]);
   const cin = toCents(incoming._sum.amount);
   const outCosts = toCents(outgoingCosts._sum.amount);
   const outExpenses = toCents(outgoingExpenses._sum.amount);
+  const outWorkers = toCents(outgoingWorkers._sum.amount);
   return {
     customerPaymentsIn: centsToDecimalString(cin),
     paidForOrderCosts: centsToDecimalString(outCosts),
     paidForExpenses: centsToDecimalString(outExpenses),
-    totalPaidOut: centsToDecimalString(outCosts + outExpenses),
-    net: centsToDecimalString(cin - outCosts - outExpenses),
+    paidToWorkers: centsToDecimalString(outWorkers),
+    totalPaidOut: centsToDecimalString(outCosts + outExpenses + outWorkers),
+    net: centsToDecimalString(cin - outCosts - outExpenses - outWorkers),
   };
 }
 
@@ -67,7 +73,7 @@ export async function getExpenseTotals(db: DbClient, actor: Actor, range: Range)
 
 /** Everything still owed to suppliers (valid costs − valid payments). */
 export async function getSupplierOutstandingTotal(db: DbClient, actor: Actor): Promise<string> {
-  assertPermission(actor, "suppliers:view");
+  assertPermission(actor, "suppliers:view-balances");
   let total = 0n;
   for (const b of (await supplierBalances(db)).values()) total += b.outstanding;
   return centsToDecimalString(total);
@@ -81,6 +87,7 @@ export type FinanceDashboard = {
 };
 
 export async function getFinanceDashboard(db: DbClient, actor: Actor): Promise<FinanceDashboard> {
+  assertPermission(actor, "finance:view-summary");
   const month = monthRange(todayDateString());
   const [expenses, cash, supplierOutstanding] = await Promise.all([
     getExpenseTotals(db, actor, month),

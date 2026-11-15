@@ -104,7 +104,7 @@ export type SupplierListItem = {
 };
 
 export async function listSuppliers(db: DbClient, actor: Actor, options: { query?: string; page?: number }) {
-  assertPermission(actor, "suppliers:view");
+  assertPermission(actor, "suppliers:view-balances");
   const where = searchWhere(options.query ?? "");
   const total = await db.supplier.count({ where });
   const pageCount = Math.max(1, Math.ceil(total / SUPPLIERS_PAGE_SIZE));
@@ -170,7 +170,7 @@ export type SupplierDetails = {
 };
 
 export async function getSupplierDetails(db: DbClient, actor: Actor, supplierId: string): Promise<SupplierDetails | null> {
-  assertPermission(actor, "suppliers:view");
+  assertPermission(actor, "suppliers:view-balances");
   const supplier = await db.supplier.findUnique({
     where: { id: supplierId },
     select: {

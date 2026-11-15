@@ -17,7 +17,7 @@ import { listSuppliers } from "@/server/services/supplier-service";
 export const metadata: Metadata = { title: "الموردين" };
 
 export default async function SuppliersPage(props: PageProps<"/suppliers">) {
-  const user = await requirePermission("suppliers:view");
+  const user = await requirePermission("suppliers:view-balances");
   const sp = await props.searchParams;
   const q = typeof sp.q === "string" ? sp.q.slice(0, 100) : "";
   const page = Math.max(1, Number.parseInt(typeof sp.page === "string" ? sp.page : "1", 10) || 1);

@@ -32,10 +32,13 @@ export async function requireUser(): Promise<PublicUser> {
   return user;
 }
 
-/** For pages and server actions that need a specific permission. */
+/**
+ * For PAGES that need a specific permission: sends the user to a clear
+ * "owner only" page instead of the generic error screen.
+ */
 export async function requirePermission(permission: Permission): Promise<PublicUser> {
   const user = await requireUser();
-  if (!hasPermission(user, permission)) throw new AppError("FORBIDDEN");
+  if (!hasPermission(user, permission)) redirect("/no-access");
   return user;
 }
 

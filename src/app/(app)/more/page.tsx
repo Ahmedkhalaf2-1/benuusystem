@@ -5,15 +5,15 @@ import { SoonBadge } from "@/components/coming-soon";
 import { LogoutButton } from "@/components/layout/logout-button";
 import { UserAvatar } from "@/components/layout/user-avatar";
 import { requireUser } from "@/lib/auth/current-user";
-import { ROLE_LABELS } from "@/lib/auth/permissions";
+import { hasPermission, ROLE_LABELS, type Permission } from "@/lib/auth/permissions";
 
 export const metadata: Metadata = { title: "المزيد" };
 
-const SECTIONS: { key: string; label: string; description: string; icon: typeof HardHat; href?: string }[] = [
-  { key: "customers", label: "العملاء", description: "بيانات العملاء ومدفوعاتهم", icon: UsersRound, href: "/customers" },
-  { key: "suppliers", label: "الموردين", description: "اللي اشترينا منهم واللي لسه ليهم", icon: Truck, href: "/suppliers" },
-  { key: "expenses", label: "المصاريف", description: "إيجار، كهرباء، مستلزمات…", icon: Receipt, href: "/expenses" },
-  { key: "workers", label: "العمال", description: "بيانات العمال وحساباتهم", icon: HardHat },
+const SECTIONS: { key: string; label: string; description: string; icon: typeof HardHat; href?: string; permission: Permission }[] = [
+  { key: "customers", label: "العملاء", description: "بيانات العملاء ومدفوعاتهم", icon: UsersRound, href: "/customers", permission: "customers:view" },
+  { key: "suppliers", label: "الموردين", description: "اللي اشترينا منهم واللي لسه ليهم", icon: Truck, href: "/suppliers", permission: "suppliers:view-balances" },
+  { key: "expenses", label: "المصاريف", description: "إيجار، كهرباء، مستلزمات…", icon: Receipt, href: "/expenses", permission: "expenses:view" },
+  { key: "workers", label: "العمال", description: "اليومية والشغل والحساب", icon: HardHat, href: "/workers", permission: "workers:view" },
 ];
 
 export default async function MorePage() {
@@ -39,7 +39,7 @@ export default async function MorePage() {
           الأقسام
         </h2>
         <ul className="divide-y overflow-hidden rounded-2xl border bg-card">
-          {SECTIONS.map(({ key, label, description, icon: Icon, href }) => {
+          {SECTIONS.filter((section) => hasPermission(user, section.permission)).map(({ key, label, description, icon: Icon, href }) => {
             const body = (
               <>
                 <span className={href ? "flex size-10 items-center justify-center rounded-xl bg-brand-soft text-primary" : "flex size-10 items-center justify-center rounded-xl bg-muted text-muted-foreground"}>

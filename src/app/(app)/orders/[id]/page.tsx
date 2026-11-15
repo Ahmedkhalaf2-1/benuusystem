@@ -5,6 +5,7 @@ import { Banknote, CalendarClock, Factory, Pencil, Phone, ReceiptText, Truck, Us
 import type { ReactNode } from "react";
 import { SoonBadge } from "@/components/coming-soon";
 import { OrderCostsSection } from "@/components/finance/order-costs-section";
+import { OrderLaborSection } from "@/components/workers/order-labor-section";
 import { Flash } from "@/components/flash";
 import { StatusBadge } from "@/components/orders/status-badge";
 import { VoidPaymentForm } from "@/components/orders/void-payment-form";
@@ -19,6 +20,7 @@ import { formatNumber } from "@/lib/numbers";
 import { formatOrderNumber, PAYMENT_METHOD_LABELS, UNIT_LABELS } from "@/lib/orders/labels";
 import { cn } from "@/lib/utils";
 import { getOrderCosts } from "@/server/services/cost-service";
+import { getOrderLabor } from "@/server/services/labor-service";
 import { getOrderDetails } from "@/server/services/order-service";
 
 export const metadata: Metadata = { title: "تفاصيل الأوردر" };
@@ -62,6 +64,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
   const order = /^[0-9a-f-]{36}$/i.test(id) ? await getOrderDetails(prisma, user, id) : null;
   if (!order) notFound();
   const costs = hasPermission(user, "costs:view") ? await getOrderCosts(prisma, user, order.id) : null;
+  const labor = hasPermission(user, "labor:view") ? await getOrderLabor(prisma, user, order.id) : null;
 
   const outstanding = toCents(order.outstanding);
   const canPay =
@@ -229,7 +232,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
         )}
       </Section>
 
-      {costs && (
+      {costs ? (
         <OrderCostsSection
           orderId={order.id}
           summary={costs}
@@ -237,7 +240,21 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
           canPay={hasPermission(user, "payables:pay")}
           canVoid={hasPermission(user, "finance:void")}
         />
+      ) : (
+        hasPermission(user, "costs:record") && (
+          // Staff may record costs without seeing the order's cost totals.
+          <section id="costs" className="flex items-center justify-between gap-3 rounded-2xl border bg-card p-4">
+            <div>
+              <h2 className="font-bold">تكاليف الأوردر</h2>
+              <p className="text-xs text-muted-foreground">سجّل أي حاجة اتصرفت على الأوردر ده (قماش، طباعة برّه…).</p>
+            </div>
+            <Link href={`/orders/${order.id}/costs/new`} className={buttonVariants({ className: "shrink-0" })}>
+              إضافة تكلفة
+            </Link>
+          </section>
+        )
       )}
+      {labor && <OrderLaborSection labor={labor} />}
 
       <section className="rounded-2xl border border-dashed bg-card/60 p-4">
         <h2 className="mb-3 font-bold">قريبًا</h2>

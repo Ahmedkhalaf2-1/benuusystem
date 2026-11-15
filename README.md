@@ -5,8 +5,9 @@ Management system for **Benuuprint** (garment manufacturing, DTF, screen printin
 - **Phase 1:** foundation. Authentication, database, the Arabic RTL mobile-first app shell, PWA install.
 - **Phase 2:** customers, orders (with groups and printing/embroidery work), customer payments, real dashboard numbers.
 - **Phase 3:** order costs, suppliers (balances and payments), general expenses, money-out tracking.
+- **Phase 4:** workers, daily wages (attendance), productivity, labour cost per order, wage payments and advances, financial privacy by role.
 
-Workers/payroll, production, delivery and monthly accounts (profit) come in later phases. Until then they show a "قريبًا" (coming soon) state.
+Official production, delivery and monthly accounts (profit) come in later phases. Until then they show a "قريبًا" (coming soon) state.
 
 ---
 
@@ -157,13 +158,50 @@ Environment variables are validated on first use (`src/lib/env.ts`). `next build
 - **Corrections.** Nothing is edited or deleted. The owner voids with a reason, and a cost or expense can only be voided after its payments are voided, so real cash is never hidden. Everything is audited.
 - **Who can do what.** Staff can record costs and expenses, add suppliers and pay what's owed. Only the owner can void (`finance:void`).
 
+## Workers, wages & productivity (Phase 4)
+
+| Screen | Route |
+| --- | --- |
+| Workers: today's attendance, one-tap «حضر النهارده», what's owed (owner) | `/workers` |
+| Add / edit a worker (job, daily wage, daily target and unit) | `/workers/new`, `/workers/[id]/edit` |
+| Worker page: «تسجيل يومية», «تسجيل شغل», «دفع فلوس», «سلفة», month summary, daily history | `/workers/[id]` |
+| Record attendance / output / payment | `/workers/[id]/workday`, `/workers/[id]/work`, `/workers/[id]/pay` |
+| «حساب العمال»: monthly summary (owner) | `/workers/summary?month=YYYY-MM` |
+| Labour cost of an order (owner) | on `/orders/[id]` |
+
+**Rules:**
+
+- **One wage per worked day.** A worker earns his daily wage once per worked day, whatever he produced. The wage is copied onto the day (`worker_workdays.wage`), so changing his standard wage later never changes past days. A partial unique index allows only one valid day per worker and date.
+- **Output is not production.** Output logs (`worker_work_logs`) measure productivity and split the day's wage across orders. They never change an order's status, produced quantity or delivery; that's Phase 5.
+- **How the wage is split** (`src/lib/workers/allocation.ts`; computed, never stored):
+  - all logs in the same unit → by quantity (300 EGP: Mahmoud 200 prints → 200, Ahmed 100 → 100);
+  - mixed units → by recorded hours (meters are never added to pieces);
+  - otherwise → "unallocated labour", still counted and shown.
+  
+  Shares are whole piasters and always add up exactly to the wage.
+- **Productivity** (shown, never used for pay): target achievement = output in the target unit ÷ target (250/300 → 83.33%); actual cost per unit = wage ÷ output (300/250 → 1.20).
+- **Payments** are cash out, in `outgoing_payments` (`worker_id` + type):
+  - «دفع يومية / مستحقات» can't be more than what's currently owed;
+  - «سلفة» is money paid before it's earned.
+  
+  Balance = earned − paid. Positive means we owe him; negative means an advance not yet earned back. An advance is never a second labour expense.
+- **Monthly summary keeps three numbers apart:**
+  1. wages earned in the month (by work date);
+  2. cash paid in the month (by payment date);
+  3. balances at the end of the month.
+- **Labour has one source.** The wages on worked days are the only labour cost. They're never re-entered as general expenses or order costs; summaries combine them only at report level.
+- **Corrections.** Only the owner can void a day (which also voids its output) or a single output record, always with a reason. Payments use the existing void. Everything is audited, and the worker row is locked for every write.
+- **Stable order groups.** Editing an order now updates its groups in place and keeps their IDs. A group with worker records can't be removed or shrunk below the work already logged, and a stale edit screen can't overwrite newer changes (`expectedUpdatedAt`).
+
+**Financial privacy.** STAFF can create orders, record customer payments, add order costs and expenses, record attendance and output, and pick suppliers. Only the OWNER_ADMIN sees money: order cost totals, labour per order, the expense list, supplier balances, wages and balances, and the dashboard money cards. This is enforced in the services and pages; hidden buttons are just convenience.
+
 ## Known follow-ups (next phases)
 
 These are deliberate gaps, recorded so they're handled before they can cause wrong numbers:
 
-1. **Restrict financial visibility by role.** Staff can currently see order costs, supplier balances and expenses, because they record them. If margins should be owner-only, add finer permissions (for example `costs:view-totals`). Every check already goes through `src/lib/auth/permissions.ts`, so no call sites change.
-2. **Keep order-group IDs stable when editing orders.** `updateOrder` deletes and recreates an order's groups when they change. Before production tracking, delivery or per-group costs point at `order_groups`, editing must update existing groups in place and only add or remove what actually changed.
-3. **Never double count labour and overhead.** Payroll should follow the cost pattern: record what's owed, pay it through `outgoing_payments` (extending the "exactly one target" CHECK), and correct by voiding. Overhead allocation should *reference* `general_expenses` rows rather than copy them into order costs. Profit = order price − order costs − allocated overhead − labour, computed from records and never stored.
+1. ~~Restrict financial visibility by role~~ — done in Phase 4.
+2. ~~Keep order-group IDs stable when editing orders~~ — done in Phase 4.
+3. **Never double count labour and overhead.** Labour is now done: wages on worked days are its only source. Payroll should follow the cost pattern: record what's owed, pay it through `outgoing_payments` (extending the "exactly one target" CHECK), and correct by voiding. Overhead allocation should *reference* `general_expenses` rows rather than copy them into order costs. Profit = order price − order costs − allocated overhead − labour, computed from records and never stored.
 
 ## Database & migrations
 
@@ -191,7 +229,10 @@ Tables:
 - **suppliers**: name, optional phone and notes
 - **order_costs**: order, category, description, amount, date, optional supplier, void info, idempotency key
 - **general_expenses**: category, description, amount, date, void info, idempotency key
-- **outgoing_payments**: money paid out against exactly one order cost or one general expense; amount, date, method, recorded by, void info
+- **outgoing_payments**: money paid out against exactly one order cost, one general expense or one worker (wage / advance); amount, date, method, recorded by, void info
+- **workers**: name, job, daily wage, daily target and unit, active flag
+- **worker_workdays**: one valid row per worker and date; worked or absent, wage snapshot, void info
+- **worker_work_logs**: output per workday, optional order and order group, work type, quantity, unit, hours, void info
 
 ## Administrator account
 

@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Banknote, PackageCheck, Receipt, Truck, Wallet } from "lucide-react";
+import { Banknote, HardHat, PackageCheck, Receipt, Truck, Wallet } from "lucide-react";
 import { SoonBadge } from "@/components/coming-soon";
 import { requireUser } from "@/lib/auth/current-user";
+import { hasPermission } from "@/lib/auth/permissions";
+import { todayDateString } from "@/lib/dates";
 import { prisma } from "@/lib/db/prisma";
 import { greetingAr } from "@/lib/format";
 import { formatMoneyString } from "@/lib/money";
 import { formatNumber } from "@/lib/numbers";
 import { getFinanceDashboard } from "@/server/services/finance-summary-service";
+import { getMonthlyWorkerSummary, getTodayAttendance } from "@/server/services/labor-service";
 import { getDashboardStats } from "@/server/services/order-service";
 import { QUICK_ACTIONS } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
@@ -23,7 +26,14 @@ type Stat = { key: string; label: string; icon: typeof PackageCheck; value?: str
 export default async function DashboardPage() {
   const user = await requireUser();
   const firstName = user.name.trim().split(/\s+/)[0];
-  const [stats, finance] = await Promise.all([getDashboardStats(prisma, user), getFinanceDashboard(prisma, user)]);
+  const canSeeMoney = hasPermission(user, "finance:view-summary");
+  const [stats, finance, attendance, workersMonth] = await Promise.all([
+    getDashboardStats(prisma, user),
+    canSeeMoney ? getFinanceDashboard(prisma, user) : null,
+    hasPermission(user, "workers:view") ? getTodayAttendance(prisma, user) : null,
+    hasPermission(user, "workers:view-pay") ? getMonthlyWorkerSummary(prisma, user, todayDateString().slice(0, 7)) : null,
+  ]);
+
   const STATS: Stat[] = [
     {
       key: "active-orders",
@@ -35,35 +45,50 @@ export default async function DashboardPage() {
       href: stats.overdueOrders > 0 ? "/orders?status=overdue" : "/orders?status=open",
     },
     { key: "deliveries", label: "التسليمات", icon: Truck, note: "قريبًا" },
-    {
-      key: "customer-payments",
-      label: "مدفوعات العملاء (الشهر ده)",
-      icon: Banknote,
-      value: formatMoneyString(stats.paymentsThisMonth),
-    },
-    {
-      key: "expenses",
-      label: "مصاريف الشهر ده",
-      icon: Receipt,
-      value: formatMoneyString(finance.expensesThisMonth),
-      note: `اتدفع منها ${formatMoneyString(finance.expensesPaidThisMonth)}`,
-      href: "/expenses",
-    },
-    {
-      key: "paid-out",
-      label: "فلوس اتدفعت الشهر ده",
-      icon: Wallet,
-      value: formatMoneyString(finance.paidOutThisMonth),
-      note: "للموردين والمصاريف",
-    },
-    {
-      key: "suppliers-owed",
-      label: "لسه علينا للموردين",
-      icon: Truck,
-      value: formatMoneyString(finance.supplierOutstanding),
-      href: "/suppliers",
-    },
   ];
+  if (attendance) {
+    STATS.push({
+      key: "attendance",
+      label: "العمال النهارده",
+      icon: HardHat,
+      value: `${formatNumber(attendance.presentToday)} من ${formatNumber(attendance.activeWorkers)}`,
+      note: "حضروا",
+      href: "/workers",
+    });
+  }
+  if (stats.paymentsThisMonth !== null) {
+    STATS.push({ key: "customer-payments", label: "مدفوعات العملاء (الشهر ده)", icon: Banknote, value: formatMoneyString(stats.paymentsThisMonth) });
+  }
+  if (workersMonth) {
+    STATS.push({
+      key: "wages",
+      label: "يوميات العمال الشهر ده",
+      icon: HardHat,
+      value: formatMoneyString(workersMonth.expense.wagesEarned),
+      note: `لسه ليهم ${formatMoneyString(workersMonth.balances.owedToWorkers)}`,
+      href: "/workers/summary",
+    });
+  }
+  if (finance) {
+    STATS.push(
+      {
+        key: "expenses",
+        label: "مصاريف الشهر ده",
+        icon: Receipt,
+        value: formatMoneyString(finance.expensesThisMonth),
+        note: `اتدفع منها ${formatMoneyString(finance.expensesPaidThisMonth)}`,
+        href: "/expenses",
+      },
+      {
+        key: "paid-out",
+        label: "فلوس اتدفعت الشهر ده",
+        icon: Wallet,
+        value: formatMoneyString(finance.paidOutThisMonth),
+        note: "للموردين والمصاريف والعمال",
+      },
+      { key: "suppliers-owed", label: "لسه علينا للموردين", icon: Truck, value: formatMoneyString(finance.supplierOutstanding), href: "/suppliers" },
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -112,7 +137,7 @@ export default async function DashboardPage() {
           })}
         </ul>
         <p className="mt-3 text-xs text-muted-foreground">
-          التسليمات هتظهر أرقامها لما القسم ده يتفعّل. الربح مش بيتحسب لسه (مرتبات العمال والمصاريف العامة لسه مش متوزعة على الأوردرات).
+          التسليمات هتظهر أرقامها لما القسم ده يتفعّل. الربح النهائي مش بيتحسب لسه — هييجي في مرحلة الحسابات.
         </p>
       </section>
 

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CalendarRange, ChevronLeft, Receipt, Truck, UsersRound } from "lucide-react";
+import { CalendarRange, ChevronLeft, HardHat, Receipt, Truck, UsersRound } from "lucide-react";
 import { SoonBadge } from "@/components/coming-soon";
+import { Flash } from "@/components/flash";
 import { requireUser } from "@/lib/auth/current-user";
 import { hasPermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db/prisma";
@@ -11,21 +12,21 @@ import { getFinanceDashboard } from "@/server/services/finance-summary-service";
 export const metadata: Metadata = { title: "الحسابات" };
 
 /** Money hub: where to record and check costs, suppliers and expenses. */
-export default async function AccountsPage() {
+export default async function AccountsPage(props: PageProps<"/accounts">) {
   const user = await requireUser();
-  const finance =
-    hasPermission(user, "expenses:view") && hasPermission(user, "suppliers:view") && hasPermission(user, "costs:view")
-      ? await getFinanceDashboard(prisma, user)
-      : null;
+  const { saved } = await props.searchParams;
+  const finance = hasPermission(user, "finance:view-summary") ? await getFinanceDashboard(prisma, user) : null;
 
   const links = [
     { href: "/expenses", label: "المصاريف", note: finance ? `الشهر ده: ${formatMoneyString(finance.expensesThisMonth)}` : "إيجار، كهرباء، مستلزمات…", icon: Receipt, show: hasPermission(user, "expenses:view") },
-    { href: "/suppliers", label: "الموردين", note: finance ? `لسه علينا: ${formatMoneyString(finance.supplierOutstanding)}` : "المشتريات والدفعات", icon: Truck, show: hasPermission(user, "suppliers:view") },
+    { href: "/suppliers", label: "الموردين", note: finance ? `لسه علينا: ${formatMoneyString(finance.supplierOutstanding)}` : "المشتريات والدفعات", icon: Truck, show: hasPermission(user, "suppliers:view-balances") },
+    { href: "/workers/summary", label: "حساب العمال", note: "اليوميات واللي اتدفع واللي لسه ليهم", icon: HardHat, show: hasPermission(user, "workers:view-pay") },
     { href: "/customers", label: "العملاء", note: "اللي ليهم واللي عليهم", icon: UsersRound, show: hasPermission(user, "customers:view") },
   ].filter((l) => l.show);
 
   return (
     <div className="space-y-6">
+      <Flash message={saved === "expense" ? "تم حفظ المصروف ✓" : undefined} />
       <h1 className="text-2xl font-bold">الحسابات</h1>
       {hasPermission(user, "expenses:record") && (
         <Link

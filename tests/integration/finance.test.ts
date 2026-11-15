@@ -130,6 +130,7 @@ describe.skipIf(!hasTestDatabase)("order costs, suppliers & expenses (PostgreSQL
       customerPaymentsIn: "20000.00",
       paidForOrderCosts: "9000.00",
       paidForExpenses: "2000.00",
+      paidToWorkers: "0.00",
       totalPaidOut: "11000.00",
       net: "9000.00",
     });
@@ -145,13 +146,13 @@ describe.skipIf(!hasTestDatabase)("order costs, suppliers & expenses (PostgreSQL
     const r = await recordOrderCost(db, staff, cost({ amount: "3000", payStatus: "FULL", method: "INSTAPAY" }));
     const payments = await db.outgoingPayment.findMany({ where: { orderCostId: r.costId } });
     expect(payments.map((p) => [p.amount.toString(), p.method])).toEqual([["3000", "INSTAPAY"]]);
-    expect((await getOrderCosts(db, staff, orderId)).totals).toEqual({ costs: "3000.00", paid: "3000.00", outstanding: "0.00" });
+    expect((await getOrderCosts(db, owner, orderId)).totals).toEqual({ costs: "3000.00", paid: "3000.00", outstanding: "0.00" });
   });
 
   it("records a credit purchase: counts as cost, NOT as cash paid", async () => {
     await recordOrderCost(db, staff, cost({ payStatus: "CREDIT" }));
     expect(await db.outgoingPayment.count()).toBe(0);
-    expect((await getOrderCosts(db, staff, orderId)).totals).toEqual({ costs: "14000.00", paid: "0.00", outstanding: "14000.00" });
+    expect((await getOrderCosts(db, owner, orderId)).totals).toEqual({ costs: "14000.00", paid: "0.00", outstanding: "14000.00" });
     expect((await getCashMovement(db, owner, MONTH)).paidForOrderCosts).toBe("0.00");
   });
 
@@ -176,7 +177,7 @@ describe.skipIf(!hasTestDatabase)("order costs, suppliers & expenses (PostgreSQL
       cost({ supplier: { mode: "existing", id: ahmed.id }, payStatus: "PARTIAL", paidNow: "6000" }),
     );
     await payPayable(db, staff, "cost", pay(fabric.costId, "3000"));
-    let details = (await getSupplierDetails(db, staff, ahmed.id))!;
+    let details = (await getSupplierDetails(db, owner, ahmed.id))!;
     expect(details.totals).toEqual({ purchased: "14000.00", paid: "9000.00", outstanding: "5000.00" });
     expect(details.payments).toHaveLength(2);
     expect(details.purchases[0]).toMatchObject({ remaining: "5000.00", status: "PARTIAL", orderNumber: 1 });
@@ -188,14 +189,14 @@ describe.skipIf(!hasTestDatabase)("order costs, suppliers & expenses (PostgreSQL
     await expect(payPayable(db, staff, "cost", pay(fabric.costId, "1"))).rejects.toMatchObject({
       fieldErrors: { amount: ["ده متدفع بالكامل"] },
     });
-    details = (await getSupplierDetails(db, staff, ahmed.id))!;
+    details = (await getSupplierDetails(db, owner, ahmed.id))!;
     expect(details.totals.outstanding).toBe("0.00");
 
     // Supplier payments never become costs: the order's cost is still 14,000.
-    expect((await getOrderCosts(db, staff, orderId)).totals.costs).toBe("14000.00");
+    expect((await getOrderCosts(db, owner, orderId)).totals.costs).toBe("14000.00");
     expect(await db.orderCost.count()).toBe(1);
 
-    const list = await listSuppliers(db, staff, {});
+    const list = await listSuppliers(db, owner, {});
     expect(list.items[0]).toMatchObject({ name: "Ahmed Fabrics", purchased: "14000.00", outstanding: "0.00" });
     expect((await searchSuppliers(db, staff, "١١١٢")).map((s) => s.name)).toEqual(["Ahmed Fabrics"]);
   });
@@ -208,7 +209,7 @@ describe.skipIf(!hasTestDatabase)("order costs, suppliers & expenses (PostgreSQL
       payPayable(db, staff, "cost", pay(r.costId, "700")),
     ]);
     expect(results.filter((x) => x.status === "fulfilled")).toHaveLength(1);
-    expect((await getOrderCosts(db, staff, orderId)).totals.paid).toBe("700.00");
+    expect((await getOrderCosts(db, owner, orderId)).totals.paid).toBe("700.00");
   });
 
   it("ignores duplicate submissions of costs, expenses and payments", async () => {
@@ -233,10 +234,10 @@ describe.skipIf(!hasTestDatabase)("order costs, suppliers & expenses (PostgreSQL
 
   it("records partially paid expenses and pays the rest later", async () => {
     const rent = await recordExpense(db, staff, expense({ category: "RENT", amount: "5000", payStatus: "PARTIAL", paidNow: "3000" }));
-    let d = (await getExpenseDetails(db, staff, rent.expenseId))!;
+    let d = (await getExpenseDetails(db, owner, rent.expenseId))!;
     expect([d.paid, d.remaining, d.status]).toEqual(["3000.00", "2000.00", "PARTIAL"]);
     await payPayable(db, staff, "expense", pay(rent.expenseId, "2000", { method: "BANK_TRANSFER" }));
-    d = (await getExpenseDetails(db, staff, rent.expenseId))!;
+    d = (await getExpenseDetails(db, owner, rent.expenseId))!;
     expect([d.paid, d.remaining, d.status]).toEqual(["5000.00", "0.00", "PAID"]);
     await expect(payPayable(db, staff, "expense", pay(rent.expenseId, "1"))).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
@@ -250,11 +251,11 @@ describe.skipIf(!hasTestDatabase)("order costs, suppliers & expenses (PostgreSQL
     const rent = await db.generalExpense.findFirstOrThrow({ where: { category: "RENT" } });
     await payPayable(db, staff, "expense", pay(rent.id, "5000"));
 
-    expect(await getExpenseTotals(db, staff, MONTH)).toEqual({ recorded: "2500.00", paid: "2200.00", remaining: "300.00" });
-    expect(await getExpenseTotals(db, staff, PREV)).toEqual({ recorded: "5000.00", paid: "5000.00", remaining: "0.00" });
+    expect(await getExpenseTotals(db, owner, MONTH)).toEqual({ recorded: "2500.00", paid: "2200.00", remaining: "300.00" });
+    expect(await getExpenseTotals(db, owner, PREV)).toEqual({ recorded: "5000.00", paid: "5000.00", remaining: "0.00" });
     expect((await getCashMovement(db, owner, MONTH)).paidForExpenses).toBe("7200.00");
 
-    const listed = await listExpenses(db, staff, { ...MONTH, category: "INTERNET" });
+    const listed = await listExpenses(db, owner, { ...MONTH, category: "INTERNET" });
     expect(listed.items.map((i) => [i.amount, i.paid, i.remaining])).toEqual([["500.00", "200.00", "300.00"]]);
     expect(listed.totals).toMatchObject({ recorded: "500.00", paid: "200.00", count: 1 });
 
@@ -265,8 +266,8 @@ describe.skipIf(!hasTestDatabase)("order costs, suppliers & expenses (PostgreSQL
   it("a general expense is never counted as an order cost (and vice versa)", async () => {
     await recordExpense(db, staff, expense({ amount: "2000" }));
     await recordOrderCost(db, staff, cost({ amount: "3000", payStatus: "FULL" }));
-    expect((await getOrderCosts(db, staff, orderId)).totals.costs).toBe("3000.00");
-    expect((await getExpenseTotals(db, staff, MONTH)).recorded).toBe("2000.00");
+    expect((await getOrderCosts(db, owner, orderId)).totals.costs).toBe("3000.00");
+    expect((await getExpenseTotals(db, owner, MONTH)).recorded).toBe("2000.00");
   });
 
   // ─── Voiding & permissions ───
@@ -306,6 +307,28 @@ describe.skipIf(!hasTestDatabase)("order costs, suppliers & expenses (PostgreSQL
     const listed = await listExpenses(db, owner, MONTH);
     expect(listed.items[0]).toMatchObject({ voided: true });
     expect(await db.auditLog.count({ where: { action: "EXPENSE_VOIDED" } })).toBe(1);
+  });
+
+  it("keeps company-wide money owner-only while staff can still record", async () => {
+    // Staff can record a cost (with what was paid) and an expense…
+    const r = await recordOrderCost(db, staff, cost({ payStatus: "PARTIAL", paidNow: "100", supplier: { mode: "new", name: "مورد" } }));
+    await recordExpense(db, staff, expense());
+    expect(r.created).toBe(true);
+    // …and pick suppliers by name, but not see totals or balances.
+    expect((await searchSuppliers(db, staff, "مورد")).length).toBe(1);
+    const supplierId = (await db.supplier.findFirstOrThrow()).id;
+    for (const read of [
+      () => getOrderCosts(db, staff, orderId),
+      () => listSuppliers(db, staff, {}),
+      () => getSupplierDetails(db, staff, supplierId),
+      () => listExpenses(db, staff, MONTH),
+      () => getExpenseTotals(db, staff, MONTH),
+      () => getCashMovement(db, staff, MONTH),
+      () => getSupplierOutstandingTotal(db, staff),
+      () => getFinanceDashboard(db, staff),
+    ]) {
+      await expect(read()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    }
   });
 
   it("enforces permissions in services", async () => {

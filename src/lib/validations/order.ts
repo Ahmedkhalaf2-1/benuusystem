@@ -71,6 +71,8 @@ const customerChoiceSchema = z.discriminatedUnion(
 );
 
 const groupSchema = z.object({
+  /** Existing group id when editing — kept so records pointing at the group stay valid. */
+  id: z.uuid().optional(),
   /** Ignored (taken from the order) when there is only one group. */
   quantity: z.union([z.string(), z.number()]).optional(),
   material: optionalText(80),
@@ -143,6 +145,7 @@ function checkOrderRules(data: CoreParsed, ctx: z.RefinementCtx) {
 function normalizeGroups(data: CoreParsed) {
   const multiple = data.groups.length > 1;
   return data.groups.map((group) => ({
+    id: group.id,
     quantity: multiple ? parseWholeNumber(group.quantity ?? null)! : data.quantity,
     material: group.material ?? data.material,
     operations: group.plain ? [] : group.operations,
@@ -179,6 +182,8 @@ export const updateOrderSchema = z
     ...orderCoreShape,
     orderId: z.uuid(),
     status: z.enum(EDITABLE_STATUSES, { error: "اختار حالة الأوردر" }),
+    /** The order's updatedAt when the edit form was opened (stale-edit protection). */
+    expectedUpdatedAt: z.iso.datetime().optional(),
   })
   .superRefine((data, ctx) => checkOrderRules(data, ctx))
   .transform((data) => ({ ...data, groups: normalizeGroups(data) }));

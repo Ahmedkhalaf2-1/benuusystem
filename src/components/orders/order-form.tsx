@@ -34,6 +34,8 @@ type Props =
       initial: OrderDraft;
       materialSuggestions: string[];
       orderId: string;
+      /** Order's updatedAt when this screen was opened (stale-edit protection). */
+      version: string;
       /** Decimal string of valid payments so far. */
       paid: string;
       canEditPrice: boolean;
@@ -96,6 +98,7 @@ export function OrderForm(props: Props) {
       quantity: draft.quantity,
       unit: draft.unit,
       groups: draft.groups.map((g) => ({
+        ...(props.mode === "edit" && g.id ? { id: g.id } : {}),
         quantity: g.quantity,
         material: g.material,
         operations: g.operations,
@@ -109,7 +112,12 @@ export function OrderForm(props: Props) {
     };
     return props.mode === "create"
       ? { ...common, idempotencyKey: requestId, advance: draft.advance, advanceMethod: draft.advanceMethod }
-      : { ...common, orderId: props.orderId, status: draft.status as "NEW" | "IN_PROGRESS" | "CANCELLED" };
+      : {
+          ...common,
+          orderId: props.orderId,
+          expectedUpdatedAt: props.version,
+          status: draft.status as "NEW" | "IN_PROGRESS" | "CANCELLED",
+        };
   }
 
   function showErrors(fieldErrors: Record<string, string[] | string>, summary?: string) {

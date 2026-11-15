@@ -44,6 +44,12 @@ model User {
   outgoingPaymentsRecorded OutgoingPayment[] @relation("OutgoingPaymentRecordedBy")
   outgoingPaymentsVoided   OutgoingPayment[] @relation("OutgoingPaymentVoidedBy")
 
+  workersCreated    Worker[]        @relation("WorkerCreatedBy")
+  workdaysRecorded  WorkerWorkday[] @relation("WorkdayRecordedBy")
+  workdaysVoided    WorkerWorkday[] @relation("WorkdayVoidedBy")
+  workLogsRecorded  WorkerWorkLog[] @relation("WorkLogRecordedBy")
+  workLogsVoided    WorkerWorkLog[] @relation("WorkLogVoidedBy")
+
   @@map("users")
 }
 
@@ -183,6 +189,7 @@ model Order {
   groups    OrderGroup[]
   payments  OrderPayment[]
   costs     OrderCost[]
+  workLogs  WorkerWorkLog[]
 
   @@index([customerId])
   @@index([status, deliveryDate])
@@ -203,6 +210,7 @@ model OrderGroup {
 
   order      Order                 @relation(fields: [orderId], references: [id], onDelete: Cascade)
   operations OrderGroupOperation[]
+  workLogs   WorkerWorkLog[]
 
   @@unique([orderId, position])
   @@map("order_groups")
@@ -351,11 +359,14 @@ model GeneralExpense {
   @@map("general_expenses")
 }
 
-/// Cash paid out, against exactly ONE order cost or ONE general expense.
+/// Cash paid out, against exactly ONE order cost, ONE general expense or ONE worker.
 model OutgoingPayment {
   id             String        @id @default(uuid(7)) @db.Uuid
   orderCostId    String?       @map("order_cost_id") @db.Uuid
   expenseId      String?       @map("expense_id") @db.Uuid
+  /// Worker payments (wages / advances). Set together with workerPaymentType.
+  workerId          String?            @map("worker_id") @db.Uuid
+  workerPaymentType WorkerPaymentType? @map("worker_payment_type")
   amount         Decimal       @db.Decimal(12, 2)
   paidAt         DateTime      @map("paid_at") @db.Date
   method         PaymentMethod
@@ -369,11 +380,144 @@ model OutgoingPayment {
 
   orderCost  OrderCost?      @relation(fields: [orderCostId], references: [id], onDelete: Restrict)
   expense    GeneralExpense? @relation(fields: [expenseId], references: [id], onDelete: Restrict)
+  worker     Worker?         @relation(fields: [workerId], references: [id], onDelete: Restrict)
   recordedBy User            @relation("OutgoingPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
   voidedBy   User?           @relation("OutgoingPaymentVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
 
   @@index([orderCostId])
   @@index([expenseId])
+  @@index([workerId, paidAt])
   @@index([paidAt])
   @@map("outgoing_payments")
+}
+
+// ───────────────────────────── Phase 4: workers, daily wages & productivity ─────────────────────────────
+//
+//  • WorkerWorkday — the authoritative LABOUR COST: one valid row per worker per
+//    date, with the day's wage snapshotted (later wage changes never touch it).
+//  • WorkerWorkLog — what the worker produced (productivity + how the day's wage
+//    is split across orders). NOT official order production (Phase 5).
+//  • Wage payments / advances — OutgoingPayment rows with workerId (cash only).
+//  • Allocation of wages to orders is DERIVED from workdays + logs, never stored,
+//    so labour is counted exactly once.
+
+enum WorkerJob {
+  DTF_PRINTING
+  EMBROIDERY
+  SCREEN_PRINTING
+  GARMENT_MAKING
+  FINISHING_PACKING
+  OTHER
+}
+
+enum WorkUnit {
+  PIECE
+  PRINT
+  METER
+  PRESS
+  COVER
+}
+
+enum WorkType {
+  DTF
+  SCREEN_PRINT
+  EMBROIDERY
+  CUTTING
+  SEWING
+  FINISHING
+  PACKING
+  OTHER
+}
+
+enum WorkerPaymentType {
+  WAGE
+  ADVANCE
+}
+
+/// A shop worker. Not an app user: no login needed.
+model Worker {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  name        String    @db.VarChar(120)
+  phone       String?   @db.VarChar(30)
+  job         WorkerJob
+  /// Optional custom wording for the job (e.g. "مكوجي").
+  jobTitle    String?   @map("job_title") @db.VarChar(80)
+  /// Current standard daily wage. Workdays keep their own snapshot.
+  dailyWage   Decimal   @map("daily_wage") @db.Decimal(12, 2)
+  dailyTarget Int?      @map("daily_target")
+  targetUnit  WorkUnit? @map("target_unit")
+  isActive    Boolean   @default(true) @map("is_active")
+  notes       String?   @db.VarChar(1000)
+  createdById String    @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy User              @relation("WorkerCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  workdays  WorkerWorkday[]
+  workLogs  WorkerWorkLog[]
+  payments  OutgoingPayment[]
+
+  @@index([isActive, name])
+  @@map("workers")
+}
+
+/// One day of a worker. worked=true earns `wage` (snapshot); worked=false
+/// records an absence (wage 0). Max one non-voided row per worker+date.
+model WorkerWorkday {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  workerId       String    @map("worker_id") @db.Uuid
+  workDate       DateTime  @map("work_date") @db.Date
+  worked         Boolean   @default(true)
+  wage           Decimal   @db.Decimal(12, 2)
+  notes          String?   @db.VarChar(500)
+  idempotencyKey String    @unique @map("idempotency_key") @db.Uuid
+  recordedById   String    @map("recorded_by_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  voidedAt       DateTime? @map("voided_at") @db.Timestamptz(3)
+  voidedById     String?   @map("voided_by_id") @db.Uuid
+  voidReason     String?   @map("void_reason") @db.VarChar(300)
+
+  worker     Worker          @relation(fields: [workerId], references: [id], onDelete: Restrict)
+  recordedBy User            @relation("WorkdayRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  voidedBy   User?           @relation("WorkdayVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  workLogs   WorkerWorkLog[]
+
+  @@index([workerId, workDate])
+  @@index([workDate])
+  @@map("worker_workdays")
+}
+
+/// What a worker produced on a workday, optionally for an order (and group).
+model WorkerWorkLog {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  workdayId      String    @map("workday_id") @db.Uuid
+  workerId       String    @map("worker_id") @db.Uuid
+  orderId        String?   @map("order_id") @db.Uuid
+  orderGroupId   String?   @map("order_group_id") @db.Uuid
+  workType       WorkType  @map("work_type")
+  quantity       Int
+  unit           WorkUnit
+  /// Hours spent — the split basis when one day mixes different units.
+  hours          Decimal?  @db.Decimal(5, 2)
+  notes          String?   @db.VarChar(500)
+  idempotencyKey String    @unique @map("idempotency_key") @db.Uuid
+  recordedById   String    @map("recorded_by_id") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  voidedAt       DateTime? @map("voided_at") @db.Timestamptz(3)
+  voidedById     String?   @map("voided_by_id") @db.Uuid
+  voidReason     String?   @map("void_reason") @db.VarChar(300)
+
+  workday    WorkerWorkday @relation(fields: [workdayId], references: [id], onDelete: Restrict)
+  worker     Worker        @relation(fields: [workerId], references: [id], onDelete: Restrict)
+  order      Order?        @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  /// RESTRICT: a group with work logged against it can never be deleted.
+  orderGroup OrderGroup?   @relation(fields: [orderGroupId], references: [id], onDelete: Restrict)
+  recordedBy User          @relation("WorkLogRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  voidedBy   User?         @relation("WorkLogVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+
+  @@index([workdayId])
+  @@index([orderId])
+  @@index([orderGroupId])
+  @@index([workerId, createdAt])
+  @@map("worker_work_logs")
 }

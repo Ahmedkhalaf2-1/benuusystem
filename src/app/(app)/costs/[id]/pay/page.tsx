@@ -14,6 +14,7 @@ import { getCostForPayment } from "@/server/services/cost-service";
 export const metadata: Metadata = { title: "دفع تكلفة" };
 
 export default async function PayCostPage(props: PageProps<"/costs/[id]/pay">) {
+  await requirePermission("costs:view");
   const user = await requirePermission("payables:pay");
   const { id } = await props.params;
   const { from } = await props.searchParams;

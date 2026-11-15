@@ -424,7 +424,9 @@ describe.skipIf(!hasTestDatabase)("customers & orders (PostgreSQL)", () => {
     expect((await listOrders(db, staff, { query: "١" })).items[0]!.id).toBe(late.orderId);
     expect((await listOrders(db, staff, { sort: "delivery" })).items[0]!.id).toBe(late.orderId);
 
-    const stats = await getDashboardStats(db, staff);
+    // Staff see order counts but not company money.
+    expect((await getDashboardStats(db, staff)).paymentsThisMonth).toBeNull();
+    const stats = await getDashboardStats(db, owner);
     expect(stats.activeOrders).toBe(2);
     expect(stats.overdueOrders).toBe(1);
     // The 100 EGP advance was dated 2026-01-01; only payments dated this month count.
