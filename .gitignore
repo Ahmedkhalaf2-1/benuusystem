@@ -46,3 +46,7 @@ next-env.d.ts
 
 # local tooling
 /.pm2/
+
+# local design review captures and rejected references (not shipped)
+/design-review/
+/approved-reference.png
