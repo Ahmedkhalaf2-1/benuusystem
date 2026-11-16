@@ -5,6 +5,7 @@ import { ClipboardList, KeyRound, ShieldCheck } from "lucide-react";
 import { Flash } from "@/components/flash";
 import { UserAvatar } from "@/components/layout/user-avatar";
 import { BackLink } from "@/components/page-header";
+import { ResetPasswordForm } from "@/components/users/account-forms";
 import { AccountStatusForm, PermissionEditor, RevokeSessionsForm } from "@/components/users/permission-editor";
 import { requirePermission } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
@@ -20,6 +21,8 @@ const FLASH: Record<string, string> = {
   activated: "الحساب اتفعّل ✓",
   deactivated: "الحساب اتوقف واتقفل دخوله من كل الأجهزة",
   "signed-out": "اتقفل دخوله من كل الأجهزة ✓",
+  created: "تم إنشاء الحساب ✓ — حدد صلاحياته تحت",
+  password: "تم تغيير كلمة السر واتقفل دخوله من كل الأجهزة ✓",
 };
 
 export default async function UserAccessPage(props: PageProps<"/users/[id]">) {
@@ -107,7 +110,7 @@ export default async function UserAccessPage(props: PageProps<"/users/[id]">) {
             </h2>
             <RevokeSessionsForm userId={account.id} sessions={account.sessions} />
             <AccountStatusForm userId={account.id} active={account.isActive} version={account.version} />
-            <p className="text-xs text-graphite">تغيير كلمة السر من السيرفر: <code dir="ltr">npm run users -- reset-password {account.email}</code></p>
+            <ResetPasswordForm userId={account.id} />
           </section>
         </>
       )}

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChevronLeft, ShieldCheck, Terminal } from "lucide-react";
+import { ChevronLeft, ShieldCheck } from "lucide-react";
+import { CreateStaffForm } from "@/components/users/account-forms";
 import { UserAvatar } from "@/components/layout/user-avatar";
 import { requirePermission } from "@/lib/auth/current-user";
 import { ROLE_LABELS } from "@/lib/auth/permissions";
@@ -23,6 +24,8 @@ export default async function UsersPage() {
         <h1 className="font-display text-[1.75rem] leading-tight font-semibold tracking-[-0.02em]">إدارة المستخدمين والصلاحيات</h1>
         <p className="mt-1 text-sm text-graphite">حدّد كل موظف يشوف إيه ويعمل إيه. الحساب الجديد بيبدأ من غير أي صلاحيات.</p>
       </header>
+
+      <CreateStaffForm />
 
       <section aria-labelledby="staff-heading">
         <h2 id="staff-heading" className="mb-2 font-display text-[1.1rem] font-semibold">
@@ -77,12 +80,6 @@ export default async function UsersPage() {
         </ul>
       </section>
 
-      <section className="flex gap-3 rounded-2xl bg-well p-4 text-sm">
-        <Terminal className="mt-0.5 size-4 shrink-0 text-graphite" aria-hidden="true" />
-        <p className="leading-relaxed text-graphite">
-          إضافة حساب جديد أو تغيير كلمة السر بيتعمل من السيرفر بس (<code dir="ltr">npm run users -- create-staff</code>) — كده لو حد سرق جلسة من متصفح، ميقدرش يعمل حسابات جديدة.
-        </p>
-      </section>
     </div>
   );
 }

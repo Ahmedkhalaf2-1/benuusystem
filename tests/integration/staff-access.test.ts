@@ -28,7 +28,8 @@ import { getOrderAccess, listAssignableStaff, updateOrderAccess } from "@/server
 import { recordPayment } from "@/server/services/payment-service";
 import { getOrderProduction, getProductionDashboard, recordDelivery, recordReady, recordStageProgress } from "@/server/services/production-service";
 import { getCashFlow } from "@/server/services/reports-service";
-import { getAccount, listAccounts, revokeStaffSessions, setStaffActive, updateStaffPermissions } from "@/server/services/staff-access-service";
+import { createStaffAccount, getAccount, listAccounts, resetStaffPassword, revokeStaffSessions, setStaffActive, updateStaffPermissions } from "@/server/services/staff-access-service";
+import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { createTestPrisma, createTestUser, hasTestDatabase, migrateTestDatabase, resetDatabase } from "../support/test-db";
 
 const TODAY = todayDateString();
@@ -430,5 +431,33 @@ describe.skipIf(!hasTestDatabase)("staff permissions & per-order visibility (Pos
     await share(orderId, "PRIVATE");
     expect(await snapshot()).toBe(before);
     expect((await getOrderDetails(db, owner, orderId))!.money).toEqual({ totalPrice: "13750.00", paid: "4321.00", outstanding: "9429.00" });
+  });
+
+  it("owner creates staff accounts and resets passwords from the browser — re-authenticated, rate limited, audited", async () => {
+    await db.user.update({ where: { id: owner.id }, data: { passwordHash: await hashPassword("owner-secret-1") } });
+    const base = { name: "علي", email: "Ali@Benuuprint.test", password: "staff-pass-1" };
+
+    await expect(createStaffAccount(db, owner, { ...base, ownerPassword: "wrong" })).rejects.toMatchObject({ fieldErrors: { ownerPassword: expect.any(Array) } });
+    const { userId } = await createStaffAccount(db, owner, { ...base, ownerPassword: "owner-secret-1" });
+    const created = await db.user.findUniqueOrThrow({ where: { id: userId } });
+    expect(created).toMatchObject({ role: "STAFF", email: "ali@benuuprint.test", permissions: [], isActive: true });
+    await expect(createStaffAccount(db, owner, { ...base, ownerPassword: "owner-secret-1" })).rejects.toMatchObject({ code: "CONFLICT" });
+
+    // Staff can never create accounts or reset passwords.
+    const staff = await staffWith(["orders:view"]);
+    await expect(createStaffAccount(db, staff, { ...base, email: "x@benuuprint.test", ownerPassword: "owner-secret-1" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(resetStaffPassword(db, staff, { userId, password: "new-pass-123", ownerPassword: "x" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    // Reset signs the account out everywhere.
+    await db.session.create({ data: { tokenHash: hashSessionToken(generateSessionToken()), userId, expiresAt: new Date(Date.now() + 86_400_000) } });
+    expect((await resetStaffPassword(db, owner, { userId, password: "new-pass-123", ownerPassword: "owner-secret-1" })).sessionsRevoked).toBe(1);
+    expect(await verifyPassword((await db.user.findUniqueOrThrow({ where: { id: userId } })).passwordHash, "new-pass-123")).toBe(true);
+    await expect(resetStaffPassword(db, owner, { userId: owner.id, password: "new-pass-123", ownerPassword: "owner-secret-1" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    // Repeated wrong owner passwords lock re-authentication.
+    for (let i = 0; i < 4; i++) await expect(createStaffAccount(db, owner, { ...base, email: `t${i}@benuuprint.test`, ownerPassword: "nope" })).rejects.toBeTruthy();
+    await expect(createStaffAccount(db, owner, { ...base, email: "t9@benuuprint.test", ownerPassword: "owner-secret-1" })).rejects.toMatchObject({ code: "RATE_LIMITED" });
+    expect(await db.auditLog.count({ where: { userId: owner.id, action: "USER_CREATED" } })).toBe(1);
+    expect(await db.auditLog.count({ where: { userId: owner.id, action: "OWNER_REAUTH_FAILED" } })).toBe(5);
   });
 });

@@ -149,22 +149,22 @@ It is audited as `USER_PERMISSIONS_CHANGED` (added / removed / after,
 `reduced`), `USER_ACTIVATED` / `USER_DEACTIVATED` or `USER_SESSIONS_REVOKED`,
 with the owner as the actor.
 
-### Account creation stays on the server
+### Creating accounts and resetting passwords
 
-Accounts are still created and passwords reset only with
-`npm run users -- create-staff | reset-password` on the VPS.
+The owner creates STAFF accounts and resets their passwords on `/users`.
+Both actions:
 
-Browser-based provisioning would let a stolen owner browser session mint
-fresh logins that survive the session being revoked. That is a persistence
-path the shell-only design was built to close.
+- **re-authenticate the owner**, who must type their own password again;
+- **audit wrong owner passwords** as `OWNER_REAUTH_FAILED`, and block further
+  tries after 5 failures in 15 minutes;
+- **are rate limited** to 10 account creations or password resets per hour;
+- **are audited** as `USER_CREATED` / `USER_PASSWORD_RESET`, with the owner as
+  the actor.
 
-The web UI therefore only manages what existing STAFF accounts may do. If
-browser provisioning is ever added, it needs:
+New accounts start with no permissions. A password reset signs the account
+out everywhere.
 
-- owner re-authentication (password re-entry);
-- rate limits;
-- audit;
-- a notification to the owner.
+The shell commands (`npm run users -- …`) still work.
 
 ## Migration `20261116151531_staff_permissions_order_visibility`
 

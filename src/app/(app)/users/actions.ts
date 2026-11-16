@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { toActionResult, type ActionResult } from "@/lib/actions";
 import { requireUser } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
-import { revokeStaffSessions, setStaffActive, updateStaffPermissions } from "@/server/services/staff-access-service";
+import { createStaffAccount, resetStaffPassword, revokeStaffSessions, setStaffActive, updateStaffPermissions } from "@/server/services/staff-access-service";
 
 /** Owner: save a staff account's permissions (the service checks owner, self-edit and version). */
 export async function updatePermissionsAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
@@ -37,4 +37,32 @@ export async function revokeSessionsAction(_prev: ActionResult | null, formData:
   const failure = await toActionResult(() => revokeStaffSessions(prisma, user, { userId }));
   if (failure) return failure;
   redirect(`/users/${userId}?saved=signed-out`);
+}
+
+/** Owner: new staff account (no permissions yet), confirmed with the owner's password. */
+export async function createStaffAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  let userId = "";
+  const failure = await toActionResult(async () => {
+    userId = (
+      await createStaffAccount(prisma, user, {
+        name: formData.get("name"),
+        email: formData.get("email"),
+        password: formData.get("password"),
+        ownerPassword: formData.get("ownerPassword"),
+      })
+    ).userId;
+  });
+  if (failure) return failure;
+  redirect(`/users/${userId}?saved=created`);
+}
+
+export async function resetPasswordAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const userId = String(formData.get("userId") ?? "");
+  const failure = await toActionResult(() =>
+    resetStaffPassword(prisma, user, { userId, password: formData.get("password"), ownerPassword: formData.get("ownerPassword") }),
+  );
+  if (failure) return failure;
+  redirect(`/users/${userId}?saved=password`);
 }

@@ -4,6 +4,9 @@ import { PERMISSION_INFO, missingDependencies } from "@/lib/auth/permission-cata
 import { STAFF_GRANTABLE, assertPermission, effectiveStaffPermissions, isGrantable, isOwner, type GrantablePermission } from "@/lib/auth/permissions";
 import type { DbClient, DbTransaction } from "@/lib/db/prisma";
 import { AppError } from "@/lib/errors";
+import { hashPassword, verifyPassword } from "@/lib/auth/password";
+import { emailSchema, newPasswordSchema, userNameSchema } from "@/lib/validations/auth";
+import { createUser, findUserByEmail } from "@/server/repositories/user-repository";
 import { deleteSessionsForUser } from "@/server/repositories/session-repository";
 import type { Actor } from "./actor";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
@@ -11,9 +14,10 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
 /**
  * «إدارة المستخدمين والصلاحيات» — owner only ("users:manage").
  *
- * - Accounts are still CREATED on the server shell only (`npm run users --
- *   create-staff`): a stolen browser session can't mint new logins. The web
- *   UI manages what existing STAFF accounts may do.
+ * - The owner creates STAFF accounts and resets their passwords here. Both
+ *   need the owner's own password again (re-authentication), are rate
+ *   limited, and audited — so a stolen browser session alone can't mint
+ *   logins. New accounts start with no permissions.
  * - Only STAFF accounts are edited here. Owner accounts (always full access)
  *   are never changed from the browser, so the last owner can't be locked out
  *   and nobody can promote themselves.
@@ -230,6 +234,82 @@ export async function revokeStaffSessions(db: PrismaClient, actor: Actor, payloa
     await lockStaffAccount(tx, actor, userId.data, undefined);
     const { count } = await deleteSessionsForUser(tx, userId.data);
     await recordAudit(tx, { userId: actor.id, action: AUDIT_ACTIONS.USER_SESSIONS_REVOKED, entityType: "User", entityId: userId.data, metadata: { sessionsRevoked: count, source: SOURCE } });
+    return { sessionsRevoked: count };
+  });
+}
+
+// ───────────────────────────── Accounts from the browser ─────────────────────────────
+
+/** Max accounts created / passwords reset per owner per hour, and wrong re-auth tries per 15 min. */
+export const ACCOUNT_CHANGES_PER_HOUR = 10;
+export const REAUTH_FAILURES_PER_15_MIN = 5;
+
+/**
+ * Owner re-authentication: the owner types their own password again. Wrong
+ * passwords are audited and, after a few, further attempts are blocked.
+ */
+async function reauthenticateOwner(db: PrismaClient, actor: Actor, ownerPassword: unknown) {
+  const since = new Date(Date.now() - 15 * 60_000);
+  const failures = await db.auditLog.count({ where: { userId: actor.id, action: AUDIT_ACTIONS.OWNER_REAUTH_FAILED, createdAt: { gte: since } } });
+  if (failures >= REAUTH_FAILURES_PER_15_MIN) throw new AppError("RATE_LIMITED", "محاولات كتير بكلمة سر غلط. استنى ربع ساعة وجرّب تاني.");
+  const owner = await db.user.findUnique({ where: { id: actor.id }, select: { passwordHash: true, isActive: true, role: true } });
+  const ok = owner?.isActive && owner.role === "OWNER_ADMIN" && typeof ownerPassword === "string" && ownerPassword.length > 0 && (await verifyPassword(owner.passwordHash, ownerPassword));
+  if (!ok) {
+    await recordAudit(db, { userId: actor.id, action: AUDIT_ACTIONS.OWNER_REAUTH_FAILED, entityType: "User", entityId: actor.id, metadata: { source: SOURCE } });
+    throw new AppError("VALIDATION_ERROR", "كلمة السر بتاعتك غلط", { fieldErrors: { ownerPassword: ["كلمة السر بتاعتك غلط"] } });
+  }
+}
+
+async function assertAccountChangeBudget(db: PrismaClient, actor: Actor) {
+  const since = new Date(Date.now() - 60 * 60_000);
+  const recent = await db.auditLog.count({
+    where: { userId: actor.id, action: { in: [AUDIT_ACTIONS.USER_CREATED, AUDIT_ACTIONS.USER_PASSWORD_RESET] }, createdAt: { gte: since } },
+  });
+  if (recent >= ACCOUNT_CHANGES_PER_HOUR) throw new AppError("RATE_LIMITED", "اتعمل حسابات أو تغيير كلمات سر كتير في ساعة. جرّب بعد شوية.");
+}
+
+function field<T>(schema: { safeParse: (v: unknown) => { success: true; data: T } | { success: false; error: { issues: { message: string }[] } } }, value: unknown, name: string): T {
+  const r = schema.safeParse(value);
+  if (!r.success) throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { [name]: [r.error.issues[0]?.message ?? "قيمة غير صحيحة"] } });
+  return r.data;
+}
+
+/** Creates a STAFF account with NO permissions. Owner only, with re-authentication. */
+export async function createStaffAccount(
+  db: PrismaClient,
+  actor: Actor,
+  payload: { name: unknown; email: unknown; password: unknown; ownerPassword: unknown },
+): Promise<{ userId: string }> {
+  requireOwnerActor(actor);
+  const name = field(userNameSchema, payload.name, "name");
+  const email = field(emailSchema, payload.email, "email");
+  const password = field(newPasswordSchema, payload.password, "password");
+  await assertAccountChangeBudget(db, actor);
+  await reauthenticateOwner(db, actor, payload.ownerPassword);
+  const passwordHash = await hashPassword(password);
+  return db.$transaction(async (tx) => {
+    if (await findUserByEmail(tx, email)) throw new AppError("CONFLICT", "الإيميل ده مستخدم في حساب تاني", { fieldErrors: { email: ["الإيميل ده مستخدم في حساب تاني"] } });
+    const user = await createUser(tx, { name, email, passwordHash, role: "STAFF", permissions: [] });
+    await recordAudit(tx, { userId: actor.id, action: AUDIT_ACTIONS.USER_CREATED, entityType: "User", entityId: user.id, metadata: { role: "STAFF", email, source: SOURCE } });
+    return { userId: user.id };
+  });
+}
+
+/** Sets a STAFF account's password and signs it out everywhere. Owner only, with re-authentication. */
+export async function resetStaffPassword(db: PrismaClient, actor: Actor, payload: { userId: unknown; password: unknown; ownerPassword: unknown }) {
+  requireOwnerActor(actor);
+  const userId = UUID.safeParse(payload.userId);
+  if (!userId.success) throw new AppError("NOT_FOUND", "الحساب مش موجود");
+  const password = field(newPasswordSchema, payload.password, "password");
+  await assertAccountChangeBudget(db, actor);
+  await reauthenticateOwner(db, actor, payload.ownerPassword);
+  const passwordHash = await hashPassword(password);
+  return db.$transaction(async (tx) => {
+    const row = await lockStaffAccount(tx, actor, userId.data, undefined);
+    await tx.user.update({ where: { id: userId.data }, data: { passwordHash } });
+    const { count } = await deleteSessionsForUser(tx, userId.data);
+    await tx.loginAttempt.deleteMany({ where: { email: row.email } });
+    await recordAudit(tx, { userId: actor.id, action: AUDIT_ACTIONS.USER_PASSWORD_RESET, entityType: "User", entityId: userId.data, metadata: { sessionsRevoked: count, source: SOURCE } });
     return { sessionsRevoked: count };
   });
 }
