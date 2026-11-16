@@ -70,6 +70,8 @@ export const PERMISSIONS = [
   "finance:view-summary",
   /** Detailed accounting reports under /accounts (owner). */
   "finance:reports",
+  /** Treasury: account balances, ledger, transfers, owner capital/drawings, reconciliation (owner). */
+  "treasury:manage",
   /** Customer financial documents: order invoices, order summaries, account statements (PDF). */
   "documents:customer-financial",
   // Workers (payroll records — not app accounts)

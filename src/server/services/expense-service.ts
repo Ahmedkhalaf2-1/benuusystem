@@ -70,6 +70,7 @@ export async function recordExpense(
           paidAt: input.expenseDate,
           method: input.method,
           idempotencyKey: randomUUID(),
+          accountId: input.accountId,
         });
       }
       return { expenseId: expense.id, created: true };

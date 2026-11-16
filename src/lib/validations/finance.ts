@@ -1,3 +1,4 @@
+import { paymentAccountSchema } from "./utils";
 import { z } from "zod";
 import { todayDateString } from "@/lib/dates";
 import { COST_CATEGORIES, EXPENSE_CATEGORIES, PAY_STATUSES } from "@/lib/finance/labels";
@@ -50,6 +51,7 @@ const payNowShape = {
   payStatus: z.enum(PAY_STATUSES, { error: "اختار اتدفع ولا لأ" }),
   paidNow: moneySchema({ required: "اكتب المبلغ اللي اتدفع", allowZero: true }).default(0n),
   method: methodSchema,
+  accountId: paymentAccountSchema,
 };
 
 function checkPayNow(data: { payStatus: (typeof PAY_STATUSES)[number]; paidNow: bigint; amount: bigint }, ctx: z.RefinementCtx) {
@@ -107,6 +109,7 @@ export const payPayableSchema = z.object({
   amount: moneySchema({ required: "اكتب المبلغ" }),
   paidAt: notInFuture("تاريخ الدفع"),
   method: methodSchema,
+  accountId: paymentAccountSchema,
   notes: optionalText(500),
 });
 export type PayPayableInput = z.output<typeof payPayableSchema>;

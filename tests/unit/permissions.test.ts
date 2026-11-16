@@ -21,6 +21,7 @@ const OWNER_ONLY: Permission[] = [
   "payments:void",
   "finance:void",
   "finance:reports",
+  "treasury:manage",
   "suppliers:view-balances",
   "workers:manage",
   "workers:view-pay",

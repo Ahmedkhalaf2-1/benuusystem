@@ -5,6 +5,7 @@ import { FlowHeader } from "@/components/ds/primitives";
 import { PaymentForm } from "@/components/orders/payment-form";
 import { requirePermission } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
+import { listAccountOptions } from "@/server/services/treasury-service";
 import { todayDateString } from "@/lib/dates";
 import { formatMoneyString, toCents } from "@/lib/money";
 import { formatOrderNumber } from "@/lib/orders/labels";
@@ -43,7 +44,7 @@ export default async function NewPaymentPage(props: PageProps<"/orders/[id]/paym
           </div>
         </dl>
       </div>
-      <PaymentForm orderId={order.id} outstanding={money.outstanding} today={todayDateString()} />
+      <PaymentForm orderId={order.id} outstanding={money.outstanding} today={todayDateString()} accounts={await listAccountOptions(prisma, user)} />
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { paymentAccountSchema } from "./utils";
 import { z } from "zod";
 import type { PrintOperation } from "@/generated/prisma/enums";
 import { MAX_CENTS, parseMoney, type Cents } from "@/lib/money";
@@ -514,6 +515,8 @@ export const createOrderSchema = z
     advanceMethod: z
       .enum(PAYMENT_METHODS as [string, ...string[]])
       .default("CASH"),
+    /** Treasury account the advance went into (optional). */
+    advanceAccountId: paymentAccountSchema,
   })
   .superRefine((data, ctx) => {
     checkOrderRules(data, ctx);
@@ -570,6 +573,7 @@ export const recordPaymentSchema = z.object({
     })
     .transform((m) => m as (typeof PAYMENT_METHODS)[number]),
   notes: optionalText(500),
+  accountId: paymentAccountSchema,
 });
 
 export type RecordPaymentInput = z.output<typeof recordPaymentSchema>;

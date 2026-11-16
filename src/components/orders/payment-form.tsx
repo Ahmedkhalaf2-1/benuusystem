@@ -4,18 +4,21 @@ import { useActionState, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { recordPaymentAction } from "@/app/(app)/orders/actions";
 import { Field, FormMessage, Textarea } from "@/components/forms/field";
+import { AccountField, defaultAccountId } from "@/components/treasury/account-field";
+import type { AccountOption } from "@/lib/treasury/labels";
 import { Input } from "@/components/ui/input";
 import { formatAmount, formatMoney, parseMoney, toCents } from "@/lib/money";
 import { PAYMENT_METHOD_LABELS, PAYMENT_METHODS } from "@/lib/orders/labels";
 import { newRequestId } from "@/lib/request-id";
 import { cn } from "@/lib/utils";
 
-export function PaymentForm({ orderId, outstanding, today }: { orderId: string; outstanding: string; today: string }) {
+export function PaymentForm({ orderId, outstanding, today, accounts = [] }: { orderId: string; outstanding: string; today: string; accounts?: AccountOption[] }) {
   const [state, action, pending] = useActionState(recordPaymentAction, null);
   // Same key for retries of this visit: a double tap records the payment once.
   const [requestId] = useState(newRequestId);
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<string>("CASH");
+  const [accountId, setAccountId] = useState(() => defaultAccountId(accounts));
   const remaining = toCents(outstanding);
   const typed = parseMoney(amount);
   const after = typed !== null ? remaining - typed : null;
@@ -79,6 +82,9 @@ export function PaymentForm({ orderId, outstanding, today }: { orderId: string; 
           ))}
         </div>
         {errors.method && <p className="mt-1 text-sm text-destructive">{errors.method[0]}</p>}
+        <div className="mt-4">
+          <AccountField accounts={accounts} value={accountId} onChange={setAccountId} direction="in" name="accountId" error={errors.accountId?.[0]} />
+        </div>
       </fieldset>
 
       <Field label="تاريخ الدفعة" htmlFor="paidAt" error={errors.paidAt?.[0]}>

@@ -112,6 +112,7 @@ export async function recordOrderCost(
           paidAt: input.costDate,
           method: input.method,
           idempotencyKey: randomUUID(),
+          accountId: input.accountId,
         });
       }
       return { costId: cost.id, orderId: order.id, created: true };

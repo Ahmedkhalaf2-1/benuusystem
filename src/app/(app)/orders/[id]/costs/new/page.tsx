@@ -5,6 +5,7 @@ import { ReceiptText } from "lucide-react";
 import { FlowHeader } from "@/components/ds/primitives";
 import { requirePermission } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
+import { listAccountOptions } from "@/server/services/treasury-service";
 import { orderScope } from "@/server/services/order-access";
 import { todayDateString } from "@/lib/dates";
 import { formatOrderNumber } from "@/lib/orders/labels";
@@ -31,7 +32,7 @@ export default async function NewOrderCostPage(props: PageProps<"/orders/[id]/co
           </>
         }
       />
-      <CostForm orderId={order.id} today={todayDateString()} />
+      <CostForm orderId={order.id} today={todayDateString()} accounts={await listAccountOptions(prisma, user)} />
     </div>
   );
 }

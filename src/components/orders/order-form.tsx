@@ -20,13 +20,15 @@ import { customPlacementsOf, newGroupDraft, type GroupDraft, type OrderDraft } f
 import { chip, MoneyInput } from "./order-form-parts";
 import { ItemCard, itemLineTotal } from "./order-items";
 import { OrderVisibilityPicker } from "./order-visibility-picker";
+import { AccountField, defaultAccountId } from "@/components/treasury/account-field";
+import type { AccountOption } from "@/lib/treasury/labels";
 import type { AssignableStaff, OrderAccessValue } from "@/lib/orders/visibility";
 
 /** Owner only: «ظهور الأوردر للعمال» inside the form. `version` is the order's accessVersion (edit). */
 type AccessProps = { staff: AssignableStaff[]; initial: OrderAccessValue; version?: number };
 
 type Props =
-  | { mode: "create"; initial: OrderDraft; materialSuggestions: string[]; access?: AccessProps }
+  | { mode: "create"; initial: OrderDraft; materialSuggestions: string[]; access?: AccessProps; accounts?: AccountOption[] }
   | {
       mode: "edit";
       access?: AccessProps;
@@ -100,6 +102,8 @@ export function OrderForm(props: Props) {
   const productInputRef = useRef<HTMLInputElement>(null);
   const [scrollToError, setScrollToError] = useState(0);
   const [access, setAccess] = useState<OrderAccessValue | null>(props.access?.initial ?? null);
+  const accounts = props.mode === "create" ? (props.accounts ?? []) : [];
+  const [advanceAccountId, setAdvanceAccountId] = useState(() => defaultAccountId(accounts));
 
   useEffect(() => {
     if (!scrollToError) return;
@@ -210,7 +214,7 @@ export function OrderForm(props: Props) {
       notes: draft.notes,
     };
     return props.mode === "create"
-      ? { ...common, idempotencyKey: requestId, advance: draft.advance, advanceMethod: draft.advanceMethod }
+      ? { ...common, idempotencyKey: requestId, advance: draft.advance, advanceMethod: draft.advanceMethod, ...(advanceAccountId ? { advanceAccountId } : {}) }
       : {
           ...common,
           orderId: props.orderId,
@@ -546,6 +550,18 @@ export function OrderForm(props: Props) {
               </Field>
             )}
           </div>
+        )}
+        {props.mode === "create" && money.paidNow !== null && money.paidNow > 0n && (
+          <AccountField
+            accounts={accounts}
+            value={advanceAccountId}
+            onChange={(id) => {
+              setAdvanceAccountId(id);
+              setErrors((e) => (e.advanceAccountId ? { ...e, advanceAccountId: "" } : e));
+            }}
+            direction="in"
+            error={errors.advanceAccountId}
+          />
         )}
 
         <dl className="rounded-2xl bg-panel px-4 py-2 text-on-panel">

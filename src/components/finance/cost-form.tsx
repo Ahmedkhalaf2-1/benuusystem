@@ -13,10 +13,12 @@ import { recordOrderCostSchema } from "@/lib/validations/finance";
 import { ChoiceCards } from "./choice-cards";
 import { MoneyField } from "./money-field";
 import { PayNowFields } from "./pay-now-fields";
+import { defaultAccountId } from "@/components/treasury/account-field";
+import type { AccountOption } from "@/lib/treasury/labels";
 import { SupplierPicker, type SupplierChoice } from "./supplier-picker";
 
 /** "إضافة تكلفة" — one short form; the supplier and the paid part are optional. */
-export function CostForm({ orderId, today }: { orderId: string; today: string }) {
+export function CostForm({ orderId, today, accounts = [] }: { orderId: string; today: string; accounts?: AccountOption[] }) {
   const [requestId] = useState(newRequestId);
   const [category, setCategory] = useState<CostCategory | "">("");
   const [description, setDescription] = useState("");
@@ -26,6 +28,7 @@ export function CostForm({ orderId, today }: { orderId: string; today: string })
   const [payStatus, setPayStatus] = useState<PayStatus | "">("");
   const [paidNow, setPaidNow] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("CASH");
+  const [accountId, setAccountId] = useState(() => defaultAccountId(accounts));
   const [notes, setNotes] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string>();
@@ -66,6 +69,7 @@ export function CostForm({ orderId, today }: { orderId: string; today: string })
       payStatus: payStatus as PayStatus,
       paidNow,
       method,
+      ...(payStatus === "FULL" || payStatus === "PARTIAL" ? { accountId } : {}),
       notes,
     };
     const check = recordOrderCostSchema.safeParse(payload);
@@ -127,6 +131,8 @@ export function CostForm({ orderId, today }: { orderId: string; today: string })
         payStatus={payStatus}
         paidNow={paidNow}
         method={method}
+        accounts={accounts}
+        accountId={accountId}
         errors={errors}
         onChange={(p) => {
           if (p.payStatus !== undefined) {
@@ -138,6 +144,10 @@ export function CostForm({ orderId, today }: { orderId: string; today: string })
             clear("paidNow");
           }
           if (p.method !== undefined) setMethod(p.method);
+          if (p.accountId !== undefined) {
+            setAccountId(p.accountId);
+            clear("accountId");
+          }
         }}
       />
       <Field label="التاريخ" htmlFor="costDate" error={errors.costDate}>

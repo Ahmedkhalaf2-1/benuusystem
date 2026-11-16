@@ -8,6 +8,7 @@ import { payWorkerSchema, type PayWorkerPayload } from "@/lib/validations/worker
 import { isUniqueViolation } from "@/server/repositories/prisma-errors";
 import { lockWorker, sumEarned, sumPaidToWorker } from "@/server/repositories/worker-repository";
 import type { Actor } from "./actor";
+import { accountForNewPayment } from "./treasury-service";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
 
 /**
@@ -53,8 +54,10 @@ export async function payWorker(db: PrismaClient, actor: Actor, payload: PayWork
         }
       }
 
+      const accountId = await accountForNewPayment(tx, input.accountId, input.paidAt);
       const payment = await tx.outgoingPayment.create({
         data: {
+          accountId,
           workerId: input.workerId,
           workerPaymentType: input.type,
           amount: centsToDecimalString(input.amount),
@@ -77,6 +80,7 @@ export async function payWorker(db: PrismaClient, actor: Actor, payload: PayWork
           amount: centsToDecimalString(input.amount),
           method: input.method,
           paidAt: input.paidAt,
+          accountId,
         },
       });
       return { paymentId: payment.id, created: true };

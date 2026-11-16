@@ -3,6 +3,7 @@ import {
   CalendarRange,
   ClipboardList,
   HardHat,
+  Landmark,
   House,
   LayoutGrid,
   PlusCircle,
@@ -53,6 +54,7 @@ export const SIDEBAR_EXTRA_NAV: readonly (NavItem & { permission: Permission })[
   { key: "workers", label: "العمال", href: "/workers", icon: HardHat, permission: "workers:view" },
   { key: "suppliers", label: "الموردين", href: "/suppliers", icon: Truck, permission: "suppliers:view-balances" },
   { key: "expenses", label: "المصاريف", href: "/expenses", icon: Receipt, permission: "expenses:view" },
+  { key: "treasury", label: "الخزنة والحسابات", href: "/treasury", icon: Landmark, permission: "treasury:manage" },
   { key: "users", label: "المستخدمين والصلاحيات", href: "/users", icon: ShieldCheck, permission: "users:manage" },
 ];
 

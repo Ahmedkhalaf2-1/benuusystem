@@ -12,6 +12,7 @@ import { toFieldErrors } from "@/lib/validations/utils";
 import { lockOrder, sumValidPayments } from "@/server/repositories/order-repository";
 import { isUniqueViolation } from "@/server/repositories/prisma-errors";
 import type { Actor } from "./actor";
+import { accountForNewPayment } from "./treasury-service";
 import { canAccessOrder } from "./order-access";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
 
@@ -75,12 +76,14 @@ export async function recordPayment(
         });
       }
 
+      const accountId = await accountForNewPayment(tx, input.accountId, input.paidAt);
       const payment = await tx.orderPayment.create({
         data: {
           orderId: input.orderId,
           amount: centsToDecimalString(input.amount),
           paidAt: dateFromString(input.paidAt),
           method: input.method,
+          accountId,
           notes: input.notes,
           idempotencyKey: input.idempotencyKey,
           recordedById: actor.id,
@@ -98,6 +101,7 @@ export async function recordPayment(
           orderNumber: order.number,
           amount: centsToDecimalString(input.amount),
           method: input.method,
+          accountId,
           paidAt: input.paidAt,
           paidBefore: centsToDecimalString(paid),
         },

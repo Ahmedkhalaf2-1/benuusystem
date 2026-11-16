@@ -5,6 +5,7 @@ import { FlowHeader } from "@/components/ds/primitives";
 import { WorkerPayForm } from "@/components/workers/worker-pay-form";
 import { requirePermission } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
+import { listAccountOptions } from "@/server/services/treasury-service";
 import { todayDateString } from "@/lib/dates";
 import { getWorkerDetails } from "@/server/services/labor-service";
 
@@ -19,7 +20,7 @@ export default async function PayWorkerPage(props: PageProps<"/workers/[id]/pay"
   return (
     <div className="mx-auto max-w-lg">
       <FlowHeader icon={Banknote} hue="green" title={type === "ADVANCE" ? "تسجيل سلفة" : "دفع فلوس"} backHref={`/workers/${worker.id}`} backLabel={worker.name} context={worker.name} />
-      <WorkerPayForm workerId={worker.id} owed={worker.pay.owed} today={todayDateString()} initialType={type === "ADVANCE" ? "ADVANCE" : "WAGE"} />
+      <WorkerPayForm workerId={worker.id} owed={worker.pay.owed} today={todayDateString()} initialType={type === "ADVANCE" ? "ADVANCE" : "WAGE"} accounts={await listAccountOptions(prisma, user)} />
     </div>
   );
 }

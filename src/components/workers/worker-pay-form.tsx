@@ -11,13 +11,16 @@ import { Input } from "@/components/ui/input";
 import { formatAmount, formatMoney, toCents } from "@/lib/money";
 import { PAYMENT_METHOD_LABELS, PAYMENT_METHODS } from "@/lib/orders/labels";
 import { newRequestId } from "@/lib/request-id";
+import { AccountField, defaultAccountId } from "@/components/treasury/account-field";
+import type { AccountOption } from "@/lib/treasury/labels";
 
 /** "دفع فلوس" / "سلفة" for one worker. */
-export function WorkerPayForm({ workerId, owed, today, initialType }: { workerId: string; owed: string; today: string; initialType: "WAGE" | "ADVANCE" }) {
+export function WorkerPayForm({ workerId, owed, today, initialType, accounts = [] }: { workerId: string; owed: string; today: string; initialType: "WAGE" | "ADVANCE"; accounts?: AccountOption[] }) {
   const [requestId] = useState(newRequestId);
   const [type, setType] = useState<"WAGE" | "ADVANCE">(initialType);
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<string>("CASH");
+  const [accountId, setAccountId] = useState(() => defaultAccountId(accounts));
   const [paidAt, setPaidAt] = useState(today);
   const [notes, setNotes] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -30,7 +33,7 @@ export function WorkerPayForm({ workerId, owed, today, initialType }: { workerId
     if (pending) return;
     setMessage(undefined);
     startTransition(async () => {
-      const result = await payWorkerAction({ workerId, idempotencyKey: requestId, type, amount, paidAt, method, notes });
+      const result = await payWorkerAction({ workerId, idempotencyKey: requestId, type, amount, paidAt, method, accountId, notes });
       if (result && !result.ok) {
         const fe: Record<string, string> = {};
         for (const [k, v] of Object.entries(result.fieldErrors ?? {})) if (v[0]) fe[k] = v[0];
@@ -66,6 +69,7 @@ export function WorkerPayForm({ workerId, owed, today, initialType }: { workerId
         </button>
       )}
       <ChoiceCards label="اتدفع إزاي؟" options={PAYMENT_METHODS.map((m) => ({ value: m, label: PAYMENT_METHOD_LABELS[m] }))} value={method} onChange={setMethod} />
+      <AccountField accounts={accounts} value={accountId} onChange={setAccountId} direction="out" error={errors.accountId} />
       <Field label="التاريخ" htmlFor="paidAt" error={errors.paidAt}>
         <Input id="paidAt" type="date" value={paidAt} max={today} onChange={(e) => setPaidAt(e.target.value)} />
       </Field>

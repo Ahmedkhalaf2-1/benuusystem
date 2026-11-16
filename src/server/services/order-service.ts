@@ -25,6 +25,7 @@ import {
 } from "@/server/repositories/order-repository";
 import { isUniqueViolation } from "@/server/repositories/prisma-errors";
 import type { Actor } from "./actor";
+import { accountForNewPayment } from "./treasury-service";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
 import { insertCustomer } from "./customer-service";
 import { loadGroupProgress, productionTotalsByOrder, refreshOrderStatus } from "./production-service";
@@ -323,12 +324,14 @@ export async function createOrder(
       if (access) await applyOrderAccess(tx, actor, order.id, access, { source: "create" });
 
       if (input.advance > 0n) {
+        const accountId = await accountForNewPayment(tx, input.advanceAccountId, input.receivedDate, "advanceAccountId");
         const payment = await tx.orderPayment.create({
           data: {
             orderId: order.id,
             amount: centsToDecimalString(input.advance),
             paidAt: dateFromString(input.receivedDate),
             method: input.advanceMethod,
+            accountId,
             isAdvance: true,
             idempotencyKey: randomUUID(),
             recordedById: actor.id,
@@ -345,6 +348,7 @@ export async function createOrder(
             amount: centsToDecimalString(input.advance),
             method: input.advanceMethod,
             advance: true,
+            accountId,
           },
         });
       }

@@ -99,6 +99,7 @@ export const OWNER_ONLY_LABELS = [
   "يوميات وحسابات العمال وقبضهم",
   "أرصدة الموردين",
   "التقارير المالية وهامش الأوردرات",
+  "الخزنة وأرصدة الحسابات",
 ];
 
 export type PermissionPreset = { key: string; label: string; description: string; permissions: GrantablePermission[] };

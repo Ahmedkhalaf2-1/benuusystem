@@ -7,6 +7,7 @@ import { FlowHeader } from "@/components/ds/primitives";
 import { requirePermission } from "@/lib/auth/current-user";
 import { hasPermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db/prisma";
+import { listAccountOptions } from "@/server/services/treasury-service";
 import { formatDateAr, todayDateString } from "@/lib/dates";
 import { EXPENSE_CATEGORY_LABELS } from "@/lib/finance/labels";
 import { formatMoneyString, toCents } from "@/lib/money";
@@ -46,7 +47,7 @@ export default async function PayExpensePage(props: PageProps<"/expenses/[id]/pa
           </div>
         </dl>
       </div>
-      <PayOutForm action={payExpenseAction} targetId={expense.id} remaining={expense.remaining} today={todayDateString()} />
+      <PayOutForm action={payExpenseAction} targetId={expense.id} remaining={expense.remaining} today={todayDateString()} accounts={await listAccountOptions(prisma, user)} />
     </div>
   );
 }

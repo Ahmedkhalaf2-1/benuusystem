@@ -65,8 +65,12 @@ model User {
   deliveriesRecorded    Delivery[]                @relation("DeliveryRecordedBy")
   deliveriesVoided      Delivery[]                @relation("DeliveryVoidedBy")
 
-  orderAccess        OrderAccess[] @relation("OrderAccessUser")
-  orderAccessGranted OrderAccess[] @relation("OrderAccessGrantedBy")
+  financialAccountsCreated  FinancialAccount[]       @relation("FinancialAccountCreatedBy")
+  treasuryMovementsRecorded TreasuryMovement[]       @relation("TreasuryMovementRecordedBy")
+  treasuryMovementsVoided   TreasuryMovement[]       @relation("TreasuryMovementVoidedBy")
+  reconciliationsRecorded   TreasuryReconciliation[] @relation("ReconciliationRecordedBy")
+  orderAccess               OrderAccess[]            @relation("OrderAccessUser")
+  orderAccessGranted        OrderAccess[]            @relation("OrderAccessGrantedBy")
 
   @@map("users")
 }
@@ -316,13 +320,18 @@ model OrderPayment {
   voidedAt       DateTime?     @map("voided_at") @db.Timestamptz(3)
   voidedById     String?       @map("voided_by_id") @db.Uuid
   voidReason     String?       @map("void_reason") @db.VarChar(300)
+  /// Treasury account the money actually went into. Null = not attributed
+  /// (every payment recorded before the treasury existed).
+  accountId      String?       @map("account_id") @db.Uuid
 
-  order      Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  recordedBy User  @relation("PaymentRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
-  voidedBy   User? @relation("PaymentVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  order      Order             @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  recordedBy User              @relation("PaymentRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  voidedBy   User?             @relation("PaymentVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  account    FinancialAccount? @relation("OrderPaymentAccount", fields: [accountId], references: [id], onDelete: Restrict)
 
   @@index([orderId])
   @@index([paidAt])
+  @@index([accountId, paidAt])
   @@map("order_payments")
 }
 
@@ -449,17 +458,21 @@ model OutgoingPayment {
   voidedAt          DateTime?          @map("voided_at") @db.Timestamptz(3)
   voidedById        String?            @map("voided_by_id") @db.Uuid
   voidReason        String?            @map("void_reason") @db.VarChar(300)
+  /// Treasury account the money actually left. Null = not attributed.
+  accountId         String?            @map("account_id") @db.Uuid
 
-  orderCost  OrderCost?      @relation(fields: [orderCostId], references: [id], onDelete: Restrict)
-  expense    GeneralExpense? @relation(fields: [expenseId], references: [id], onDelete: Restrict)
-  worker     Worker?         @relation(fields: [workerId], references: [id], onDelete: Restrict)
-  recordedBy User            @relation("OutgoingPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
-  voidedBy   User?           @relation("OutgoingPaymentVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  account    FinancialAccount? @relation("OutgoingPaymentAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  orderCost  OrderCost?        @relation(fields: [orderCostId], references: [id], onDelete: Restrict)
+  expense    GeneralExpense?   @relation(fields: [expenseId], references: [id], onDelete: Restrict)
+  worker     Worker?           @relation(fields: [workerId], references: [id], onDelete: Restrict)
+  recordedBy User              @relation("OutgoingPaymentRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  voidedBy   User?             @relation("OutgoingPaymentVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
 
   @@index([orderCostId])
   @@index([expenseId])
   @@index([workerId, paidAt])
   @@index([paidAt])
+  @@index([accountId, paidAt])
   @@map("outgoing_payments")
 }
 
@@ -781,4 +794,105 @@ model OrderAccess {
   @@id([orderId, userId])
   @@index([userId])
   @@map("order_access")
+}
+
+// ───────────────────────────── Treasury ─────────────────────────────
+
+enum FinancialAccountType {
+  /// خزنة كاش
+  CASH
+  /// حساب بنكي
+  BANK
+  /// محفظة إلكترونية
+  WALLET
+}
+
+/// A place where the business actually holds money. Its balance is always
+/// computed: opening balance (counted by the owner as of `openingDate`) plus
+/// attributed movements dated on or after `openingDate`. Never stored.
+model FinancialAccount {
+  id             String               @id @default(uuid(7)) @db.Uuid
+  name           String               @unique @db.VarChar(80)
+  type           FinancialAccountType
+  currency       String               @default("EGP") @db.Char(3)
+  /// The amount the owner counted/confirmed at the start of `openingDate`.
+  openingBalance Decimal              @map("opening_balance") @db.Decimal(14, 2)
+  openingDate    DateTime             @map("opening_date") @db.Date
+  isActive       Boolean              @default(true) @map("is_active")
+  notes          String?              @db.VarChar(300)
+  createdById    String               @map("created_by_id") @db.Uuid
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy        User                     @relation("FinancialAccountCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  orderPayments    OrderPayment[]           @relation("OrderPaymentAccount")
+  outgoingPayments OutgoingPayment[]        @relation("OutgoingPaymentAccount")
+  movementsFrom    TreasuryMovement[]       @relation("MovementAccount")
+  movementsTo      TreasuryMovement[]       @relation("MovementToAccount")
+  reconciliations  TreasuryReconciliation[]
+
+  @@map("financial_accounts")
+}
+
+enum TreasuryMovementKind {
+  /// Owner put money into the business (not revenue).
+  CAPITAL_IN
+  /// Owner took money out (not an expense).
+  DRAWING
+  /// Between two accounts: out of `accountId`, into `toAccountId`.
+  TRANSFER
+  /// Audited correction after a count; `direction` says which way.
+  ADJUSTMENT
+}
+
+enum MoneyDirection {
+  IN
+  OUT
+}
+
+/// Treasury-only money movements (everything else comes from customer and
+/// outgoing payments). Never edited or deleted: wrong rows are voided with a reason.
+model TreasuryMovement {
+  id             String               @id @default(uuid(7)) @db.Uuid
+  kind           TreasuryMovementKind
+  accountId      String               @map("account_id") @db.Uuid
+  toAccountId    String?              @map("to_account_id") @db.Uuid
+  /// For ADJUSTMENT only (CAPITAL_IN is IN, DRAWING is OUT, TRANSFER is both).
+  direction      MoneyDirection?
+  amount         Decimal              @db.Decimal(14, 2)
+  movementDate   DateTime             @map("movement_date") @db.Date
+  notes          String?              @db.VarChar(500)
+  idempotencyKey String               @unique @map("idempotency_key") @db.Uuid
+  recordedById   String               @map("recorded_by_id") @db.Uuid
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  voidedAt       DateTime?            @map("voided_at") @db.Timestamptz(3)
+  voidedById     String?              @map("voided_by_id") @db.Uuid
+  voidReason     String?              @map("void_reason") @db.VarChar(300)
+
+  account    FinancialAccount  @relation("MovementAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  toAccount  FinancialAccount? @relation("MovementToAccount", fields: [toAccountId], references: [id], onDelete: Restrict)
+  recordedBy User              @relation("TreasuryMovementRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  voidedBy   User?             @relation("TreasuryMovementVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+
+  @@index([accountId, movementDate])
+  @@index([toAccountId, movementDate])
+  @@map("treasury_movements")
+}
+
+/// An owner count of an account compared with the system balance at that moment.
+model TreasuryReconciliation {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  accountId     String   @map("account_id") @db.Uuid
+  countDate     DateTime @map("count_date") @db.Date
+  countedAmount Decimal  @map("counted_amount") @db.Decimal(14, 2)
+  systemBalance Decimal  @map("system_balance") @db.Decimal(14, 2)
+  notes         String?  @db.VarChar(500)
+  recordedById  String   @map("recorded_by_id") @db.Uuid
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  account    FinancialAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  recordedBy User             @relation("ReconciliationRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+
+  @@index([accountId, countDate])
+  @@map("treasury_reconciliations")
 }

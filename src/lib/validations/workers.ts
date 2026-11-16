@@ -1,3 +1,4 @@
+import { paymentAccountSchema } from "./utils";
 import { z } from "zod";
 import { todayDateString } from "@/lib/dates";
 import { parseMoney } from "@/lib/money";
@@ -121,6 +122,7 @@ export const payWorkerSchema = z.object({
   type: z.enum(["WAGE", "ADVANCE"], { error: "اختار نوع الدفعة" }),
   amount: moneySchema({ required: "اكتب المبلغ" }),
   paidAt: notInFuture("تاريخ الدفع"),
+  accountId: paymentAccountSchema,
   method: z
     .enum(PAYMENT_METHODS as [string, ...string[]])
     .default("CASH")

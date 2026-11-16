@@ -5,6 +5,8 @@ import { useActionState, useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { ActionResult } from "@/lib/actions";
 import { Field, FormMessage, Textarea } from "@/components/forms/field";
+import { AccountField, defaultAccountId } from "@/components/treasury/account-field";
+import type { AccountOption } from "@/lib/treasury/labels";
 import { Input } from "@/components/ui/input";
 import { formatAmount, formatMoney, parseMoney, toCents } from "@/lib/money";
 import { PAYMENT_METHOD_LABELS, PAYMENT_METHODS } from "@/lib/orders/labels";
@@ -19,7 +21,9 @@ export function PayOutForm({
   remaining,
   today,
   returnTo,
+  accounts = [],
 }: {
+  accounts?: AccountOption[];
   action: (prev: ActionResult | null, formData: FormData) => Promise<ActionResult>;
   targetId: string;
   remaining: string;
@@ -30,6 +34,7 @@ export function PayOutForm({
   const [requestId] = useState(newRequestId);
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState("CASH");
+  const [accountId, setAccountId] = useState(() => defaultAccountId(accounts));
   const left = toCents(remaining);
   const typed = parseMoney(amount);
   const after = typed !== null ? left - typed : null;
@@ -80,6 +85,8 @@ export function PayOutForm({
           ))}
         </div>
       </fieldset>
+
+      <AccountField accounts={accounts} value={accountId} onChange={setAccountId} direction="out" name="accountId" error={errors.accountId?.[0]} />
 
       <Field label="تاريخ الدفع" htmlFor="paidAt" error={errors.paidAt?.[0]}>
         <Input id="paidAt" name="paidAt" type="date" defaultValue={today} max={today} />

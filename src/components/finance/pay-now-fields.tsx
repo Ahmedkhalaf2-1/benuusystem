@@ -1,5 +1,8 @@
 "use client";
 
+import { AccountField } from "@/components/treasury/account-field";
+import type { AccountOption } from "@/lib/treasury/labels";
+
 import { Field, NativeSelect } from "@/components/forms/field";
 import type { PaymentMethod } from "@/generated/prisma/enums";
 import { PAY_STATUS_LABELS, PAY_STATUSES, type PayStatus } from "@/lib/finance/labels";
@@ -21,12 +24,16 @@ export function PayNowFields({
   method,
   onChange,
   errors,
+  accounts = [],
+  accountId = "",
 }: {
   amount: string;
   payStatus: PayStatus | "";
   paidNow: string;
   method: PaymentMethod;
-  onChange: (patch: { payStatus?: PayStatus; paidNow?: string; method?: PaymentMethod }) => void;
+  accounts?: AccountOption[];
+  accountId?: string;
+  onChange: (patch: { payStatus?: PayStatus; paidNow?: string; method?: PaymentMethod; accountId?: string }) => void;
   errors: Record<string, string | undefined>;
 }) {
   const total = parseMoney(amount);
@@ -59,6 +66,9 @@ export function PayNowFields({
             ))}
           </NativeSelect>
         </Field>
+      )}
+      {(payStatus === "FULL" || payStatus === "PARTIAL") && (
+        <AccountField accounts={accounts} value={accountId} onChange={(id) => onChange({ accountId: id })} direction="out" error={errors.accountId} />
       )}
       {payStatus && (
         <div className="flex items-center justify-between rounded-xl bg-brand-soft px-4 py-3">

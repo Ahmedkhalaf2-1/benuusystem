@@ -11,6 +11,7 @@ import { lockPayable, sumPaidFor, type PayableKind } from "@/server/repositories
 import { isUniqueViolation } from "@/server/repositories/prisma-errors";
 import { lockWorker } from "@/server/repositories/worker-repository";
 import type { Actor } from "./actor";
+import { accountForNewPayment } from "./treasury-service";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
 
 /**
@@ -26,12 +27,16 @@ type InsertPayment = {
   method: PaymentMethod;
   notes?: string;
   idempotencyKey: string;
+  /** Treasury account the money left (validated against the treasury rules here). */
+  accountId?: string;
 };
 
 /** Inserts the payment + audit entry. Caller must hold the target's row lock. */
 export async function insertOutgoingPayment(tx: DbTransaction, actor: Actor, input: InsertPayment) {
+  const accountId = await accountForNewPayment(tx, input.accountId, input.paidAt);
   const payment = await tx.outgoingPayment.create({
     data: {
+      accountId,
       ...(input.kind === "cost" ? { orderCostId: input.targetId } : { expenseId: input.targetId }),
       amount: centsToDecimalString(input.amount),
       paidAt: dateFromString(input.paidAt),
@@ -52,6 +57,7 @@ export async function insertOutgoingPayment(tx: DbTransaction, actor: Actor, inp
       amount: centsToDecimalString(input.amount),
       method: input.method,
       paidAt: input.paidAt,
+      accountId,
     },
   });
   return payment;
@@ -114,6 +120,7 @@ export async function payPayable(
         method: input.method,
         notes: input.notes,
         idempotencyKey: input.idempotencyKey,
+        accountId: input.accountId,
       });
       return { paymentId: payment.id, targetId: input.targetId, created: true };
     });

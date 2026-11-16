@@ -13,9 +13,11 @@ import { recordExpenseSchema } from "@/lib/validations/finance";
 import { ChoiceCards } from "./choice-cards";
 import { MoneyField } from "./money-field";
 import { PayNowFields } from "./pay-now-fields";
+import { defaultAccountId } from "@/components/treasury/account-field";
+import type { AccountOption } from "@/lib/treasury/labels";
 
 /** "سجل مصروف" — category, amount, date, paid or not. Nothing else required. */
-export function ExpenseForm({ today, initialCategory }: { today: string; initialCategory?: ExpenseCategory }) {
+export function ExpenseForm({ today, initialCategory, accounts = [] }: { today: string; initialCategory?: ExpenseCategory; accounts?: AccountOption[] }) {
   const [requestId] = useState(newRequestId);
   const [category, setCategory] = useState<ExpenseCategory | "">(initialCategory ?? "");
   const [amount, setAmount] = useState("");
@@ -23,6 +25,7 @@ export function ExpenseForm({ today, initialCategory }: { today: string; initial
   const [payStatus, setPayStatus] = useState<PayStatus | "">("");
   const [paidNow, setPaidNow] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("CASH");
+  const [accountId, setAccountId] = useState(() => defaultAccountId(accounts));
   const [description, setDescription] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string>();
@@ -46,6 +49,7 @@ export function ExpenseForm({ today, initialCategory }: { today: string; initial
       payStatus: payStatus as PayStatus,
       paidNow,
       method,
+      ...(payStatus === "FULL" || payStatus === "PARTIAL" ? { accountId } : {}),
       description,
     };
     const check = recordExpenseSchema.safeParse(payload);
@@ -93,6 +97,8 @@ export function ExpenseForm({ today, initialCategory }: { today: string; initial
         payStatus={payStatus}
         paidNow={paidNow}
         method={method}
+        accounts={accounts}
+        accountId={accountId}
         errors={errors}
         onChange={(p) => {
           if (p.payStatus !== undefined) {
@@ -104,6 +110,10 @@ export function ExpenseForm({ today, initialCategory }: { today: string; initial
             clear("paidNow");
           }
           if (p.method !== undefined) setMethod(p.method);
+          if (p.accountId !== undefined) {
+            setAccountId(p.accountId);
+            clear("accountId");
+          }
         }}
       />
       <Field label="التاريخ" htmlFor="expenseDate" error={errors.expenseDate}>

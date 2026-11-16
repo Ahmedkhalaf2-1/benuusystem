@@ -6,6 +6,7 @@ import { Banknote } from "lucide-react";
 import { FlowHeader } from "@/components/ds/primitives";
 import { requirePermission } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
+import { listAccountOptions } from "@/server/services/treasury-service";
 import { todayDateString } from "@/lib/dates";
 import { COST_CATEGORY_LABELS } from "@/lib/finance/labels";
 import { formatMoneyString, toCents } from "@/lib/money";
@@ -48,7 +49,7 @@ export default async function PayCostPage(props: PageProps<"/costs/[id]/pay">) {
           </div>
         </dl>
       </div>
-      <PayOutForm action={payCostAction} targetId={cost.id} remaining={cost.remaining} today={todayDateString()} returnTo={backHref} />
+      <PayOutForm action={payCostAction} targetId={cost.id} remaining={cost.remaining} today={todayDateString()} returnTo={backHref} accounts={await listAccountOptions(prisma, user)} />
     </div>
   );
 }

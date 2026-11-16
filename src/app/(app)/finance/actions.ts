@@ -55,6 +55,7 @@ function payFields(formData: FormData) {
     amount: formData.get("amount"),
     paidAt: formData.get("paidAt"),
     method: formData.get("method"),
+    accountId: formData.get("accountId") ?? undefined,
     notes: formData.get("notes") ?? undefined,
   };
 }
