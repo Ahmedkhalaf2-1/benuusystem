@@ -31,6 +31,19 @@ so in its footer.
 - The documents read only customers, orders, groups, sizes, operations and
   payments. They never read costs, wages, suppliers, labour or profit.
 
+## Items in the order invoice (Phase 9)
+
+- **Itemized orders (`PER_ITEM`).** The invoice shows «البنود»: each item's
+  name, material and sizes, quantity, unit price and line total, and its work
+  (each design with its operation, placement, and its piece count when it
+  covers only part of the item). The line totals add up to the order total.
+- **Older orders (`ORDER_TOTAL`).** The invoice shows «تفاصيل الشغل» without
+  per-item prices, plus a note that the order was priced as one agreed total.
+  No unit prices are made up.
+- **Not printed.** Planned presses and other workload figures never appear.
+- **Removed orders.** An archived («محذوف») order has no invoice, and is left
+  out of customer summaries and statements.
+
 ## Delivery history in the order invoice (Phase 8.1)
 
 The invoice has a «سجل التسليمات» section between «تفاصيل الشغل» and the payments, and it appears in both download and preview.
