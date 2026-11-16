@@ -8,6 +8,7 @@ export const publicUserSelect = {
   email: true,
   role: true,
   isActive: true,
+  permissions: true,
 } as const;
 
 export type PublicUser = {
@@ -16,6 +17,8 @@ export type PublicUser = {
   email: string;
   role: Role;
   isActive: boolean;
+  /** STAFF grants (evaluated by src/lib/auth/permissions.ts). */
+  permissions: string[];
 };
 
 export function findUserByEmailWithPassword(db: DbClient, email: string) {
@@ -35,7 +38,7 @@ export function countUsersByRole(db: DbClient, role: Role) {
 
 export function createUser(
   db: DbClient,
-  data: { name: string; email: string; passwordHash: string; role: Role },
+  data: { name: string; email: string; passwordHash: string; role: Role; permissions?: string[] },
 ) {
   return db.user.create({ data, select: publicUserSelect });
 }

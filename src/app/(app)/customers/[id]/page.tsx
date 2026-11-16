@@ -47,6 +47,8 @@ export default async function CustomerPage(props: PageProps<"/customers/[id]">) 
               )}
             </div>
           </div>
+          {customer.totals && (
+          <>
           <dl className="mt-5 grid grid-cols-3 gap-2">
             {[
               { label: "إجمالي الأوردرات", value: customer.totals.agreed, tone: "" },
@@ -60,6 +62,8 @@ export default async function CustomerPage(props: PageProps<"/customers/[id]">) 
             ))}
           </dl>
           <p className="mt-2 text-[0.7rem] text-on-panel-muted">الأوردرات الملغية مش داخلة في الحساب.</p>
+          </>
+          )}
           <div className="mt-4 flex gap-2">
             {hasPermission(user, "orders:create") && (
               <Link
@@ -92,6 +96,7 @@ export default async function CustomerPage(props: PageProps<"/customers/[id]">) 
         </section>
       )}
 
+      {hasPermission(user, "orders:view") && (
       <section>
         <h2 className="mb-3 font-display text-[1.15rem] font-semibold">أوردرات العميل ({customer.orders.length})</h2>
         {customer.orders.length === 0 ? (
@@ -108,6 +113,7 @@ export default async function CustomerPage(props: PageProps<"/customers/[id]">) 
           </ul>
         )}
       </section>
+      )}
 
       <p className="text-center text-xs text-muted-foreground">
         اتسجل بواسطة {customer.createdByName} · {formatDateTimeAr(customer.createdAt)}

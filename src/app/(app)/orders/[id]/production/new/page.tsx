@@ -5,6 +5,7 @@ import { FlowHeader } from "@/components/ds/primitives";
 import { ProductionForm } from "@/components/production/production-form";
 import { requirePermission } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
+import { orderScope } from "@/server/services/order-access";
 import { todayDateString } from "@/lib/dates";
 import { formatOrderNumber } from "@/lib/orders/labels";
 import { getOrderProduction } from "@/server/services/production-service";
@@ -15,7 +16,7 @@ export default async function NewProductionPage(props: PageProps<"/orders/[id]/p
   const user = await requirePermission("production:record");
   const { id } = await props.params;
   const order = /^[0-9a-f-]{36}$/i.test(id)
-    ? await prisma.order.findUnique({ where: { id }, select: { id: true, number: true, title: true, status: true, customer: { select: { name: true } } } })
+    ? await prisma.order.findFirst({ where: { AND: [{ id, archivedAt: null }, orderScope(user)] }, select: { id: true, number: true, title: true, status: true, customer: { select: { name: true } } } })
     : null;
   if (!order) notFound();
   if (order.status === "CANCELLED" || order.status === "COMPLETED") redirect(`/orders/${order.id}`);

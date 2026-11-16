@@ -45,15 +45,46 @@ export async function resetDatabase(db: PrismaClient): Promise<void> {
   );
 }
 
+/**
+ * The grants the Phase 10 migration writes onto pre-existing STAFF accounts
+ * (= what the old STAFF role could do). Older tests use it as "a typical
+ * staff member"; new staff accounts start with none.
+ */
+export const LEGACY_STAFF_PERMISSIONS = [
+  "orders:view", "orders:view-prices", "orders:create", "orders:edit",
+  "production:view", "production:record", "deliveries:view", "deliveries:record",
+  "customers:view", "customers:view-contact", "customers:manage",
+  "payments:view", "payments:record",
+  "costs:record", "expenses:record", "payables:pay",
+  "suppliers:view", "suppliers:manage",
+  "workers:view", "work:record",
+];
+
 /** Creates a user directly (tests only) and returns it as a service Actor. */
 export async function createTestUser(
   db: PrismaClient,
   role: "OWNER_ADMIN" | "STAFF",
   email = `${role.toLowerCase()}-${Math.random().toString(36).slice(2, 8)}@benuuprint.test`,
+  permissions: string[] = role === "STAFF" ? LEGACY_STAFF_PERMISSIONS : [],
 ) {
   const user = await db.user.create({
-    data: { name: role === "OWNER_ADMIN" ? "المدير" : "موظف", email, passwordHash: "not-used", role },
-    select: { id: true, role: true, name: true },
+    data: { name: role === "OWNER_ADMIN" ? "المدير" : "موظف", email, passwordHash: "not-used", role, permissions },
+    select: { id: true, role: true, name: true, permissions: true },
   });
   return user;
+}
+
+/** Makes an order visible to every authorized staff member (tests only). */
+export async function shareWithAllStaff(db: PrismaClient, orderId: string) {
+  await db.order.update({ where: { id: orderId }, data: { visibility: "ALL_AUTHORIZED_STAFF" } });
+}
+
+/**
+ * Owner-created order shared with all authorized staff — the setup older
+ * tests assumed before per-order visibility existed (orders default to PRIVATE).
+ */
+export async function createSharedOrder(...args: Parameters<typeof import("@/server/services/order-service").createOrder>) {
+  const { createOrder } = await import("@/server/services/order-service");
+  const [db, actor, payload] = args;
+  return createOrder(db, actor, payload, { visibility: "ALL_AUTHORIZED_STAFF" });
 }

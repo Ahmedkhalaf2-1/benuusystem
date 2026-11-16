@@ -24,7 +24,7 @@ const KINDS = ["customer", "cost", "expense", "wage", "advance", "in", "out"] as
  * The permission is checked here AND again inside every service call.
  */
 export const GET = withApiHandler(async (request: Request, context: { params: Promise<{ report: string }> }) => {
-  const user = await requireApiUser("finance:view-summary");
+  const user = await requireApiUser("finance:reports");
   const { report } = await context.params;
   const sp = Object.fromEntries(new URL(request.url).searchParams);
   const range = parsePeriod(sp);

@@ -11,9 +11,13 @@ import { cn } from "@/lib/utils";
 import type { OrderSummary } from "@/server/services/order-dto";
 import { StatusBadge } from "./status-badge";
 
-/** An order on a list: product, who and what, status, deadline, production, and money for those allowed. */
+/**
+ * An order on a list: product, who and what, status, deadline, production, and
+ * money for those allowed — `order.money` is null (never sent) otherwise.
+ */
 export function OrderCard({ order, hideCustomer, showMoney = true }: { order: OrderSummary; hideCustomer?: boolean; showMoney?: boolean }) {
-  const settled = order.outstanding === "0.00";
+  const money = showMoney ? order.money : null;
+  const settled = money?.outstanding === "0.00";
   const prod = order.production ?? { ready: 0, delivered: 0 };
   const open = order.status === "NEW" || order.status === "IN_PROGRESS";
   const due = dueText(order.deliveryDate);
@@ -60,19 +64,19 @@ export function OrderCard({ order, hideCustomer, showMoney = true }: { order: Or
         </span>
       </div>
 
-      {showMoney && (
+      {money && (
         <dl className="mt-3 grid grid-cols-3 gap-1 rounded-2xl bg-well px-1 py-2 text-center">
           <div className="min-w-0">
             <dt className="text-[0.68rem] text-graphite">الإجمالي</dt>
-            <dd className="tabular font-display text-sm leading-tight font-semibold">{formatMoneyString(order.totalPrice)}</dd>
+            <dd className="tabular font-display text-sm leading-tight font-semibold">{formatMoneyString(money.totalPrice)}</dd>
           </div>
           <div className="min-w-0 border-x border-hairline">
             <dt className="text-[0.68rem] text-graphite">المدفوع</dt>
-            <dd className="tabular font-display text-sm leading-tight font-semibold text-green-ink">{formatMoneyString(order.paid)}</dd>
+            <dd className="tabular font-display text-sm leading-tight font-semibold text-green-ink">{formatMoneyString(money.paid)}</dd>
           </div>
           <div className="min-w-0">
             <dt className="text-[0.68rem] text-graphite">المتبقي</dt>
-            <dd className={cn("tabular font-display text-sm leading-tight font-semibold", settled ? "text-graphite" : "text-violet")}>{formatMoneyString(order.outstanding)}</dd>
+            <dd className={cn("tabular font-display text-sm leading-tight font-semibold", settled ? "text-graphite" : "text-violet")}>{formatMoneyString(money.outstanding)}</dd>
           </div>
         </dl>
       )}

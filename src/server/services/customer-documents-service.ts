@@ -8,10 +8,12 @@ import { AppError } from "@/lib/errors";
 import { designLabel, itemLabel, placementsText } from "@/lib/orders/labels";
 import { toCents } from "@/lib/money";
 import type { Actor } from "./actor";
+import { orderScope } from "./order-access";
 
 /**
- * Data for customer-facing PDF documents. Owner-only (permission
- * "documents:customer-financial"), checked here as well as in the routes.
+ * Data for customer-facing PDF documents. Needs "documents:customer-financial"
+ * (owner, or staff the owner granted it), checked here as well as in the
+ * routes. Staff only ever get orders they may see.
  * Reads only customers, orders, groups, sizes, operations and payments —
  * never costs, wages, suppliers or profitability.
  */
@@ -80,8 +82,9 @@ export type InvoiceData = {
 export async function getOrderInvoiceData(db: DbClient, actor: Actor, orderId: string): Promise<InvoiceData | null> {
   guard(actor);
   if (!UUID.test(orderId)) return null;
-  const o = await db.order.findUnique({
-    where: { id: orderId, archivedAt: null },
+  // Staff granted documents only reach orders they may see (hidden = not found).
+  const o = await db.order.findFirst({
+    where: { AND: [{ id: orderId, archivedAt: null }, orderScope(actor)] },
     select: {
       id: true,
       number: true,
@@ -192,7 +195,7 @@ export type CustomerDocData = {
   orders: DocOrder[];
 };
 
-async function loadCustomerOrders(db: DbClient, customerId: string): Promise<{ customer: CustomerDocData["customer"]; orders: DocOrder[] } | null> {
+async function loadCustomerOrders(db: DbClient, actor: Actor, customerId: string): Promise<{ customer: CustomerDocData["customer"]; orders: DocOrder[] } | null> {
   if (!UUID.test(customerId)) return null;
   const c = await db.customer.findUnique({
     where: { id: customerId },
@@ -201,7 +204,7 @@ async function loadCustomerOrders(db: DbClient, customerId: string): Promise<{ c
       name: true,
       phone: true,
       orders: {
-        where: { archivedAt: null },
+        where: { AND: [{ archivedAt: null }, orderScope(actor)] },
         orderBy: [{ receivedDate: "asc" }, { number: "asc" }],
         select: { id: true, number: true, title: true, productType: true, status: true, totalPrice: true, receivedDate: true, payments: { select: PAYMENT_SELECT } },
       },
@@ -226,7 +229,7 @@ async function loadCustomerOrders(db: DbClient, customerId: string): Promise<{ c
 /** Orders placed (by order date) inside the period, with their balances and totals. */
 export async function getCustomerOrdersSummary(db: DbClient, actor: Actor, customerId: string, period: Period) {
   guard(actor);
-  const loaded = await loadCustomerOrders(db, customerId);
+  const loaded = await loadCustomerOrders(db, actor, customerId);
   if (!loaded) return null;
   const orders = loaded.orders.filter((o) => inPeriod(o.receivedDate, period));
   return { generatedAt: new Date(), customer: loaded.customer, period, orders, totals: totalsFor(orders) };
@@ -240,7 +243,7 @@ export async function getCustomerStatement(
   period: Period,
 ): Promise<{ generatedAt: Date; customer: CustomerDocData["customer"]; statement: Statement; cancelledOrders: { number: number; title: string; paid: bigint }[] } | null> {
   guard(actor);
-  const loaded = await loadCustomerOrders(db, customerId);
+  const loaded = await loadCustomerOrders(db, actor, customerId);
   if (!loaded) return null;
   const statement = buildStatement(loaded.orders, period);
   const cancelledOrders = loaded.orders

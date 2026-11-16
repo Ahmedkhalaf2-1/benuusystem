@@ -15,6 +15,7 @@ export const metadata: Metadata = { title: "العملاء" };
 
 export default async function CustomersPage(props: PageProps<"/customers">) {
   const user = await requirePermission("customers:view");
+  const canSeePhones = hasPermission(user, "customers:view-contact");
   const sp = await props.searchParams;
   const q = typeof sp.q === "string" ? sp.q.slice(0, 100) : "";
   const page = Math.max(1, Number.parseInt(typeof sp.page === "string" ? sp.page : "1", 10) || 1);
@@ -58,7 +59,9 @@ export default async function CustomersPage(props: PageProps<"/customers">) {
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-semibold">{c.name}</p>
                   <p className="text-sm text-muted-foreground">
-                    {c.phone ? <span dir="ltr">{c.phone}</span> : "بدون موبايل"} · {formatNumber(c.orderCount)} أوردر
+                    {c.phone ? <span dir="ltr">{c.phone}</span> : canSeePhones ? "بدون موبايل" : null}
+                    {c.phone || canSeePhones ? (c.orderCount !== null ? " · " : "") : null}
+                    {c.orderCount !== null && <>{formatNumber(c.orderCount)} أوردر</>}
                   </p>
                 </div>
                 <ChevronLeft className="size-5 text-muted-foreground" aria-hidden="true" />

@@ -93,7 +93,7 @@ export default async function PickOrderPage(props: PageProps<"/orders/pick">) {
               action === "delivery"
                 ? `${formatNumber(p.ready - p.delivered)} ${u} جاهزة`
                 : action === "payment"
-                  ? `المتبقي ${formatMoneyString(o.outstanding)}`
+                  ? `المتبقي ${o.money ? formatMoneyString(o.money.outstanding) : ""}`
                   : `اتعمل ${formatNumber(p.ready)} من ${formatNumber(o.quantity)}`;
             return (
               <li key={o.id}>

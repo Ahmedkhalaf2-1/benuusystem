@@ -13,8 +13,8 @@ export default async function NoAccessPage() {
       <span className="flex size-14 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
         <Lock className="size-7" aria-hidden="true" />
       </span>
-      <h1 className="mt-4 font-display text-xl font-semibold">الصفحة دي للمدير بس</h1>
-      <p className="mt-2 text-sm text-muted-foreground">لو محتاج تشوفها، كلّم مدير النظام.</p>
+      <h1 className="mt-4 font-display text-xl font-semibold">حسابك مالوش صلاحية على الصفحة دي</h1>
+      <p className="mt-2 text-sm text-muted-foreground">لو محتاجها في شغلك، اطلب من المدير يديك الصلاحية.</p>
       <Link href="/dashboard" className={buttonVariants({ size: "lg", className: "mt-6" })}>
         الرجوع للرئيسية
       </Link>

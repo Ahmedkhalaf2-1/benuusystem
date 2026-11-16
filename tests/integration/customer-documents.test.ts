@@ -93,7 +93,7 @@ describe.skipIf(!hasTestDatabase)("customer PDF documents (PostgreSQL)", () => {
       quantity: String(d!.quantity),
       unit: d!.unit,
       groups: d!.groups.map((g) => ({ id: g.id, quantity: String(g.quantity), material: g.material, operations: g.operations, plain: g.operations.length === 0, notes: "" })),
-      totalPrice: d!.totalPrice,
+      totalPrice: d!.money!.totalPrice,
       receivedDate: d!.receivedDate,
       deliveryDate: d!.deliveryDate,
       notes: "",
@@ -107,9 +107,9 @@ describe.skipIf(!hasTestDatabase)("customer PDF documents (PostgreSQL)", () => {
   it("invoice figures equal the order screen; voided payments are excluded", async () => {
     const inv = (await getOrderInvoiceData(db, owner, mainOrder))!;
     const screen = (await getOrderDetails(db, owner, mainOrder))!;
-    expect(money(inv.order.totalPrice)).toBe(screen.totalPrice);
-    expect(money(inv.balance.paid)).toBe(screen.paid);
-    expect(money(inv.balance.outstanding)).toBe(screen.outstanding);
+    expect(money(inv.order.totalPrice)).toBe(screen.money!.totalPrice);
+    expect(money(inv.balance.paid)).toBe(screen.money!.paid);
+    expect(money(inv.balance.outstanding)).toBe(screen.money!.outstanding);
     expect(money(inv.balance.paid)).toBe("5000.00");
     expect(money(inv.balance.outstanding)).toBe("5000.50");
     expect(inv.order.payments).toHaveLength(2);
@@ -128,9 +128,9 @@ describe.skipIf(!hasTestDatabase)("customer PDF documents (PostgreSQL)", () => {
   it("orders summary totals equal the customer screen totals", async () => {
     const summary = (await getCustomerOrdersSummary(db, owner, customerId, {}))!;
     const screen = (await getCustomerDetails(db, owner, customerId))!;
-    expect(money(summary.totals.agreed)).toBe(screen.totals.agreed);
-    expect(money(summary.totals.paid)).toBe(screen.totals.paid);
-    expect(money(summary.totals.net)).toBe(screen.totals.outstanding);
+    expect(money(summary.totals.agreed)).toBe(screen.totals!.agreed);
+    expect(money(summary.totals.paid)).toBe(screen.totals!.paid);
+    expect(money(summary.totals.net)).toBe(screen.totals!.outstanding);
     expect(summary.totals).toMatchObject({ activeCount: 2, cancelledCount: 1, agreed: 1_050_050n, paid: 550_000n, overpaid: 0n, paidOnCancelled: 70_000n, outstanding: 500_050n });
     expect(summary.orders).toHaveLength(3);
   });
@@ -142,7 +142,7 @@ describe.skipIf(!hasTestDatabase)("customer PDF documents (PostgreSQL)", () => {
     expect(s.entries.filter((e) => e.kind === "charge")).toHaveLength(2);
     expect(s.entries.filter((e) => e.kind === "payment")).toHaveLength(4); // 3000 adv + 2000 + 500 adv + 700 (cancelled); voided 999 excluded
     expect(money(s.totalCredit)).toBe("6200.00");
-    expect(money(s.closing + s.paidOnCancelledToDate)).toBe(screen.totals.outstanding);
+    expect(money(s.closing + s.paidOnCancelledToDate)).toBe(screen.totals!.outstanding);
     expect(st.cancelledOrders).toEqual([expect.objectContaining({ paid: 70_000n })]);
   });
 

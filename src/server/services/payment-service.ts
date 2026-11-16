@@ -12,6 +12,7 @@ import { toFieldErrors } from "@/lib/validations/utils";
 import { lockOrder, sumValidPayments } from "@/server/repositories/order-repository";
 import { isUniqueViolation } from "@/server/repositories/prisma-errors";
 import type { Actor } from "./actor";
+import { canAccessOrder } from "./order-access";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
 
 export type RecordPaymentResult = { paymentId: string; orderId: string; created: boolean };
@@ -51,7 +52,7 @@ export async function recordPayment(
 
   try {
     return await db.$transaction(async (tx) => {
-      if (!(await lockOrder(tx, input.orderId))) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
+      if (!(await lockOrder(tx, input.orderId)) || !(await canAccessOrder(tx, actor, input.orderId))) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
       const order = await tx.order.findUniqueOrThrow({
         where: { id: input.orderId },
         select: { number: true, status: true, totalPrice: true },

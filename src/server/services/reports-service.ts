@@ -30,8 +30,10 @@ export type Range = { from: string; to: string };
 const between = (r: Range) => ({ gte: dateFromString(r.from), lte: dateFromString(r.to) });
 const money = (c: Cents) => centsToDecimalString(c);
 
+/** The detailed accounting reports are owner-only, even for staff granted the monthly summary. */
 function guard(actor: Actor) {
   assertPermission(actor, "finance:view-summary");
+  assertPermission(actor, "finance:reports");
 }
 
 // ───────────────────────────── Cash flow ─────────────────────────────

@@ -8,6 +8,7 @@ import { hasPermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db/prisma";
 import { formatOrderNumber } from "@/lib/orders/labels";
 import { getOrderForEdit, recentMaterials } from "@/server/services/order-service";
+import { getOrderAccess, listAssignableStaff } from "@/server/services/order-visibility-service";
 
 export const metadata: Metadata = { title: "تعديل الأوردر" };
 
@@ -15,7 +16,8 @@ export default async function EditOrderPage(props: PageProps<"/orders/[id]/edit"
   const user = await requirePermission("orders:edit");
   const { id } = await props.params;
   const order = /^[0-9a-f-]{36}$/i.test(id) ? await getOrderForEdit(prisma, user, id) : null;
-  if (!order) notFound();
+  if (!order || !order.money) notFound();
+  const access = hasPermission(user, "orders:manage-access") ? await getOrderAccess(prisma, user, order.id) : null;
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -29,11 +31,12 @@ export default async function EditOrderPage(props: PageProps<"/orders/[id]/edit"
           orderLabel={`${formatOrderNumber(order.number)} · ${order.customerName} — ${order.title}`}
           version={order.updatedAt}
           initial={draftFromOrder(order)}
-          paid={order.paid}
-          originalTotal={order.totalPrice}
+          paid={order.money.paid}
+          originalTotal={order.money.totalPrice}
           canEditPrice={hasPermission(user, "orders:edit-price")}
           canCancel={hasPermission(user, "orders:cancel")}
           materialSuggestions={await recentMaterials(prisma, user)}
+          access={access ? { staff: await listAssignableStaff(prisma, user), initial: { visibility: access.visibility, userIds: access.userIds }, version: access.version } : undefined}
         />
       )}
     </div>

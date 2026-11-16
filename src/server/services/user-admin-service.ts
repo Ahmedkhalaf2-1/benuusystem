@@ -40,14 +40,17 @@ export async function listUsers(db: PrismaClient) {
   return users.map(({ _count, ...u }) => ({ ...u, sessions: _count.sessions }));
 }
 
-/** Creates a STAFF account. Owners are only created by `npm run admin:create`. */
+/**
+ * Creates a STAFF account with NO permissions (deny by default); the owner
+ * grants them in the app. Owners are only created by `npm run admin:create`.
+ */
 export async function createStaffUser(db: PrismaClient, input: { name: string; email: string; password: string }): Promise<PublicUser> {
   const name = parse(userNameSchema, input.name);
   const email = parse(emailSchema, input.email);
   const passwordHash = await hashPassword(parse(newPasswordSchema, input.password));
   return db.$transaction(async (tx) => {
     if (await findUserByEmail(tx, email)) throw new AppError("CONFLICT", "This email is already used.");
-    const user = await createUser(tx, { name, email, passwordHash, role: Role.STAFF });
+    const user = await createUser(tx, { name, email, passwordHash, role: Role.STAFF, permissions: [] });
     await recordAudit(tx, { userId: null, action: AUDIT_ACTIONS.USER_CREATED, entityType: "User", entityId: user.id, metadata: { role: user.role, source: SOURCE } });
     return user;
   });

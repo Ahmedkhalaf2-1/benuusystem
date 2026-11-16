@@ -117,6 +117,7 @@ export async function login(
     email: user.email,
     role: user.role,
     isActive: user.isActive,
+    permissions: user.permissions,
   };
   return { ok: true, user: publicUser, token, expiresAt };
 }

@@ -141,7 +141,7 @@ export function draftFromOrder(order: OrderDetails): OrderDraft {
         id: g.id,
         name: g.name ?? "",
         // Older items have no price of their own: left empty, never split from the total.
-        unitPrice: g.unitPrice === null ? "" : plainAmount(g.unitPrice),
+        unitPrice: g.unitPrice == null ? "" : plainAmount(g.unitPrice),
         pressesPerUnit: g.pressesPerUnit === null ? "" : String(g.pressesPerUnit),
         useDesigns: g.designs.length > 0,
         designs: g.designs.map((d) =>
@@ -165,7 +165,7 @@ export function draftFromOrder(order: OrderDetails): OrderDraft {
         sizes: g.sizes.map((x) => ({ label: x.label, quantity: String(x.quantity) })),
       }),
     ),
-    totalPrice: plainAmount(order.totalPrice),
+    totalPrice: order.money ? plainAmount(order.money.totalPrice) : "",
     advance: "",
     advanceMethod: "CASH",
     receivedDate: order.receivedDate,

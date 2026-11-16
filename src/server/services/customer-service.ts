@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
-import { assertPermission } from "@/lib/auth/permissions";
+import { assertPermission, hasPermission } from "@/lib/auth/permissions";
 import type { DbClient } from "@/lib/db/prisma";
 import { AppError } from "@/lib/errors";
 import { centsToDecimalString, toCents, type Cents } from "@/lib/money";
@@ -13,13 +13,16 @@ import { toFieldErrors } from "@/lib/validations/utils";
 import { paidByOrderIds } from "@/server/repositories/order-repository";
 import type { Actor } from "./actor";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
+import { canSeeOrderPrices, orderScope } from "./order-access";
 import { ORDER_SUMMARY_SELECT, toOrderSummary, type OrderSummary } from "./order-dto";
 
 export type CustomerListItem = {
   id: string;
   name: string;
+  /** Null without "customers:view-contact". */
   phone: string | null;
-  orderCount: number;
+  /** Orders this viewer may see; null without "orders:view". */
+  orderCount: number | null;
   createdAt: Date;
 };
 
@@ -37,7 +40,9 @@ export type CustomerDetails = {
   notes: string | null;
   createdAt: Date;
   createdByName: string;
-  totals: CustomerTotals;
+  /** Null without "payments:view". Covers only the orders this viewer may see. */
+  totals: CustomerTotals | null;
+  /** Only orders this viewer may see ([] without "orders:view"). */
   orders: OrderSummary[];
 };
 
@@ -111,14 +116,15 @@ export async function updateCustomer(
   });
 }
 
-function customerSearchWhere(query: string): Prisma.CustomerWhereInput {
+/** `searchPhones`: only viewers allowed to see phone numbers may match on them. */
+function customerSearchWhere(query: string, searchPhones: boolean): Prisma.CustomerWhereInput {
   const q = normalizeDigits(query).trim();
   if (!q) return {};
   const digits = q.replace(/\D/g, "");
   return {
     OR: [
       { name: { contains: q, mode: "insensitive" } },
-      ...(digits.length >= 3 ? [{ phone: { contains: digits } }] : []),
+      ...(searchPhones && digits.length >= 3 ? [{ phone: { contains: digits } }] : []),
     ],
   };
 }
@@ -127,13 +133,15 @@ function customerSearchWhere(query: string): Prisma.CustomerWhereInput {
 export async function searchCustomers(db: DbClient, actor: Actor, query: string, limit = 8) {
   assertPermission(actor, "customers:view");
   const q = normalizeDigits(query).trim();
-  return db.customer.findMany({
-    where: customerSearchWhere(q),
+  const phones = hasPermission(actor, "customers:view-contact");
+  const rows = await db.customer.findMany({
+    where: customerSearchWhere(q, phones),
     // Recent customers first when nothing is typed yet.
     orderBy: q ? [{ name: "asc" }, { createdAt: "desc" }] : [{ createdAt: "desc" }],
     take: limit,
-    select: { id: true, name: true, phone: true },
+    select: { id: true, name: true, phone: phones },
   });
+  return rows.map((r) => ({ id: r.id, name: r.name, phone: phones ? (r.phone ?? null) : null }));
 }
 
 export const CUSTOMERS_PAGE_SIZE = 20;
@@ -144,7 +152,9 @@ export async function listCustomers(
   options: { query?: string; page?: number },
 ): Promise<{ items: CustomerListItem[]; total: number; page: number; pageCount: number }> {
   assertPermission(actor, "customers:view");
-  const where = customerSearchWhere(options.query ?? "");
+  const phones = hasPermission(actor, "customers:view-contact");
+  const seeOrders = hasPermission(actor, "orders:view");
+  const where = customerSearchWhere(options.query ?? "", phones);
   const total = await db.customer.count({ where });
   const pageCount = Math.max(1, Math.ceil(total / CUSTOMERS_PAGE_SIZE));
   const page = Math.min(Math.max(1, options.page ?? 1), pageCount);
@@ -154,16 +164,23 @@ export async function listCustomers(
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     skip: (page - 1) * CUSTOMERS_PAGE_SIZE,
     take: CUSTOMERS_PAGE_SIZE,
-    select: { id: true, name: true, phone: true, createdAt: true, _count: { select: { orders: { where: { archivedAt: null } } } } },
+    select: {
+      id: true,
+      name: true,
+      phone: phones,
+      createdAt: true,
+      // Counts only orders this viewer may see, so hidden orders never show up as numbers.
+      _count: { select: { orders: { where: seeOrders ? { AND: [{ archivedAt: null }, orderScope(actor)] } : { id: { in: [] } } } } },
+    },
   });
 
   return {
     items: rows.map((row) => ({
       id: row.id,
       name: row.name,
-      phone: row.phone,
+      phone: phones ? (row.phone ?? null) : null,
       createdAt: row.createdAt,
-      orderCount: row._count.orders,
+      orderCount: seeOrders ? row._count.orders : null,
     })),
     total,
     page,
@@ -177,18 +194,23 @@ export async function getCustomerDetails(
   customerId: string,
 ): Promise<CustomerDetails | null> {
   assertPermission(actor, "customers:view");
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(customerId)) return null;
+  const phones = hasPermission(actor, "customers:view-contact");
+  const seeOrders = hasPermission(actor, "orders:view");
+  const prices = canSeeOrderPrices(actor);
+  const totalsAllowed = hasPermission(actor, "payments:view");
   const customer = await db.customer.findUnique({
     where: { id: customerId },
     select: {
       id: true,
       name: true,
-      phone: true,
+      phone: phones,
       notes: true,
       createdAt: true,
       createdBy: { select: { name: true } },
       orders: {
-        // Removed («محذوف») orders don't count for the customer.
-        where: { archivedAt: null },
+        // Removed («محذوف») orders don't count for the customer; hidden orders aren't loaded at all.
+        where: seeOrders ? { AND: [{ archivedAt: null }, orderScope(actor)] } : { id: { in: [] } },
         orderBy: [{ createdAt: "desc" }],
         select: ORDER_SUMMARY_SELECT,
       },
@@ -196,9 +218,9 @@ export async function getCustomerDetails(
   });
   if (!customer) return null;
 
-  const paidMap = await paidByOrderIds(db, customer.orders.map((o) => o.id));
+  const paidMap = prices ? await paidByOrderIds(db, customer.orders.map((o) => o.id)) : new Map<string, Cents>();
   const orders = customer.orders.map((order) =>
-    toOrderSummary({ ...order, customer: { id: customer.id, name: customer.name } }, paidMap.get(order.id) ?? 0n),
+    toOrderSummary({ ...order, customer: { id: customer.id, name: customer.name } }, prices ? (paidMap.get(order.id) ?? 0n) : null),
   );
 
   let agreed: Cents = 0n;
@@ -212,21 +234,20 @@ export async function getCustomerDetails(
   return {
     id: customer.id,
     name: customer.name,
-    phone: customer.phone,
+    phone: phones ? (customer.phone ?? null) : null,
     notes: customer.notes,
     createdAt: customer.createdAt,
     createdByName: customer.createdBy.name,
-    totals: {
-      agreed: centsToDecimalString(agreed),
-      paid: centsToDecimalString(paid),
-      outstanding: centsToDecimalString(agreed - paid),
-    },
+    totals: totalsAllowed
+      ? { agreed: centsToDecimalString(agreed), paid: centsToDecimalString(paid), outstanding: centsToDecimalString(agreed - paid) }
+      : null,
     orders,
   };
 }
 
 export async function getCustomerForEdit(db: DbClient, actor: Actor, customerId: string) {
   assertPermission(actor, "customers:manage");
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(customerId)) return null;
   return db.customer.findUnique({
     where: { id: customerId },
     select: { id: true, name: true, phone: true, notes: true },

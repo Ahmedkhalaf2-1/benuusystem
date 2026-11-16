@@ -18,6 +18,7 @@ import { lockOrder } from "@/server/repositories/order-repository";
 import { lockPayable, paidByCostIds, sumPaidFor } from "@/server/repositories/payable-repository";
 import { isUniqueViolation } from "@/server/repositories/prisma-errors";
 import type { Actor } from "./actor";
+import { canAccessOrder, requireOrderAccess } from "./order-access";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
 import { insertOutgoingPayment } from "./outgoing-payment-service";
 import { insertSupplier } from "./supplier-service";
@@ -69,7 +70,7 @@ export async function recordOrderCost(
   try {
     return await db.$transaction(async (tx) => {
       // Order lock: serializes with archiving (an archived order counts as missing).
-      if (!(await lockOrder(tx, input.orderId))) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
+      if (!(await lockOrder(tx, input.orderId)) || !(await canAccessOrder(tx, actor, input.orderId))) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
       const order = await tx.order.findUnique({ where: { id: input.orderId }, select: { id: true, number: true } });
       if (!order) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
 
@@ -190,6 +191,7 @@ export type OrderCostSummary = {
 
 export async function getOrderCosts(db: DbClient, actor: Actor, orderId: string): Promise<OrderCostSummary> {
   assertPermission(actor, "costs:view");
+  await requireOrderAccess(db, actor, orderId, undefined, { includeArchived: true });
   const costs = await db.orderCost.findMany({
     where: { orderId },
     orderBy: [{ costDate: "desc" }, { createdAt: "desc" }],
@@ -282,7 +284,7 @@ export async function getCostForPayment(db: DbClient, actor: Actor, costId: stri
       order: { select: { id: true, number: true, title: true, customer: { select: { name: true } } } },
     },
   });
-  if (!cost) return null;
+  if (!cost || !(await canAccessOrder(db, actor, cost.order.id, { includeArchived: true }))) return null;
   const paid = await sumPaidFor(db, "cost", costId);
   const amount = toCents(cost.amount);
   return {

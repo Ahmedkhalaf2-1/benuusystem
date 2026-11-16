@@ -10,23 +10,30 @@ datasource db {
   provider = "postgresql"
 }
 
-/// Coarse roles. Fine-grained permissions are derived from the role in
-/// src/lib/auth/permissions.ts, so new permissions do not need a migration.
+/// Coarse roles. OWNER_ADMIN has every permission. STAFF has exactly the
+/// permissions in `User.permissions` (deny by default) — see
+/// src/lib/auth/permissions.ts.
 enum Role {
   OWNER_ADMIN
   STAFF
 }
 
 model User {
-  id           String   @id @default(uuid(7)) @db.Uuid
-  name         String   @db.VarChar(100)
+  id                 String   @id @default(uuid(7)) @db.Uuid
+  name               String   @db.VarChar(100)
   /// Always stored lowercase and trimmed.
-  email        String   @unique @db.VarChar(254)
-  passwordHash String   @map("password_hash")
-  role         Role     @default(STAFF)
-  isActive     Boolean  @default(true) @map("is_active")
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  email              String   @unique @db.VarChar(254)
+  passwordHash       String   @map("password_hash")
+  role               Role     @default(STAFF)
+  isActive           Boolean  @default(true) @map("is_active")
+  /// STAFF only: individually granted permission keys (deny by default).
+  /// Ignored for OWNER_ADMIN, who always has every permission. Unknown or
+  /// owner-only keys are ignored when evaluating.
+  permissions        String[] @default([])
+  /// Bumped on every permission/activation change (optimistic concurrency).
+  permissionsVersion Int      @default(0) @map("permissions_version")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   sessions  Session[]
   auditLogs AuditLog[]
@@ -57,6 +64,9 @@ model User {
   readyVoided           ProductionReady[]         @relation("ReadyVoidedBy")
   deliveriesRecorded    Delivery[]                @relation("DeliveryRecordedBy")
   deliveriesVoided      Delivery[]                @relation("DeliveryVoidedBy")
+
+  orderAccess        OrderAccess[] @relation("OrderAccessUser")
+  orderAccessGranted OrderAccess[] @relation("OrderAccessGrantedBy")
 
   @@map("users")
 }
@@ -176,38 +186,52 @@ enum PaymentMethod {
   OTHER
 }
 
+/// Who besides the owner may see an order («ظهور الأوردر للعمال»).
+enum OrderVisibility {
+  /// «خاص بالمدير فقط»
+  PRIVATE
+  /// «ظاهر لكل العاملين المصرح لهم» — every active staff with orders:view.
+  ALL_AUTHORIZED_STAFF
+  /// «عمال محددون فقط» — staff listed in order_access.
+  SELECTED_STAFF
+}
+
 model Order {
-  id             String       @id @default(uuid(7)) @db.Uuid
+  id             String          @id @default(uuid(7)) @db.Uuid
   /// Human order number (#0001), gapless, from the "order_number" counter.
-  number         Int          @unique
-  customerId     String       @map("customer_id") @db.Uuid
-  title          String       @db.VarChar(150)
-  productType    String       @map("product_type") @db.VarChar(80)
-  material       String       @db.VarChar(80)
+  number         Int             @unique
+  customerId     String          @map("customer_id") @db.Uuid
+  title          String          @db.VarChar(150)
+  productType    String          @map("product_type") @db.VarChar(80)
+  material       String          @db.VarChar(80)
   quantity       Int
-  unit           QuantityUnit @default(PIECE)
+  unit           QuantityUnit    @default(PIECE)
   /// Agreed selling price for the whole order. Outstanding is always derived
   /// (totalPrice − sum of valid payments) and never stored.
-  totalPrice     Decimal      @map("total_price") @db.Decimal(12, 2)
-  receivedDate   DateTime     @map("received_date") @db.Date
-  deliveryDate   DateTime     @map("delivery_date") @db.Date
-  notes          String?      @db.VarChar(2000)
-  status         OrderStatus  @default(NEW)
+  totalPrice     Decimal         @map("total_price") @db.Decimal(12, 2)
+  receivedDate   DateTime        @map("received_date") @db.Date
+  deliveryDate   DateTime        @map("delivery_date") @db.Date
+  notes          String?         @db.VarChar(2000)
+  status         OrderStatus     @default(NEW)
   /// When the last piece was delivered (set/cleared by production automation).
-  completedAt    DateTime?    @map("completed_at") @db.Timestamptz(3)
+  completedAt    DateTime?       @map("completed_at") @db.Timestamptz(3)
   /// ORDER_TOTAL: one agreed price for the whole order (all orders before
   /// line-item pricing). PER_ITEM: totalPrice = Σ group quantity × unitPrice,
   /// computed by the server.
-  pricing        OrderPricing @default(ORDER_TOTAL)
+  pricing        OrderPricing    @default(ORDER_TOTAL)
   /// Owner removed an untouched order from active views (never deleted).
-  archivedAt     DateTime?    @map("archived_at") @db.Timestamptz(3)
-  archivedById   String?      @map("archived_by_id") @db.Uuid
-  archiveReason  String?      @map("archive_reason") @db.VarChar(300)
+  archivedAt     DateTime?       @map("archived_at") @db.Timestamptz(3)
+  archivedById   String?         @map("archived_by_id") @db.Uuid
+  archiveReason  String?         @map("archive_reason") @db.VarChar(300)
   /// Client-generated key: a retried/double-clicked submit returns the same order.
-  idempotencyKey String?      @unique @map("idempotency_key") @db.Uuid
-  createdById    String       @map("created_by_id") @db.Uuid
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+  idempotencyKey String?         @unique @map("idempotency_key") @db.Uuid
+  /// Staff visibility. Owners always see every order.
+  visibility     OrderVisibility @default(PRIVATE)
+  /// Bumped on every visibility/assignment change (optimistic concurrency).
+  accessVersion  Int             @default(0) @map("access_version")
+  createdById    String          @map("created_by_id") @db.Uuid
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   customer      Customer                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
   createdBy     User                      @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
@@ -219,6 +243,7 @@ model Order {
   stageProgress ProductionStageProgress[]
   ready         ProductionReady[]
   deliveries    Delivery[]
+  access        OrderAccess[]
 
   @@index([customerId])
   @@index([status, deliveryDate])
@@ -738,4 +763,22 @@ model OrderGroupSize {
   @@unique([orderGroupId, label])
   @@index([orderGroupId, position])
   @@map("order_group_sizes")
+}
+
+/// SELECTED_STAFF orders: the app user accounts (not payroll workers) that may
+/// see the order, by stable user id. Rows only grant access while the order is
+/// SELECTED_STAFF, and are removed when the owner picks another visibility.
+model OrderAccess {
+  orderId     String   @map("order_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  grantedById String   @map("granted_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  order     Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user      User  @relation("OrderAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy User  @relation("OrderAccessGrantedBy", fields: [grantedById], references: [id], onDelete: Restrict)
+
+  @@id([orderId, userId])
+  @@index([userId])
+  @@map("order_access")
 }

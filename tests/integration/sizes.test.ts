@@ -5,7 +5,7 @@ import { todayDateString } from "@/lib/dates";
 import type { CreateOrderPayload, UpdateOrderPayload } from "@/lib/validations/order";
 import type { Actor } from "@/server/services/actor";
 import { createCustomer } from "@/server/services/customer-service";
-import { createOrder, getOrderDetails, updateOrder } from "@/server/services/order-service";
+import { getOrderDetails, updateOrder } from "@/server/services/order-service";
 import { recordPayment } from "@/server/services/payment-service";
 import {
   getOrderProduction,
@@ -18,7 +18,7 @@ import {
 } from "@/server/services/production-service";
 import { recordWorkLog } from "@/server/services/work-service";
 import { createWorker } from "@/server/services/worker-service";
-import { createTestPrisma, createTestUser, hasTestDatabase, migrateTestDatabase, resetDatabase } from "../support/test-db";
+import { createTestPrisma, createTestUser, hasTestDatabase, migrateTestDatabase, resetDatabase, createSharedOrder } from "../support/test-db";
 
 const TODAY = todayDateString();
 type G = { quantity?: string; operations: string[]; plain?: boolean; sizes?: { label: string; quantity: string }[] };
@@ -43,7 +43,7 @@ describe.skipIf(!hasTestDatabase)("garment sizes (PostgreSQL)", () => {
 
   async function order(groups: G[], quantity: string, opts: Partial<CreateOrderPayload> = {}) {
     const c = await createCustomer(db, owner, { name: "محمود" });
-    const { orderId } = await createOrder(db, owner, {
+    const { orderId } = await createSharedOrder(db, owner, {
       idempotencyKey: randomUUID(),
       customer: { mode: "existing", id: c.id },
       title: "200 تيشيرت",
@@ -111,9 +111,9 @@ describe.skipIf(!hasTestDatabase)("garment sizes (PostgreSQL)", () => {
     expect(p.deliveryHistory.map((h) => `${h.sizeLabel}:${h.quantity}`).sort()).toEqual(["L:10", "M:20", "S:15"]);
 
     // Money untouched by sizes.
-    expect((await getOrderDetails(db, owner, orderId))!).toMatchObject({ totalPrice: "40000.00", paid: "20000.00", outstanding: "20000.00" });
+    expect((await getOrderDetails(db, owner, orderId))!).toMatchObject({ money: { totalPrice: "40000.00", paid: "20000.00", outstanding: "20000.00" } });
     await recordPayment(db, staff, { orderId, idempotencyKey: randomUUID(), amount: "5000", paidAt: TODAY, method: "CASH" });
-    expect((await getOrderDetails(db, owner, orderId))!.outstanding).toBe("15000.00");
+    expect((await getOrderDetails(db, owner, orderId))!.money!.outstanding).toBe("15000.00");
   });
 
   it("S ordered 50 → finished 30 → delivered 20: ready 10, remaining 20", async () => {

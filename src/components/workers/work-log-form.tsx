@@ -21,15 +21,21 @@ export function WorkLogForm({
   today,
   defaultWorkType,
   defaultUnit,
+  canPickOrder = true,
+  canRecordStage = true,
 }: {
   workerId: string;
   today: string;
   defaultWorkType: WorkType;
   defaultUnit: WorkUnit;
+  /** Without "orders:view" the work is recorded without an order (no order search at all). */
+  canPickOrder?: boolean;
+  /** Without "production:record" the optional "pieces finished" step is not offered. */
+  canRecordStage?: boolean;
 }) {
   const [requestId] = useState(newRequestId);
   const [workDate, setWorkDate] = useState(today);
-  const [order, setOrder] = useState<OpenOrderOption | null | "none">(null);
+  const [order, setOrder] = useState<OpenOrderOption | null | "none">(canPickOrder ? null : "none");
   const [groupId, setGroupId] = useState<string>("");
   const [workType, setWorkType] = useState<WorkType>(defaultWorkType);
   const [quantity, setQuantity] = useState("");
@@ -47,7 +53,7 @@ export function WorkLogForm({
   // Optional: physical pieces that finished the matching step — only when it clearly applies.
   const stageOp = WORK_TYPE_TO_OPERATION[workType];
   const selectedGroup = groups.find((g) => g.id === groupId);
-  const canConfirmStage = !!stageOp && !!selectedGroup && selectedGroup.operations.includes(stageOp);
+  const canConfirmStage = canRecordStage && !!stageOp && !!selectedGroup && selectedGroup.operations.includes(stageOp);
 
   function chooseOrder(o: OpenOrderOption | null | "none") {
     setOrder(o);
@@ -101,9 +107,11 @@ export function WorkLogForm({
 
   return (
     <form onSubmit={submit} noValidate className="space-y-5 rounded-2xl bg-surface border border-line p-4 sm:p-5">
-      <Field label="الأوردر" error={undefined}>
-        <OrderPicker value={order} onChange={chooseOrder} error={errors.orderId} />
-      </Field>
+      {canPickOrder && (
+        <Field label="الأوردر" error={undefined}>
+          <OrderPicker value={order} onChange={chooseOrder} error={errors.orderId} />
+        </Field>
+      )}
       {needsGroupChoice && (
         <ChoiceCards
           label="البند"

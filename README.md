@@ -194,7 +194,7 @@ Environment variables are validated on first use (`src/lib/env.ts`), and a produ
 - **Corrections.** Only the owner can void a day (which also voids its output) or a single output record, always with a reason. Payments use the existing void. Everything is audited, and the worker row is locked for every write.
 - **Stable order groups.** Editing an order now updates its groups in place and keeps their IDs. A group with worker records can't be removed or shrunk below the work already logged, and a stale edit screen can't overwrite newer changes (`expectedUpdatedAt`).
 
-**Financial privacy.** STAFF can create orders, record customer payments, add order costs and expenses, record attendance and output, and pick suppliers. Only the OWNER_ADMIN sees money: order cost totals, labour per order, the expense list, supplier balances, wages and balances, and the dashboard money cards. This is enforced in the services and pages; hidden buttons are just convenience.
+**Staff permissions and financial privacy.** Every STAFF account has its own owner-granted permissions (deny by default), and every order has a visibility (`PRIVATE` by default, all authorized staff, or selected accounts). A staff member without «يشوف أسعار الأوردرات» gets orders with no money in the data at all. Wages, supplier balances, financial corrections and the accounting reports stay owner-only. Enforced in the services; hidden buttons are just convenience. See [docs/staff-permissions.md](docs/staff-permissions.md).
 
 ## Production & partial delivery (Phase 5)
 
@@ -266,7 +266,8 @@ These are deliberate gaps, recorded so they're handled before they can cause wro
 
 Tables:
 
-- **users**: name, email (unique, lowercase), Argon2id `password_hash`, `role` (`OWNER_ADMIN` / `STAFF`), `is_active`, timestamps
+- **users**: name, email (unique, lowercase), Argon2id `password_hash`, `role` (`OWNER_ADMIN` / `STAFF`), `is_active`, `permissions` (staff grants), `permissions_version`, timestamps
+- **order_access**: which staff accounts may see a `SELECTED_STAFF` order (`orders.visibility`, `orders.access_version`)
 - **sessions**: SHA-256 hash of the session token, user, expiry (cascade-deleted with the user)
 - **audit_logs**: user, action, entity type/id, JSON metadata, time
 - **login_attempts**: failed logins by email and IP, used for rate limiting and pruned after 24h
@@ -305,7 +306,7 @@ For scripted provisioning you can pipe the four answers (one per line) from a te
 - Every page, server action and API route checks the session against the database (`requireUser`, `requirePermission`, `requireApiUser`). `src/proxy.ts` is only a fast first filter.
 - Rate limiting is stored in PostgreSQL: 5 failed logins per email or 20 per IP in 15 minutes.
 - Audit log entries: successful/failed/blocked/rate-limited logins, logout, user creation.
-- Permissions are derived from roles in `src/lib/auth/permissions.ts`. Code checks permissions (`users:manage`), not roles, so finer permissions can be added later without changing the call sites.
+- Permissions live in `src/lib/auth/permissions.ts`: owners have all of them; staff have the grants stored on their account (`users.permissions`), evaluated with their dependencies on every request. Per-order visibility is enforced in `src/server/services/order-access.ts`. Code checks permissions (`users:manage`), not roles.
 - Security headers: HSTS, `X-Frame-Options: DENY`, `nosniff`, referrer and permissions policies.
 
 ## Development commands

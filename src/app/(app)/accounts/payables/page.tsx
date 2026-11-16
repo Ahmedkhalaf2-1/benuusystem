@@ -14,7 +14,7 @@ import { getPayables } from "@/server/services/reports-service";
 export const metadata: Metadata = { title: "علينا للموردين" };
 
 export default async function PayablesPage(props: PageProps<"/accounts/payables">) {
-  const user = await requirePermission("finance:view-summary");
+  const user = await requirePermission("finance:reports");
   const sp = await props.searchParams;
   const q = typeof sp.q === "string" ? sp.q.slice(0, 100) : "";
   const p = await getPayables(prisma, user, { q });

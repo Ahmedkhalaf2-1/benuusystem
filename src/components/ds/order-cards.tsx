@@ -64,7 +64,7 @@ export function OrderCard({ order, showMoney }: { order: OrderSummary; showMoney
             اتسلم <b className="tabular font-display text-sm font-semibold text-ink">{formatNumber(prod.delivered)}</b> من {formatNumber(order.quantity)} {UNIT_LABELS[order.unit]}
           </span>
           <span className="flex items-center gap-3">
-            {showMoney && <span className="tabular font-semibold text-ink">{formatMoneyString(order.totalPrice)}</span>}
+            {showMoney && order.money && <span className="tabular font-semibold text-ink">{formatMoneyString(order.money.totalPrice)}</span>}
             <DueChip order={order} />
           </span>
         </div>

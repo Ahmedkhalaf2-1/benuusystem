@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   PlusCircle,
   Receipt,
+  ShieldCheck,
   Truck,
   UsersRound,
   Wallet,
@@ -33,12 +34,26 @@ export const MAIN_NAV: readonly NavItem[] = [
   { key: "more", label: "المزيد", href: "/more", icon: LayoutGrid },
 ];
 
+/**
+ * Which main tabs a user gets, so nobody lands on a dead end. Home and المزيد
+ * are always there; الأوردرات needs orders:view; الحسابات needs something to
+ * do or see there.
+ */
+export function mainNavKeys(can: (permission: Permission) => boolean): string[] {
+  return MAIN_NAV.filter((item) => {
+    if (item.key === "orders") return can("orders:view");
+    if (item.key === "accounts") return can("finance:reports") || can("customers:view") || can("suppliers:view") || can("expenses:record");
+    return true;
+  }).map((item) => item.key);
+}
+
 /** Extra sidebar entries on desktop (phones reach them from the dashboard / المزيد). */
 export const SIDEBAR_EXTRA_NAV: readonly (NavItem & { permission: Permission })[] = [
   { key: "customers", label: "العملاء", href: "/customers", icon: UsersRound, permission: "customers:view" },
   { key: "workers", label: "العمال", href: "/workers", icon: HardHat, permission: "workers:view" },
   { key: "suppliers", label: "الموردين", href: "/suppliers", icon: Truck, permission: "suppliers:view-balances" },
   { key: "expenses", label: "المصاريف", href: "/expenses", icon: Receipt, permission: "expenses:view" },
+  { key: "users", label: "المستخدمين والصلاحيات", href: "/users", icon: ShieldCheck, permission: "users:manage" },
 ];
 
 export type QuickAction = {

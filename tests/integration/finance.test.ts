@@ -13,7 +13,7 @@ import {
   getFinanceDashboard,
   getSupplierOutstandingTotal,
 } from "@/server/services/finance-summary-service";
-import { createOrder, getOrderDetails } from "@/server/services/order-service";
+import { getOrderDetails } from "@/server/services/order-service";
 import { payPayable, voidOutgoingPayment } from "@/server/services/outgoing-payment-service";
 import { createSupplier, getSupplierDetails, listSuppliers, searchSuppliers } from "@/server/services/supplier-service";
 import {
@@ -21,8 +21,7 @@ import {
   createTestUser,
   hasTestDatabase,
   migrateTestDatabase,
-  resetDatabase,
-} from "../support/test-db";
+  resetDatabase, createSharedOrder } from "../support/test-db";
 
 const TODAY = todayDateString();
 const MONTH = monthRange(TODAY);
@@ -47,7 +46,7 @@ describe.skipIf(!hasTestDatabase)("order costs, suppliers & expenses (PostgreSQL
     staff = await createTestUser(db, "STAFF");
     const mahmoud = await createCustomer(db, owner, { name: "محمود" });
     orderId = (
-      await createOrder(db, owner, {
+      await createSharedOrder(db, owner, {
         idempotencyKey: randomUUID(),
         customer: { mode: "existing", id: mahmoud.id },
         title: "200 تيشيرت",
@@ -122,8 +121,8 @@ describe.skipIf(!hasTestDatabase)("order costs, suppliers & expenses (PostgreSQL
 
     // Customer side is untouched by costs.
     const order = (await getOrderDetails(db, owner, orderId))!;
-    expect(order.paid).toBe("20000.00");
-    expect(order.outstanding).toBe("20000.00");
+    expect(order.money!.paid).toBe("20000.00");
+    expect(order.money!.outstanding).toBe("20000.00");
 
     // Cash: +20,000 in, −6,000 −3,000 −2,000 out = +9,000.
     expect(await getCashMovement(db, owner, MONTH)).toEqual({

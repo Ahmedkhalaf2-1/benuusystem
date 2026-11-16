@@ -38,12 +38,14 @@ export default async function DashboardPage() {
   const user = await requireUser();
   const firstName = user.name.trim().split(/\s+/)[0];
   const canSeeMoney = hasPermission(user, "finance:view-summary");
-  const showOrderMoney = hasPermission(user, "payments:record");
+  // Every order figure below only covers orders this account may see; money needs its own permission.
+  const canSeeOrders = hasPermission(user, "orders:view");
+  const showOrderMoney = hasPermission(user, "orders:view-prices");
   const canCreate = hasPermission(user, "orders:create");
   const [stats, overview, production, finance, attendance, workersMonth] = await Promise.all([
     getDashboardStats(prisma, user),
-    getDashboardOverview(prisma, user),
-    getProductionDashboard(prisma, user),
+    canSeeOrders ? getDashboardOverview(prisma, user) : null,
+    canSeeOrders ? getProductionDashboard(prisma, user) : null,
     canSeeMoney ? getFinanceDashboard(prisma, user) : null,
     hasPermission(user, "workers:view") ? getTodayAttendance(prisma, user) : null,
     hasPermission(user, "workers:view-pay") ? getMonthlyWorkerSummary(prisma, user, todayDateString().slice(0, 7)) : null,
@@ -60,14 +62,14 @@ export default async function DashboardPage() {
   // Needs attention: overdue first, then due within three days, then finished pieces still with us.
   const seen = new Set<string>();
   const attention: { order: OrderSummary; kind: AttentionKind }[] = [];
-  for (const o of overview.attention) {
+  for (const o of overview?.attention ?? []) {
     seen.add(o.id);
     attention.push({ order: o, kind: o.overdue ? "late" : "soon" });
   }
-  for (const o of overview.readyWaiting) if (!seen.has(o.id)) attention.push({ order: o, kind: "ready" });
+  for (const o of overview?.readyWaiting ?? []) if (!seen.has(o.id)) attention.push({ order: o, kind: "ready" });
 
-  const { newCount, inProgressCount, readyToDeliverCount } = overview;
-  const anyOrders = overview.recent.length > 0;
+  const { newCount, inProgressCount, readyToDeliverCount } = overview ?? { newCount: 0, inProgressCount: 0, readyToDeliverCount: 0 };
+  const anyOrders = (overview?.recent.length ?? 0) > 0;
   const pulse = [
     { n: newCount, label: "أوردر جديد", href: "/orders?status=NEW" },
     { n: inProgressCount, label: "تحت التنفيذ", href: "/orders?status=IN_PROGRESS" },
@@ -85,7 +87,11 @@ export default async function DashboardPage() {
               {greetingAr(new Date())} يا {firstName}
             </h1>
 
-            {anyOrders ? (
+            {!canSeeOrders ? (
+              <p className="mt-3 max-w-[34ch] text-[0.95rem] leading-relaxed text-on-panel-muted" data-testid="no-order-access">
+                {actions.length > 0 ? "الإجراءات المتاحة لحسابك تحت." : "حسابك لسه مالوش صلاحيات. كلّم المدير يحدد لك اللي تقدر تشوفه وتعمله."}
+              </p>
+            ) : anyOrders ? (
               <ul className="mt-5 grid grid-cols-3 gap-2">
                 {pulse.map((p) => (
                   <li key={p.label}>
@@ -100,7 +106,9 @@ export default async function DashboardPage() {
                 ))}
               </ul>
             ) : (
-              <p className="mt-3 max-w-[30ch] text-[0.95rem] leading-relaxed text-on-panel-muted">مفيش أوردرات لسه. أول أوردر تسجله هيظهر هنا بحالته وتقدّمه.</p>
+              <p className="mt-3 max-w-[30ch] text-[0.95rem] leading-relaxed text-on-panel-muted">
+                {canCreate ? "مفيش أوردرات لسه. أول أوردر تسجله هيظهر هنا بحالته وتقدّمه." : "مفيش أوردرات ظاهرة لحسابك دلوقتي."}
+              </p>
             )}
 
             <div className="mt-4 flex flex-wrap gap-2 text-xs">
@@ -110,10 +118,12 @@ export default async function DashboardPage() {
                   {formatNumber(stats.overdueOrders)} متأخر
                 </Link>
               )}
+              {production && (
               <span className="inline-flex h-8 items-center gap-1.5 rounded-full bg-panel-2 px-3 text-on-panel-muted ring-1 ring-panel-line">
                 تسليمات النهارده <b className="tabular font-semibold text-white">{formatNumber(production.deliveriesToday)}</b>
               </span>
-              {production.deliveredThisMonth.map((d) => (
+              )}
+              {production?.deliveredThisMonth.map((d) => (
                 <span key={d.unit} className="inline-flex h-8 items-center gap-1.5 rounded-full bg-panel-2 px-3 text-on-panel-muted ring-1 ring-panel-line">
                   اتسلم الشهر ده <b className="tabular font-semibold text-white">{formatNumber(d.qty)}</b> {UNIT_LABELS[d.unit]}
                 </span>
@@ -162,7 +172,20 @@ export default async function DashboardPage() {
           </section>
         )}
 
+        {/* «أوردرات النهارده»: due today */}
+        {overview && overview.dueToday.length > 0 && (
+          <section aria-labelledby="today-heading">
+            <SectionTitle id="today-heading">أوردرات النهارده</SectionTitle>
+            <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {overview.dueToday.map((o) => (
+                <OrderCard key={o.id} order={o} showMoney={showOrderMoney} />
+              ))}
+            </ul>
+          </section>
+        )}
+
         {/* Zone C — needs attention */}
+        {canSeeOrders && (
         <section aria-labelledby="attention-heading">
           <SectionTitle id="attention-heading">محتاج انتباهك</SectionTitle>
           {attention.length === 0 ? (
@@ -178,8 +201,10 @@ export default async function DashboardPage() {
             </ul>
           )}
         </section>
+        )}
 
         {/* Zone D — recent orders */}
+        {overview && (
         <section aria-labelledby="recent-heading">
           <SectionTitle
             id="recent-heading"
@@ -216,6 +241,7 @@ export default async function DashboardPage() {
             </div>
           )}
         </section>
+        )}
       </div>
 
       {/* Owner: this month's money */}
@@ -227,10 +253,12 @@ export default async function DashboardPage() {
                 <h2 id="money-heading" className="text-sm font-semibold text-on-panel-muted">
                   فلوس الشهر ده
                 </h2>
-                <Link href="/accounts" className="inline-flex h-8 items-center gap-0.5 rounded-full bg-panel-2 px-3 text-xs font-semibold hover:bg-panel-line">
-                  الحسابات
-                  <ChevronLeft className="size-3.5" aria-hidden="true" />
-                </Link>
+                {hasPermission(user, "finance:reports") && (
+                  <Link href="/accounts" className="inline-flex h-8 items-center gap-0.5 rounded-full bg-panel-2 px-3 text-xs font-semibold hover:bg-panel-line">
+                    الحسابات
+                    <ChevronLeft className="size-3.5" aria-hidden="true" />
+                  </Link>
+                )}
               </div>
               <dl>
                 <div className="mt-3">
@@ -245,7 +273,9 @@ export default async function DashboardPage() {
                     { label: "اتدفع الشهر ده", value: finance.paidOutThisMonth },
                     { label: "لسه للموردين", value: finance.supplierOutstanding },
                     ...(workersMonth ? [{ label: "لسه للعمال", value: workersMonth.balances.owedToWorkers }] : []),
-                  ].map((m) => (
+                  ]
+                    .filter((m): m is { label: string; value: string } => m.value !== null)
+                    .map((m) => (
                     <div key={m.label} className="rounded-2xl bg-panel-2 px-3 py-2.5 ring-1 ring-panel-line">
                       <dt className="text-[0.7rem] text-on-panel-muted">{m.label}</dt>
                       <dd className="tabular mt-0.5 font-display text-[0.95rem] font-semibold">{formatMoneyString(m.value)}</dd>

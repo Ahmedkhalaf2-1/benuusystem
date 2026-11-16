@@ -63,7 +63,7 @@ function BalanceCard({ href, title, tone, value, testId, children, wide }: { hre
 export default async function AccountsPage(props: PageProps<"/accounts">) {
   const user = await requireUser();
   const sp = await props.searchParams;
-  const isOwner = hasPermission(user, "finance:view-summary");
+  const isOwner = hasPermission(user, "finance:reports");
   const period = parsePeriod(sp);
   const o = isOwner ? await getFinancialOverview(prisma, user, period) : null;
 

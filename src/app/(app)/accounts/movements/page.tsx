@@ -26,7 +26,7 @@ const FILTERS: { value: MovementKind | "in" | "out" | ""; label: string }[] = [
 ];
 
 export default async function MovementsPage(props: PageProps<"/accounts/movements">) {
-  const user = await requirePermission("finance:view-summary");
+  const user = await requirePermission("finance:reports");
   const sp = await props.searchParams;
   const period = parsePeriod(sp);
   const kind = FILTERS.some((f) => f.value === sp.kind && f.value) ? (sp.kind as MovementKind | "in" | "out") : undefined;

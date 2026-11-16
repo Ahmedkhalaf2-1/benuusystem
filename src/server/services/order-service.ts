@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import type { OrderPricing, OrderStatus, PaymentMethod, PrintOperation, QuantityUnit, WorkUnit } from "@/generated/prisma/enums";
-import { assertPermission, hasPermission } from "@/lib/auth/permissions";
+import { assertPermission, hasPermission, isOwner } from "@/lib/auth/permissions";
 import type { DbClient, DbTransaction } from "@/lib/db/prisma";
 import { dateFromString, dateToString, todayDateString } from "@/lib/dates";
 import { AppError } from "@/lib/errors";
@@ -29,6 +29,8 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
 import { insertCustomer } from "./customer-service";
 import { loadGroupProgress, productionTotalsByOrder, refreshOrderStatus } from "./production-service";
 import { ORDER_SUMMARY_SELECT, isOverdue, toOrderSummary, type OrderSummary } from "./order-dto";
+import { canSeeOrderPrices, orderScope, orderScopeSql, requireOrderAccess } from "./order-access";
+import { applyOrderAccess, parseOrderAccess } from "./order-visibility-service";
 
 // ───────────────────────────── Create ─────────────────────────────
 
@@ -253,9 +255,16 @@ export async function createOrder(
   db: PrismaClient,
   actor: Actor,
   payload: CreateOrderPayload,
+  /** «ظهور الأوردر للعمال» — owner only. Omitted: PRIVATE for the owner. */
+  accessPayload?: unknown,
 ): Promise<CreateOrderResult> {
   assertPermission(actor, "orders:create");
+  // Authorization before validation: a staff member trying to set visibility is refused outright.
+  if (accessPayload !== undefined && accessPayload !== null) assertPermission(actor, "orders:manage-access");
   const input = parseCreateOrder(payload);
+  const access = accessPayload === undefined || accessPayload === null ? null : parseOrderAccess(accessPayload);
+  // A staff member's new order is visible to its creator only (the owner can widen it).
+  const ownedByStaff = !isOwner(actor);
 
   const previous = await findByIdempotencyKey(db, input.idempotencyKey);
   if (previous) return previous;
@@ -282,8 +291,11 @@ export async function createOrder(
           idempotencyKey: input.idempotencyKey,
           createdById: actor.id,
           groups: { create: groupsCreateData(input.groups) },
+          ...(ownedByStaff
+            ? { visibility: "SELECTED_STAFF" as const, access: { create: { userId: actor.id, grantedById: actor.id } } }
+            : {}),
         },
-        select: { id: true, number: true },
+        select: { id: true, number: true, visibility: true },
       });
 
       await recordAudit(tx, {
@@ -294,6 +306,7 @@ export async function createOrder(
         metadata: {
           number: order.number,
           customerId,
+          visibility: order.visibility,
           quantity: input.quantity,
           totalPrice: centsToDecimalString(input.totalPrice),
           pricing: input.pricing,
@@ -306,6 +319,8 @@ export async function createOrder(
           })),
         },
       });
+
+      if (access) await applyOrderAccess(tx, actor, order.id, access, { source: "create" });
 
       if (input.advance > 0n) {
         const payment = await tx.orderPayment.create({
@@ -540,9 +555,12 @@ async function applyGroupChanges(
  *  - "completed" is not settable until delivery tracking exists.
  * Every change is audited with before/after values.
  */
-export async function updateOrder(db: PrismaClient, actor: Actor, payload: UpdateOrderPayload) {
+export async function updateOrder(db: PrismaClient, actor: Actor, payload: UpdateOrderPayload, accessPayload?: unknown) {
   assertPermission(actor, "orders:edit");
+  if (accessPayload !== undefined && accessPayload !== null) assertPermission(actor, "orders:manage-access");
   const input = parseUpdateOrder(payload);
+  await requireOrderAccess(db, actor, input.orderId, "orders:edit");
+  const access = accessPayload === undefined || accessPayload === null ? null : parseOrderAccess(accessPayload);
 
   return db.$transaction(async (tx) => {
     if (!(await lockOrder(tx, input.orderId))) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
@@ -763,9 +781,11 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
       });
     }
 
+    const accessChanged = access ? (await applyOrderAccess(tx, actor, input.orderId, access, { source: "edit" })).changed : false;
+
     // Quantities may have changed: completion follows the real delivery records.
     await refreshOrderStatus(tx, actor, input.orderId);
-    return { orderId: input.orderId, changed: Object.keys(changes).length > 0 || priceChanged || statusChanged };
+    return { orderId: input.orderId, changed: Object.keys(changes).length > 0 || priceChanged || statusChanged || accessChanged };
   });
 }
 
@@ -776,7 +796,8 @@ export type OrderStatusFilter = "all" | "open" | "overdue" | "archived" | OrderS
 export type OrderSort = "newest" | "oldest" | "delivery";
 export const ORDERS_PAGE_SIZE = 20;
 
-function orderListWhere(query: string, status: OrderStatusFilter): Prisma.OrderWhereInput {
+/** `searchPhones`: only viewers allowed to see customer phones may match on them. */
+function orderListWhere(query: string, status: OrderStatusFilter, searchPhones = false): Prisma.OrderWhereInput {
   const and: Prisma.OrderWhereInput[] = [];
   const today = dateFromString(todayDateString());
 
@@ -797,7 +818,7 @@ function orderListWhere(query: string, status: OrderStatusFilter): Prisma.OrderW
         { title: { contains: q, mode: "insensitive" } },
         { productType: { contains: q, mode: "insensitive" } },
         { customer: { name: { contains: q, mode: "insensitive" } } },
-        ...(digits.length >= 3 ? [{ customer: { phone: { contains: digits } } }] : []),
+        ...(searchPhones && digits.length >= 3 ? [{ customer: { phone: { contains: digits } } }] : []),
       ],
     });
   }
@@ -818,7 +839,12 @@ export async function listOrders(
   // Removed orders are listed for the owner only.
   if (options.status === "archived") assertPermission(actor, "orders:archive");
   assertPermission(actor, "orders:view");
-  const where = orderListWhere(options.query ?? "", options.status ?? "all");
+  const where: Prisma.OrderWhereInput = {
+    AND: [
+      orderListWhere(options.query ?? "", options.status ?? "all", hasPermission(actor, "customers:view-contact")),
+      orderScope(actor, { includeArchived: options.status === "archived" }),
+    ],
+  };
   const total = await db.order.count({ where });
   const pageCount = Math.max(1, Math.ceil(total / ORDERS_PAGE_SIZE));
   const page = Math.min(Math.max(1, options.page ?? 1), pageCount);
@@ -830,12 +856,13 @@ export async function listOrders(
     take: ORDERS_PAGE_SIZE,
     select: { ...ORDER_SUMMARY_SELECT, customer: { select: { id: true, name: true } } },
   });
+  const prices = canSeeOrderPrices(actor);
   const [paidMap, production] = await Promise.all([
-    paidByOrderIds(db, rows.map((r) => r.id)),
+    prices ? paidByOrderIds(db, rows.map((r) => r.id)) : new Map<string, Cents>(),
     productionTotalsByOrder(db, rows.map((r) => r.id)),
   ]);
   return {
-    items: rows.map((row) => ({ ...toOrderSummary(row, paidMap.get(row.id) ?? 0n), production: production.get(row.id) })),
+    items: rows.map((row) => ({ ...toOrderSummary(row, prices ? (paidMap.get(row.id) ?? 0n) : null), production: production.get(row.id) })),
     total,
     page,
     pageCount,
@@ -889,9 +916,9 @@ export type OrderDetails = OrderSummary & {
     operations: PrintOperation[];
     description: string;
     sizes: { id: string; label: string; quantity: number }[];
-    /** Per-item pricing only (decimal strings). */
-    unitPrice: string | null;
-    lineTotal: string | null;
+    /** Per-item pricing only (decimal strings). Absent without "orders:view-prices". */
+    unitPrice?: string | null;
+    lineTotal?: string | null;
     designs: OrderDesignView[];
     pressesPerUnit: number | null;
     /** Planned presses for the item (Σ designs, or quantity × item presses); null if not planned. */
@@ -906,18 +933,24 @@ export type OrderDetails = OrderSummary & {
   sizesEnabled: boolean;
   /** ISO timestamp — sent back by the edit form for stale-edit protection. */
   updatedAt: string;
-  payments: OrderPaymentView[];
+  /** Null without "payments:view" — the rows are not even loaded. */
+  payments: OrderPaymentView[] | null;
 };
 
 export async function getOrderDetails(db: DbClient, actor: Actor, orderId: string): Promise<OrderDetails | null> {
   assertPermission(actor, "orders:view");
-  const order = await db.order.findUnique({
-    where: { id: orderId },
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId)) return null;
+  const prices = canSeeOrderPrices(actor);
+  const showPayments = hasPermission(actor, "payments:view");
+  const showPhone = hasPermission(actor, "customers:view-contact");
+  // Hidden orders look exactly like missing ones.
+  const order = await db.order.findFirst({
+    where: { AND: [{ id: orderId }, orderScope(actor, { includeArchived: true })] },
     select: {
       ...ORDER_SUMMARY_SELECT,
       notes: true,
       updatedAt: true,
-      customer: { select: { id: true, name: true, phone: true } },
+      customer: { select: { id: true, name: true, phone: showPhone } },
       createdBy: { select: { name: true } },
       pricing: true,
       archivedAt: true,
@@ -932,7 +965,7 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
             material: true,
             notes: true,
             name: true,
-            unitPrice: true,
+            unitPrice: prices,
             pressesPerUnit: true,
             designs: {
               orderBy: { position: "asc" },
@@ -943,6 +976,7 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
           },
       },
       payments: {
+        where: showPayments ? undefined : { id: { in: [] } },
         orderBy: [{ paidAt: "asc" }, { createdAt: "asc" }],
         select: {
           id: true,
@@ -962,9 +996,8 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
   });
   if (!order) return null;
 
-  const paid = order.payments
-    .filter((p) => p.voidedAt === null)
-    .reduce((sum, p) => sum + toCents(p.amount), 0n);
+  // Paid is computed from every valid payment, even when the history itself is hidden.
+  const paid = prices ? await sumValidPayments(db, order.id) : null;
 
   // Actual presses come only from worker output recorded in presses for this item.
   const pressRows = await db.workerWorkLog.groupBy({
@@ -990,7 +1023,7 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
         : g.pressesPerUnit === null
           ? null
           : g.quantity * g.pressesPerUnit;
-    const unitPrice = g.unitPrice === null ? null : toCents(g.unitPrice);
+    const unitPrice = !prices || g.unitPrice === null || g.unitPrice === undefined ? null : toCents(g.unitPrice);
     return {
       id: g.id,
       position: g.position,
@@ -1002,8 +1035,12 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
       operations,
       description: describeOperations(operations),
       sizes: g.sizes,
-      unitPrice: unitPrice === null ? null : centsToDecimalString(unitPrice),
-      lineTotal: unitPrice === null ? null : centsToDecimalString(unitPrice * BigInt(g.quantity)),
+      ...(prices
+        ? {
+            unitPrice: unitPrice === null ? null : centsToDecimalString(unitPrice),
+            lineTotal: unitPrice === null ? null : centsToDecimalString(unitPrice * BigInt(g.quantity)),
+          }
+        : {}),
       designs,
       pressesPerUnit: g.pressesPerUnit,
       plannedPresses,
@@ -1014,7 +1051,7 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
 
   return {
     ...toOrderSummary(order, paid),
-    customerPhone: order.customer.phone,
+    customerPhone: showPhone ? (order.customer.phone ?? null) : null,
     notes: order.notes,
     createdByName: order.createdBy.name,
     pricing: order.pricing,
@@ -1024,7 +1061,7 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
     plannedPresses: plannedItems.length > 0 ? plannedItems.reduce((sum, g) => sum + g.plannedPresses!, 0) : null,
     recordedPresses: groups.reduce((sum, g) => sum + g.recordedPresses, 0),
     sizesEnabled: order.groups.some((g) => g.sizes.length > 0),
-    payments: order.payments.map((p) => ({
+    payments: !showPayments ? null : order.payments.map((p) => ({
       id: p.id,
       amount: centsToDecimalString(toCents(p.amount)),
       paidAt: dateToString(p.paidAt),
@@ -1044,6 +1081,7 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
 /** Values to pre-fill the edit form. */
 export async function getOrderForEdit(db: DbClient, actor: Actor, orderId: string) {
   assertPermission(actor, "orders:edit");
+  assertPermission(actor, "orders:view-prices");
   const details = await getOrderDetails(db, actor, orderId);
   return details;
 }
@@ -1053,6 +1091,7 @@ export async function recentMaterials(db: DbClient, actor: Actor, limit = 15): P
   assertPermission(actor, "orders:view");
   const rows = await db.orderGroup.groupBy({
     by: ["material"],
+    where: { order: orderScope(actor) },
     _count: { material: true },
     orderBy: { _count: { material: "desc" } },
     take: limit,
@@ -1067,6 +1106,7 @@ export type DashboardStats = {
   paymentsThisMonth: string | null;
 };
 
+/** Counts only cover orders the actor may see, so hidden orders never show up as numbers. */
 export async function getDashboardStats(db: DbClient, actor: Actor): Promise<DashboardStats> {
   assertPermission(actor, "dashboard:view");
   const today = todayDateString();
@@ -1074,12 +1114,14 @@ export async function getDashboardStats(db: DbClient, actor: Actor): Promise<Das
   const todayDate = dateFromString(today);
 
   const canSeeMoney = hasPermission(actor, "finance:view-summary");
+  const canSeeOrders = hasPermission(actor, "orders:view");
+  const open = { archivedAt: null, status: { in: [...OPEN_ORDER_STATUSES] } } satisfies Prisma.OrderWhereInput;
   const [activeOrders, overdueOrders, payments] = await Promise.all([
-    db.order.count({ where: { archivedAt: null, status: { in: [...OPEN_ORDER_STATUSES] } } }),
-    db.order.count({ where: { archivedAt: null, status: { in: [...OPEN_ORDER_STATUSES] }, deliveryDate: { lt: todayDate } } }),
+    canSeeOrders ? db.order.count({ where: { AND: [open, orderScope(actor)] } }) : 0,
+    canSeeOrders ? db.order.count({ where: { AND: [open, { deliveryDate: { lt: todayDate } }, orderScope(actor)] } }) : 0,
     canSeeMoney
       ? db.orderPayment.aggregate({
-          where: { voidedAt: null, paidAt: { gte: monthStart, lte: todayDate } },
+          where: { voidedAt: null, paidAt: { gte: monthStart, lte: todayDate }, order: { archivedAt: null } },
           _sum: { amount: true },
         })
       : null,
@@ -1094,62 +1136,78 @@ export async function getDashboardStats(db: DbClient, actor: Actor): Promise<Das
 /**
  * Dashboard "today" overview — every number from real records, nothing stored:
  * status counts, open orders with pieces ready to hand over, orders that need
- * attention (overdue, or due within 3 days) and the latest orders.
+ * attention (overdue, or due within 3 days), today's orders and the latest
+ * orders. Everything is limited to the orders the actor may see; money is only
+ * included with "orders:view-prices".
  */
 export async function getDashboardOverview(db: DbClient, actor: Actor) {
   assertPermission(actor, "orders:view");
   const today = todayDateString();
   const todayDate = dateFromString(today);
   const soon = dateFromString(new Date(todayDate.getTime() + 3 * 86_400_000).toISOString().slice(0, 10));
-  const open = { archivedAt: null, status: { in: [...OPEN_ORDER_STATUSES] } } satisfies Prisma.OrderWhereInput;
+  const scope = orderScope(actor);
+  const scopeSql = orderScopeSql(actor, "o");
+  const visible = { AND: [{ archivedAt: null }, scope] } satisfies Prisma.OrderWhereInput;
+  const open = { AND: [{ archivedAt: null, status: { in: [...OPEN_ORDER_STATUSES] } }, scope] } satisfies Prisma.OrderWhereInput;
   const select = { ...ORDER_SUMMARY_SELECT, customer: { select: { id: true, name: true } } };
 
-  const [byStatus, readyRows, attentionRows, recentRows, readyWaitingIds] = await Promise.all([
-    db.order.groupBy({ by: ["status"], where: { archivedAt: null }, _count: { _all: true } }),
+  const [byStatus, readyRows, attentionRows, recentRows, readyWaitingIds, dueTodayRows] = await Promise.all([
+    db.order.groupBy({ by: ["status"], where: visible, _count: { _all: true } }),
     db.$queryRaw<{ n: number }[]>`
       SELECT count(*)::int AS n FROM orders o
-      WHERE o.status IN ('NEW', 'IN_PROGRESS')
+      WHERE o.status IN ('NEW', 'IN_PROGRESS') AND o.archived_at IS NULL AND ${scopeSql}
         AND COALESCE((SELECT SUM(quantity) FROM production_ready r WHERE r.order_id = o.id AND r.voided_at IS NULL), 0)
           > COALESCE((SELECT SUM(quantity) FROM deliveries d WHERE d.order_id = o.id AND d.voided_at IS NULL), 0)`,
-    db.order.findMany({ where: { ...open, deliveryDate: { lte: soon } }, orderBy: [{ deliveryDate: "asc" }, { number: "asc" }], take: 4, select }),
-    db.order.findMany({ where: { archivedAt: null }, orderBy: [{ createdAt: "desc" }, { number: "desc" }], take: 4, select }),
+    db.order.findMany({ where: { AND: [open, { deliveryDate: { lte: soon } }] }, orderBy: [{ deliveryDate: "asc" }, { number: "asc" }], take: 4, select }),
+    db.order.findMany({ where: visible, orderBy: [{ createdAt: "desc" }, { number: "desc" }], take: 4, select }),
     // Open orders holding finished pieces the customer hasn't received yet.
     db.$queryRaw<{ id: string }[]>`
       SELECT o.id FROM orders o
-      WHERE o.status IN ('NEW', 'IN_PROGRESS')
+      WHERE o.status IN ('NEW', 'IN_PROGRESS') AND o.archived_at IS NULL AND ${scopeSql}
         AND COALESCE((SELECT SUM(quantity) FROM production_ready r WHERE r.order_id = o.id AND r.voided_at IS NULL), 0)
           > COALESCE((SELECT SUM(quantity) FROM deliveries d WHERE d.order_id = o.id AND d.voided_at IS NULL), 0)
       ORDER BY o.delivery_date ASC, o.number ASC
       LIMIT 4`,
+    // «أوردرات النهارده»: open orders due today.
+    db.order.findMany({ where: { AND: [open, { deliveryDate: todayDate }] }, orderBy: [{ number: "asc" }], take: 6, select }),
   ]);
   const readyWaitingRows = readyWaitingIds.length
-    ? await db.order.findMany({ where: { id: { in: readyWaitingIds.map((r) => r.id) } }, orderBy: [{ deliveryDate: "asc" }, { number: "asc" }], select })
+    ? await db.order.findMany({ where: { AND: [{ id: { in: readyWaitingIds.map((r) => r.id) } }, scope] }, orderBy: [{ deliveryDate: "asc" }, { number: "asc" }], select })
     : [];
-  const ids = [...new Set([...attentionRows, ...recentRows, ...readyWaitingRows].map((o) => o.id))];
-  const [paid, production] = await Promise.all([paidByOrderIds(db, ids), productionTotalsByOrder(db, ids)]);
-  const summary = (row: (typeof recentRows)[number]) => ({ ...toOrderSummary(row, paid.get(row.id) ?? 0n), production: production.get(row.id) });
+  const ids = [...new Set([...attentionRows, ...recentRows, ...readyWaitingRows, ...dueTodayRows].map((o) => o.id))];
+  const prices = canSeeOrderPrices(actor);
+  const [paid, production] = await Promise.all([prices ? paidByOrderIds(db, ids) : new Map<string, Cents>(), productionTotalsByOrder(db, ids)]);
+  const summary = (row: (typeof recentRows)[number]) => ({ ...toOrderSummary(row, prices ? (paid.get(row.id) ?? 0n) : null), production: production.get(row.id) });
   const count = (status: OrderStatus) => byStatus.find((b) => b.status === status)?._count._all ?? 0;
 
   return {
     newCount: count("NEW"),
     inProgressCount: count("IN_PROGRESS"),
+    completedCount: count("COMPLETED"),
     readyToDeliverCount: readyRows[0]?.n ?? 0,
     attention: attentionRows.map(summary),
     readyWaiting: readyWaitingRows.map(summary),
+    dueToday: dueTodayRows.map(summary),
     recent: recentRows.map(summary),
   };
 }
 
 export type OrderAction = "production" | "delivery" | "payment";
 
+const ACTION_PERMISSION = { production: "production:record", delivery: "deliveries:record", payment: "payments:record" } as const;
+
 /**
  * Open orders on which a quick action can actually be done right now:
  * production → anything open; delivery → finished pieces still with us;
  * payment → money still owed. Searchable by customer, title or number.
+ * Needs the action's own permission, and only lists orders the actor may see.
  */
 export async function listOrdersForAction(db: DbClient, actor: Actor, action: OrderAction, query: string) {
   assertPermission(actor, "orders:view");
-  const where: Prisma.OrderWhereInput = { AND: [{ status: { in: [...OPEN_ORDER_STATUSES] } }, orderListWhere(query, "all")] };
+  assertPermission(actor, ACTION_PERMISSION[action]);
+  const where: Prisma.OrderWhereInput = {
+    AND: [{ status: { in: [...OPEN_ORDER_STATUSES] } }, orderListWhere(query, "all", hasPermission(actor, "customers:view-contact")), orderScope(actor)],
+  };
   const rows = await db.order.findMany({
     where,
     orderBy: [{ deliveryDate: "asc" }, { number: "asc" }],
@@ -1157,22 +1215,23 @@ export async function listOrdersForAction(db: DbClient, actor: Actor, action: Or
     select: { ...ORDER_SUMMARY_SELECT, customer: { select: { id: true, name: true } } },
   });
   const ids = rows.map((r) => r.id);
-  const [paid, production] = await Promise.all([paidByOrderIds(db, ids), productionTotalsByOrder(db, ids)]);
-  const items = rows.map((row) => ({ ...toOrderSummary(row, paid.get(row.id) ?? 0n), production: production.get(row.id) }));
+  const prices = canSeeOrderPrices(actor);
+  const [paid, production] = await Promise.all([prices ? paidByOrderIds(db, ids) : new Map<string, Cents>(), productionTotalsByOrder(db, ids)]);
+  const items = rows.map((row) => ({ ...toOrderSummary(row, prices ? (paid.get(row.id) ?? 0n) : null), production: production.get(row.id) }));
   const fits = (o: (typeof items)[number]) => {
     const p = o.production ?? { ready: 0, delivered: 0 };
     if (action === "delivery") return p.ready > p.delivered;
-    if (action === "payment") return toCents(o.outstanding) > 0n;
+    if (action === "payment") return o.money !== null && toCents(o.money.outstanding) > 0n;
     return p.ready < o.quantity;
   };
   return items.filter(fits).slice(0, 30);
 }
 
-/** Open orders for the "تسجيل شغل" picker, with their groups. */
+/** Open orders the actor may see, for the "تسجيل شغل" picker, with their groups. */
 export async function searchOpenOrders(db: DbClient, actor: Actor, query: string, limit = 8) {
   assertPermission(actor, "orders:view");
   const where: Prisma.OrderWhereInput = {
-    AND: [{ status: { in: [...OPEN_ORDER_STATUSES] } }, orderListWhere(query, "all")],
+    AND: [{ status: { in: [...OPEN_ORDER_STATUSES] } }, orderListWhere(query, "all", hasPermission(actor, "customers:view-contact")), orderScope(actor)],
   };
   const rows = await db.order.findMany({
     where,

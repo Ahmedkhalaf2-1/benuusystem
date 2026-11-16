@@ -6,7 +6,7 @@ import type { UpdateOrderPayload } from "@/lib/validations/order";
 import type { Actor } from "@/server/services/actor";
 import { createCustomer } from "@/server/services/customer-service";
 import { getOrderLabor, getWorkerDetails } from "@/server/services/labor-service";
-import { createOrder, getOrderDetails, listOrders, updateOrder } from "@/server/services/order-service";
+import { getOrderDetails, listOrders, updateOrder } from "@/server/services/order-service";
 import {
   getOrderProduction,
   getProductionDashboard,
@@ -19,7 +19,7 @@ import {
 } from "@/server/services/production-service";
 import { recordWorkLog } from "@/server/services/work-service";
 import { createWorker } from "@/server/services/worker-service";
-import { createTestPrisma, createTestUser, hasTestDatabase, migrateTestDatabase, resetDatabase } from "../support/test-db";
+import { createTestPrisma, createTestUser, hasTestDatabase, migrateTestDatabase, resetDatabase, createSharedOrder } from "../support/test-db";
 
 const TODAY = todayDateString();
 
@@ -43,7 +43,7 @@ describe.skipIf(!hasTestDatabase)("production & partial delivery (PostgreSQL)", 
 
   async function order(groups: { quantity?: string; operations: string[]; plain?: boolean }[], quantity: string, customer = "محمود", deliveryDate = "2099-01-15", unit = "PIECE") {
     const c = await createCustomer(db, owner, { name: customer });
-    const { orderId } = await createOrder(db, owner, {
+    const { orderId } = await createSharedOrder(db, owner, {
       idempotencyKey: randomUUID(),
       customer: { mode: "existing", id: c.id },
       title: `أوردر ${customer}`,

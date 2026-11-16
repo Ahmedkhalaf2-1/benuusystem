@@ -10,9 +10,10 @@ import { cn } from "@/lib/utils";
  * Floating tab bar for phones. People who take orders get the raised
  * «أوردر جديد» button in the middle — the shop's most common action, under the thumb.
  */
-export function BottomNav({ canCreateOrder = false }: { canCreateOrder?: boolean }) {
+export function BottomNav({ mainKeys, canCreateOrder = false }: { mainKeys: string[]; canCreateOrder?: boolean }) {
   const pathname = usePathname();
-  const half = MAIN_NAV.length / 2;
+  const items = MAIN_NAV.filter((i) => mainKeys.includes(i.key));
+  const half = Math.ceil(items.length / 2);
   const tab = (item: (typeof MAIN_NAV)[number]) => {
     const active = isNavItemActive(pathname, item.href);
     const Icon = item.icon;
@@ -44,8 +45,11 @@ export function BottomNav({ canCreateOrder = false }: { canCreateOrder?: boolean
       aria-label="التنقل الرئيسي"
       className="fixed inset-x-3 bottom-[calc(0.6rem+env(safe-area-inset-bottom))] z-40 rounded-2xl border border-line bg-surface lg:hidden"
     >
-      <ul className={cn("mx-auto grid h-16 max-w-md", canCreateOrder ? "grid-cols-5" : "grid-cols-4")}>
-        {MAIN_NAV.slice(0, half).map(tab)}
+      <ul
+        className="mx-auto grid h-16 max-w-md"
+        style={{ gridTemplateColumns: `repeat(${items.length + (canCreateOrder ? 1 : 0)}, minmax(0, 1fr))` }}
+      >
+        {items.slice(0, half).map(tab)}
         {canCreateOrder && (
           <li className="flex justify-center">
             <Link
@@ -58,7 +62,7 @@ export function BottomNav({ canCreateOrder = false }: { canCreateOrder?: boolean
             </Link>
           </li>
         )}
-        {MAIN_NAV.slice(half).map(tab)}
+        {items.slice(half).map(tab)}
       </ul>
     </nav>
   );

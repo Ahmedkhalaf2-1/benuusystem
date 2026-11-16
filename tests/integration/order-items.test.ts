@@ -69,7 +69,7 @@ describe.skipIf(!hasTestDatabase)("named items, item pricing, designs & safe rem
       unit: d.unit,
       status: d.status === "COMPLETED" ? "IN_PROGRESS" : d.status,
       pricing: d.pricing === "PER_ITEM" ? "items" : "order",
-      ...(d.pricing === "PER_ITEM" ? {} : { totalPrice: d.totalPrice }),
+      ...(d.pricing === "PER_ITEM" ? {} : { totalPrice: d.money!.totalPrice }),
       receivedDate: d.receivedDate,
       deliveryDate: d.deliveryDate,
       sizesEnabled: d.sizesEnabled,
@@ -100,7 +100,7 @@ describe.skipIf(!hasTestDatabase)("named items, item pricing, designs & safe rem
         { name: "رسمة الدفعة", quantity: "200", unitPrice: "40", designs: [design({ placements: ["CHEST"] }), design({ operation: "EMBROIDERY", placements: ["RIGHT_SLEEVE"], customPlacements: ["تحت الرقبة"] })] },
       ],
     });
-    expect(d).toMatchObject({ pricing: "PER_ITEM", quantity: 600, totalPrice: "20000.00", paid: "5000.00", outstanding: "15000.00" });
+    expect(d).toMatchObject({ pricing: "PER_ITEM", quantity: 600, money: { totalPrice: "20000.00", paid: "5000.00", outstanding: "15000.00" } });
     expect(d.groups.map((g) => [g.label, g.quantity, g.unitPrice, g.lineTotal])).toEqual([
       ["رسمة الجامعة", 200, "25.00", "5000.00"],
       ["رسمة الخريجين", 200, "35.00", "7000.00"],
@@ -140,7 +140,7 @@ describe.skipIf(!hasTestDatabase)("named items, item pricing, designs & safe rem
     const [chest, back] = g.designs;
     expect(d.quantity).toBe(200);
     expect(g.operations).toEqual(["DTF"]);
-    expect(d.totalPrice).toBe("10000.00"); // price is per item, never × designs
+    expect(d.money!.totalPrice).toBe("10000.00"); // price is per item, never × designs
     expect(g.plannedPresses).toBe(200 * 1 + 200 * 2);
 
     await stage(d.id, g.id, chest!.id, "DTF", 150);
@@ -218,7 +218,7 @@ describe.skipIf(!hasTestDatabase)("named items, item pricing, designs & safe rem
     // An ordinary edit keeps the agreed total exactly.
     await updateOrder(db, staff, editOf(legacy, { notes: "تعديل عادي" }));
     let d = (await getOrderDetails(db, owner, legacy.id))!;
-    expect(d.totalPrice).toBe("9000.00");
+    expect(d.money!.totalPrice).toBe("9000.00");
     expect(d.pricing).toBe("ORDER_TOTAL");
 
     const withPrices = (a: string, b: string) => ({
@@ -230,7 +230,7 @@ describe.skipIf(!hasTestDatabase)("named items, item pricing, designs & safe rem
     // Same total (200 × 30 + 100 × 30 = 9000): no confirmation needed.
     await updateOrder(db, owner, editOf(d, withPrices("30", "30") as never));
     d = (await getOrderDetails(db, owner, legacy.id))!;
-    expect(d).toMatchObject({ pricing: "PER_ITEM", totalPrice: "9000.00" });
+    expect(d).toMatchObject({ pricing: "PER_ITEM", money: { totalPrice: "9000.00" } });
     expect(await db.auditLog.count({ where: { action: "ORDER_PRICING_CONVERTED", entityId: legacy.id } })).toBe(1);
     expect(await db.auditLog.count({ where: { action: "ORDER_PRICE_CHANGED", entityId: legacy.id } })).toBe(0);
     // Never back to a single total.
@@ -238,7 +238,7 @@ describe.skipIf(!hasTestDatabase)("named items, item pricing, designs & safe rem
 
     const other = await newOrder({ pricing: "order", totalPrice: "1000", quantity: "10", groups: [{ operations: ["DTF"], plain: false }] } as never);
     await updateOrder(db, owner, editOf(other, { pricing: "items", confirmPriceChange: true, groups: editOf(other).groups.map((g) => ({ ...g, name: "قطع", unitPrice: "120" })) } as never));
-    expect((await getOrderDetails(db, owner, other.id))!.totalPrice).toBe("1200.00");
+    expect((await getOrderDetails(db, owner, other.id))!.money!.totalPrice).toBe("1200.00");
     expect(await db.auditLog.count({ where: { action: "ORDER_PRICE_CHANGED", entityId: other.id } })).toBe(1);
   });
 
@@ -263,7 +263,7 @@ describe.skipIf(!hasTestDatabase)("named items, item pricing, designs & safe rem
     const after = (await getOrderDetails(db, owner, d.id))!;
     expect(after.groups[0]!.designs.map((x) => x.id).slice(0, 2)).toEqual(g.designs.map((x) => x.id));
     expect(after.groups[0]!).toMatchObject({ name: "تيشيرت أبيض", quantity: 100 });
-    expect(after.totalPrice).toBe("5000.00");
+    expect(after.money!.totalPrice).toBe("5000.00");
 
     // An older item with item-level progress is never split into designs.
     const legacy = await newOrder({ pricing: "order", totalPrice: "500", quantity: "10", groups: [{ operations: ["DTF"], plain: false }] } as never);
@@ -294,7 +294,7 @@ describe.skipIf(!hasTestDatabase)("named items, item pricing, designs & safe rem
     expect((await listOrders(db, owner, { status: "archived" })).items.map((o) => o.id)).toEqual([untouched.id]);
     const after = (await getCustomerDetails(db, owner, untouched.customerId))!;
     expect(after.orders.map((o) => o.id)).not.toContain(untouched.id);
-    expect(Number(after.totals.agreed)).toBe(Number(before.totals.agreed) - 1000);
+    expect(Number(after.totals!.agreed)).toBe(Number(before.totals!.agreed) - 1000);
     expect((await getReceivables(db, owner)).items.map((i) => i.orderId)).not.toContain(untouched.id);
     expect(await getOrderInvoiceData(db, owner, untouched.id)).toBeNull();
     // Nothing can be recorded on it.

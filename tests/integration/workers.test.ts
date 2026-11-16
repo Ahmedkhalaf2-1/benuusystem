@@ -7,12 +7,12 @@ import type { Actor } from "@/server/services/actor";
 import { createCustomer } from "@/server/services/customer-service";
 import { getCashMovement } from "@/server/services/finance-summary-service";
 import { getMonthlyWorkerSummary, getOrderLabor, getWorkerDetails } from "@/server/services/labor-service";
-import { createOrder, getOrderDetails, updateOrder } from "@/server/services/order-service";
+import { getOrderDetails, updateOrder } from "@/server/services/order-service";
 import { voidOutgoingPayment } from "@/server/services/outgoing-payment-service";
 import { recordWorkday, recordWorkLog, voidWorkday, voidWorkLog } from "@/server/services/work-service";
 import { payWorker } from "@/server/services/worker-payment-service";
 import { createWorker, listWorkers, updateWorker } from "@/server/services/worker-service";
-import { createTestPrisma, createTestUser, hasTestDatabase, migrateTestDatabase, resetDatabase } from "../support/test-db";
+import { createTestPrisma, createTestUser, hasTestDatabase, migrateTestDatabase, resetDatabase, createSharedOrder } from "../support/test-db";
 
 const TODAY = todayDateString();
 const MONTH = monthRange(TODAY);
@@ -42,7 +42,7 @@ describe.skipIf(!hasTestDatabase)("workers, wages & productivity (PostgreSQL)", 
 
   async function order(customer: string, groups = [{ operations: ["DTF"], plain: false }], quantity = "200") {
     const c = await createCustomer(db, owner, { name: customer });
-    return createOrder(db, owner, {
+    return createSharedOrder(db, owner, {
       idempotencyKey: randomUUID(),
       customer: { mode: "existing", id: c.id },
       title: `أوردر ${customer}`,

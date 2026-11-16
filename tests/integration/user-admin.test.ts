@@ -39,7 +39,7 @@ describe.skipIf(!hasTestDatabase)("account administration CLI service (PostgreSQ
 
   it("creates a STAFF account with a normalized email and an Argon2id hash", async () => {
     const user = await createStaffUser(db, STAFF);
-    expect(user).toMatchObject({ role: "STAFF", email: "staff@benuuprint.test", isActive: true });
+    expect(user).toMatchObject({ role: "STAFF", email: "staff@benuuprint.test", isActive: true, permissions: [] }); // deny by default
     const stored = await db.user.findUniqueOrThrow({ where: { id: user.id } });
     expect(stored.passwordHash).toMatch(/^\$argon2id\$/);
     await expect(createStaffUser(db, STAFF)).rejects.toMatchObject({ code: "CONFLICT" });

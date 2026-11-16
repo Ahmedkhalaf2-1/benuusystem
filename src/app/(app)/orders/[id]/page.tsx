@@ -1,8 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Archive, Banknote, CalendarDays, ClipboardList, Factory, HardHat, Layers, Pencil, Phone, ReceiptText, TrendingUp, Truck, Wallet } from "lucide-react";
+import { Archive, Banknote, CalendarDays, ClipboardList, Eye, Factory, HardHat, Layers, Pencil, Phone, ReceiptText, TrendingUp, Truck, Wallet } from "lucide-react";
 import { ArchiveOrderForm, RestoreOrderForm } from "@/components/orders/archive-order";
+import { OrderVisibilityForm } from "@/components/orders/order-visibility-picker";
+import { VISIBILITY_LABELS } from "@/lib/orders/visibility";
+import { getOrderAccess, listAssignableStaff } from "@/server/services/order-visibility-service";
 import { OrderItemsList } from "@/components/orders/order-items-section";
 import { ARCHIVE_BLOCKER_LABELS, getArchiveCheck } from "@/server/services/order-archive-service";
 import { OrderInvoiceActions } from "@/components/documents/document-actions";
@@ -49,6 +52,7 @@ const FLASH: Record<string, string> = {
   "production-voided": "تم إلغاء سجل الإنتاج",
   "delivery-voided": "تم إلغاء التسليم",
   restored: "رجع الأوردر للقوايم ✓",
+  access: "تم حفظ ظهور الأوردر للعمال ✓",
 };
 
 function Line({ label, children, strong, testId, tone }: { label: string; children: React.ReactNode; strong?: boolean; testId?: string; tone?: string }) {
@@ -70,13 +74,17 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
   if (!order) notFound();
   const costs = hasPermission(user, "costs:view") ? await getOrderCosts(prisma, user, order.id) : null;
   const labor = hasPermission(user, "labor:view") ? await getOrderLabor(prisma, user, order.id) : null;
-  const production = (await getOrderProduction(prisma, user, order.id))!;
-  const contribution = hasPermission(user, "finance:view-summary") ? (await getOrderContributions(prisma, user, { orderIds: [order.id] }))[0] : undefined;
-  const partlyDelivered = production.totals.delivered > 0 && order.status !== "COMPLETED";
+  // Each block below is loaded only with its own permission; nothing hidden is fetched.
+  const production = hasPermission(user, "production:view") || hasPermission(user, "deliveries:view") ? await getOrderProduction(prisma, user, order.id) : null;
+  const contribution = hasPermission(user, "finance:reports") ? (await getOrderContributions(prisma, user, { orderIds: [order.id] }))[0] : undefined;
+  const access = hasPermission(user, "orders:manage-access") ? await getOrderAccess(prisma, user, order.id) : null;
+  const assignable = access ? await listAssignableStaff(prisma, user) : [];
+  const partlyDelivered = (production?.totals.delivered ?? 0) > 0 && order.status !== "COMPLETED";
 
-  const outstanding = toCents(order.outstanding);
+  const money = order.money;
+  const outstanding = money ? toCents(money.outstanding) : 0n;
   const live = order.archived === null;
-  const canPay = live && hasPermission(user, "payments:record") && outstanding > 0n && order.status !== "CANCELLED" && order.status !== "COMPLETED";
+  const canPay = live && money !== null && hasPermission(user, "payments:record") && outstanding > 0n && order.status !== "CANCELLED" && order.status !== "COMPLETED";
   const canEdit = live && hasPermission(user, "orders:edit") && order.status !== "COMPLETED";
   const archiveCheck = live && hasPermission(user, "orders:archive") ? await getArchiveCheck(prisma, user, order.id) : null;
   const canVoid = hasPermission(user, "payments:void");
@@ -86,7 +94,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
   const canDeliver = live && hasPermission(user, "deliveries:record") && order.status !== "CANCELLED";
   const u = UNIT_LABELS[order.unit];
   const ops = [...new Set(order.groups.flatMap((g) => g.operations))];
-  const hasReady = production.totals.readyNotDelivered > 0;
+  const hasReady = (production?.totals.readyNotDelivered ?? 0) > 0;
 
   const actions = (canRecordProd || canDeliver) && (
     <>
@@ -159,9 +167,13 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
                 <div className="min-w-0">
                   <h1 className="font-display text-[1.55rem] leading-tight font-semibold tracking-[-0.02em] text-balance">{order.title}</h1>
                   <p className="truncate text-sm text-on-panel-muted">
-                    <Link href={`/customers/${order.customerId}`} className="font-semibold text-white underline decoration-white/30 underline-offset-4">
-                      {order.customerName}
-                    </Link>
+                    {hasPermission(user, "customers:view") ? (
+                      <Link href={`/customers/${order.customerId}`} className="font-semibold text-white underline decoration-white/30 underline-offset-4">
+                        {order.customerName}
+                      </Link>
+                    ) : (
+                      <span className="font-semibold text-white">{order.customerName}</span>
+                    )}
                     {"، "}
                     {order.productType}
                     {order.material && <> من {order.material}</>}
@@ -180,15 +192,17 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
                 {open && <span className="font-normal opacity-90">— {due.text}</span>}
               </p>
 
-              <div className="mt-5">
-                <ProductionReadout production={production} />
-              </div>
+              {production && (
+                <div className="mt-5">
+                  <ProductionReadout production={production} />
+                </div>
+              )}
               {actions && <div className="mt-5 hidden gap-2.5 lg:flex">{actions}</div>}
             </div>
           </section>
 
-          <StagesCard production={production} />
-          <ProductionBreakdown production={production} canCorrect={hasPermission(user, "production:correct")} />
+          {production && hasPermission(user, "production:view") && <StagesCard production={production} />}
+          {production && <ProductionBreakdown production={production} canCorrect={hasPermission(user, "production:correct")} />}
         </div>
 
         {/* Money and paperwork */}
@@ -203,25 +217,26 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
             <OrderItemsList order={order} unitLabel={u} />
           </Fold>
 
+          {money && (
           <Fold
             title="الحساب"
             icon={Wallet}
             hue="bg-brand-soft text-brand-ink"
             meta={
               <>
-                المتبقي <span className="tabular font-semibold text-ink">{formatMoneyString(order.outstanding)}</span>
+                المتبقي <span className="tabular font-semibold text-ink">{formatMoneyString(money.outstanding)}</span>
               </>
             }
             open={canPay}
           >
             <div className="rounded-2xl bg-well px-3.5 py-1">
               <dl className="divide-y divide-hairline">
-                <Line label="إجمالي الأوردر">{formatMoneyString(order.totalPrice)}</Line>
+                <Line label="إجمالي الأوردر">{formatMoneyString(money.totalPrice)}</Line>
                 <Line label="المدفوع" testId="paid" tone="text-green-ink">
-                  {formatMoneyString(order.paid)}
+                  {formatMoneyString(money.paid)}
                 </Line>
                 <Line label="المتبقي" testId="outstanding" strong>
-                  {formatMoneyString(order.outstanding)}
+                  {formatMoneyString(money.outstanding)}
                 </Line>
               </dl>
             </div>
@@ -239,6 +254,8 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
 
             {hasPermission(user, "documents:customer-financial") && <OrderInvoiceActions orderId={order.id} className="mt-3" />}
 
+            {order.payments && (
+            <>
             <h3 className="mt-5 text-sm font-semibold">المدفوعات</h3>
             {order.payments.length === 0 ? (
               <p className="mt-1 text-sm text-graphite">لسه مفيش مدفوعات على الأوردر ده.</p>
@@ -269,7 +286,10 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
                 ))}
               </ul>
             )}
+            </>
+            )}
           </Fold>
+          )}
 
           {costs ? (
             <Fold title="تكاليف الأوردر" icon={ReceiptText} hue="bg-brand-soft text-brand-ink" meta={formatMoneyString(costs.totals.costs)} open>
@@ -382,6 +402,12 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
               سجّله {order.createdByName}، {formatDateTimeAr(order.createdAt)}
             </p>
           </Fold>
+
+          {access && live && (
+            <Fold title="ظهور الأوردر للعمال" icon={Eye} hue="bg-violet-soft text-violet" meta={VISIBILITY_LABELS[access.visibility]}>
+              <OrderVisibilityForm orderId={order.id} staff={assignable} initial={{ visibility: access.visibility, userIds: access.userIds }} version={access.version} />
+            </Fold>
+          )}
 
           {archiveCheck && (
             <ArchiveOrderForm

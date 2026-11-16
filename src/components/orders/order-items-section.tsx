@@ -11,6 +11,8 @@ import type { OrderDetails } from "@/server/services/order-service";
  */
 export function OrderItemsList({ order, unitLabel }: { order: OrderDetails; unitLabel: string }) {
   const priced = order.pricing === "PER_ITEM";
+  // Null for viewers without "orders:view-prices": no money is on the object at all.
+  const money = order.money;
   return (
     <div className="space-y-3">
       {order.groups.map((g) => (
@@ -22,7 +24,7 @@ export function OrderItemsList({ order, unitLabel }: { order: OrderDetails; unit
                 <span className="tabular">{formatNumber(g.quantity)}</span> {unitLabel} · {g.material}
               </p>
             </div>
-            {priced && g.unitPrice !== null && g.lineTotal !== null && (
+            {money && priced && g.unitPrice != null && g.lineTotal != null && (
               <div className="shrink-0 text-end">
                 <p className="tabular font-display font-semibold">{formatMoneyString(g.lineTotal)}</p>
                 <p className="tabular text-xs text-graphite">
@@ -69,13 +71,13 @@ export function OrderItemsList({ order, unitLabel }: { order: OrderDetails; unit
           {g.notes && <p className="mt-1.5 text-sm">{g.notes}</p>}
         </article>
       ))}
-      {priced && (
+      {money && priced && (
         <p className="flex items-baseline justify-between px-1 text-sm">
           <span className="text-graphite">مجموع البنود = إجمالي الأوردر</span>
-          <span className="tabular font-display font-semibold">{formatMoneyString(order.totalPrice)}</span>
+          <span className="tabular font-display font-semibold">{formatMoneyString(money.totalPrice)}</span>
         </p>
       )}
-      {!priced && <p className="px-1 text-xs text-graphite">أوردر متسعّر بسعر إجمالي واحد ({formatMoneyString(order.totalPrice)})، من غير سعر لكل بند.</p>}
+      {money && !priced && <p className="px-1 text-xs text-graphite">أوردر متسعّر بسعر إجمالي واحد ({formatMoneyString(money.totalPrice)})، من غير سعر لكل بند.</p>}
       {order.plannedPresses !== null && (
         <p className="px-1 text-xs text-graphite">
           إجمالي الكبسات المخططة للأوردر <b className="tabular text-ink">{formatNumber(order.plannedPresses)}</b> — تخطيط بس؛ المتسجل فعلًا{" "}

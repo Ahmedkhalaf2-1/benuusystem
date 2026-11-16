@@ -25,6 +25,7 @@ import {
   hasTestDatabase,
   migrateTestDatabase,
   resetDatabase,
+  shareWithAllStaff,
 } from "../support/test-db";
 
 const TODAY = todayDateString();
@@ -136,22 +137,25 @@ describe.skipIf(!hasTestDatabase)("customers & orders (PostgreSQL)", () => {
     ]);
     // Physical pieces are not duplicated by having two operations.
     expect(details.groups.reduce((sum, g) => sum + g.quantity, 0)).toBe(200);
-    expect(details.totalPrice).toBe("40000.00");
-    expect(details.paid).toBe("20000.00");
-    expect(details.outstanding).toBe("20000.00");
+    expect(details.money!.totalPrice).toBe("40000.00");
+    expect(details.money!.paid).toBe("20000.00");
+    expect(details.money!.outstanding).toBe("20000.00");
     expect(details.payments).toHaveLength(1);
-    expect(details.payments[0]).toMatchObject({ isAdvance: true, amount: "20000.00" });
+    expect(details.payments![0]).toMatchObject({ isAdvance: true, amount: "20000.00" });
     expect(details.deliveryDate).toBe("2099-01-15");
 
+    // Owner-created orders are private until shared; the staff list is empty until then.
+    expect((await listOrders(db, staff, {})).items).toEqual([]);
+    await shareWithAllStaff(db, result.orderId);
     const list = await listOrders(db, staff, {});
-    expect(list.items.map((o) => [o.customerName, o.paid, o.outstanding])).toEqual([
+    expect(list.items.map((o) => [o.customerName, o.money!.paid, o.money!.outstanding])).toEqual([
       ["محمود", "20000.00", "20000.00"],
     ]);
 
     await recordPayment(db, staff, payment(result.orderId, "5000"));
     details = (await getOrderDetails(db, owner, result.orderId))!;
-    expect(details.paid).toBe("25000.00");
-    expect(details.outstanding).toBe("15000.00");
+    expect(details.money!.paid).toBe("25000.00");
+    expect(details.money!.outstanding).toBe("15000.00");
 
     const customer = (await getCustomerDetails(db, staff, mahmoud.id))!;
     expect(customer.totals).toEqual({ agreed: "40000.00", paid: "25000.00", outstanding: "15000.00" });
@@ -269,8 +273,8 @@ describe.skipIf(!hasTestDatabase)("customers & orders (PostgreSQL)", () => {
     const { orderId } = await createOrder(db, staff, orderPayload({ totalPrice: "100.30" }));
     for (let i = 0; i < 3; i++) await recordPayment(db, staff, payment(orderId, "33.43"));
     const details = (await getOrderDetails(db, staff, orderId))!;
-    expect(details.paid).toBe("100.29");
-    expect(details.outstanding).toBe("0.01");
+    expect(details.money!.paid).toBe("100.29");
+    expect(details.money!.outstanding).toBe("0.01");
   });
 
   it("rejects overpayment, zero and negative amounts", async () => {
@@ -293,7 +297,7 @@ describe.skipIf(!hasTestDatabase)("customers & orders (PostgreSQL)", () => {
       recordPayment(db, staff, payment(orderId, "700")),
     ]);
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
-    expect((await getOrderDetails(db, staff, orderId))!.paid).toBe("700.00");
+    expect((await getOrderDetails(db, staff, orderId))!.money!.paid).toBe("700.00");
   });
 
   it("protects payments against double submit", async () => {
@@ -321,10 +325,10 @@ describe.skipIf(!hasTestDatabase)("customers & orders (PostgreSQL)", () => {
     await voidPayment(db, owner, { paymentId, reason: "غلط في المبلغ" });
 
     const details = (await getOrderDetails(db, owner, orderId))!;
-    expect(details.paid).toBe("0.00");
-    expect(details.outstanding).toBe("40000.00");
+    expect(details.money!.paid).toBe("0.00");
+    expect(details.money!.outstanding).toBe("40000.00");
     expect(details.payments).toHaveLength(1);
-    expect(details.payments[0]!.voided).toMatchObject({ reason: "غلط في المبلغ" });
+    expect(details.payments![0]!.voided).toMatchObject({ reason: "غلط في المبلغ" });
     expect(await db.auditLog.count({ where: { action: "PAYMENT_VOIDED" } })).toBe(1);
     await expect(voidPayment(db, owner, { paymentId, reason: "تاني" })).rejects.toMatchObject({ code: "CONFLICT" });
   });
@@ -353,7 +357,7 @@ describe.skipIf(!hasTestDatabase)("customers & orders (PostgreSQL)", () => {
       fieldErrors: { totalPrice: expect.any(Array) },
     });
     await updateOrder(db, owner, edit({ totalPrice: "35000" }));
-    expect((await getOrderDetails(db, owner, orderId))!.outstanding).toBe("15000.00");
+    expect((await getOrderDetails(db, owner, orderId))!.money!.outstanding).toBe("15000.00");
     const log = await db.auditLog.findFirstOrThrow({ where: { action: "ORDER_PRICE_CHANGED" } });
     expect(log.metadata).toMatchObject({ from: "40000.00", to: "35000.00" });
 

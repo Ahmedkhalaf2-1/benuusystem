@@ -6,6 +6,7 @@ import { centsToDecimalString, toCents } from "@/lib/money";
 import { formatOrderNumber } from "@/lib/orders/labels";
 import { z } from "zod";
 import type { Actor } from "./actor";
+import { canAccessOrder, requireOrderAccess } from "./order-access";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
 
 /**
@@ -58,7 +59,7 @@ async function blockersOf(db: DbClient, orderId: string): Promise<ArchiveBlocker
 
 /** What stands in the way of removing this order (for the confirmation screen). */
 export async function getArchiveCheck(db: DbClient, actor: Actor, orderId: string) {
-  assertPermission(actor, "orders:archive");
+  await requireOrderAccess(db, actor, orderId, "orders:archive", { includeArchived: true });
   const order = await db.order.findUnique({ where: { id: orderId }, select: { id: true, archivedAt: true } });
   if (!order) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
   const blockers = await blockersOf(db, orderId);
@@ -77,7 +78,7 @@ export async function archiveOrder(db: PrismaClient, actor: Actor, payload: { or
     // can be recorded on the order between this check and the archive.
     const locked = await tx.$queryRaw<{ id: string; archived_at: Date | null }[]>`
       SELECT id, archived_at FROM orders WHERE id = ${orderId.data}::uuid FOR UPDATE`;
-    if (locked.length === 0) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
+    if (locked.length === 0 || !(await canAccessOrder(tx, actor, orderId.data, { includeArchived: true }))) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
     if (locked[0]!.archived_at) return { orderId: orderId.data, archived: false };
 
     const blockers = await blockersOf(tx, orderId.data);
@@ -119,7 +120,7 @@ export async function restoreOrder(db: PrismaClient, actor: Actor, payload: { or
   return db.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<{ archived_at: Date | null; archive_reason: string | null }[]>`
       SELECT archived_at, archive_reason FROM orders WHERE id = ${orderId.data}::uuid FOR UPDATE`;
-    if (locked.length === 0) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
+    if (locked.length === 0 || !(await canAccessOrder(tx, actor, orderId.data, { includeArchived: true }))) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
     if (!locked[0]!.archived_at) return { orderId: orderId.data, restored: false };
     const order = await tx.order.update({
       where: { id: orderId.data },

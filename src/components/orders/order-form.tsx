@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { CalendarDays, Check, ChevronDown, Layers, Loader2, Package, Plus, Shirt, Smartphone, TriangleAlert, User, Wallet, type LucideIcon } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, Eye, Layers, Loader2, Package, Plus, Shirt, Smartphone, TriangleAlert, User, Wallet, type LucideIcon } from "lucide-react";
 import { createOrderAction, updateOrderAction } from "@/app/(app)/orders/actions";
 import { Field, FormMessage, NativeSelect, Textarea } from "@/components/forms/field";
 import { Button } from "@/components/ui/button";
@@ -19,11 +19,17 @@ import { CustomerPicker } from "./customer-picker";
 import { customPlacementsOf, newGroupDraft, type GroupDraft, type OrderDraft } from "./order-draft";
 import { chip, MoneyInput } from "./order-form-parts";
 import { ItemCard, itemLineTotal } from "./order-items";
+import { OrderVisibilityPicker } from "./order-visibility-picker";
+import type { AssignableStaff, OrderAccessValue } from "@/lib/orders/visibility";
+
+/** Owner only: «ظهور الأوردر للعمال» inside the form. `version` is the order's accessVersion (edit). */
+type AccessProps = { staff: AssignableStaff[]; initial: OrderAccessValue; version?: number };
 
 type Props =
-  | { mode: "create"; initial: OrderDraft; materialSuggestions: string[] }
+  | { mode: "create"; initial: OrderDraft; materialSuggestions: string[]; access?: AccessProps }
   | {
       mode: "edit";
+      access?: AccessProps;
       initial: OrderDraft;
       materialSuggestions: string[];
       orderId: string;
@@ -93,6 +99,7 @@ export function OrderForm(props: Props) {
   const formRef = useRef<HTMLFormElement>(null);
   const productInputRef = useRef<HTMLInputElement>(null);
   const [scrollToError, setScrollToError] = useState(0);
+  const [access, setAccess] = useState<OrderAccessValue | null>(props.access?.initial ?? null);
 
   useEffect(() => {
     if (!scrollToError) return;
@@ -252,12 +259,19 @@ export function OrderForm(props: Props) {
       showErrors({ confirmPriceChange: ["أكّد تعديل سعر الأوردر الأول"] }, "مجموع أسعار البنود مختلف عن السعر المتفق عليه.");
       return;
     }
+    if (access && access.visibility === "SELECTED_STAFF" && access.userIds.length === 0) {
+      showErrors({ "access.userIds": ["اختار عامل واحد على الأقل، أو خلّي الأوردر خاص بالمدير"] }, "اختار مين يشوف الأوردر.");
+      return;
+    }
+    const accessPayload = access
+      ? { visibility: access.visibility, userIds: access.visibility === "SELECTED_STAFF" ? access.userIds : [], ...(props.access?.version !== undefined ? { expectedVersion: props.access.version } : {}) }
+      : undefined;
     setMessage(undefined);
     startTransition(async () => {
       const result =
         props.mode === "create"
-          ? await createOrderAction(payload as Parameters<typeof createOrderAction>[0])
-          : await updateOrderAction(payload as Parameters<typeof updateOrderAction>[0]);
+          ? await createOrderAction(payload as Parameters<typeof createOrderAction>[0], accessPayload)
+          : await updateOrderAction(payload as Parameters<typeof updateOrderAction>[0], accessPayload);
       // On success the action redirects; we only get here on failure.
       if (result && !result.ok) showErrors(result.fieldErrors ?? {}, result.message);
     });
@@ -598,6 +612,22 @@ export function OrderForm(props: Props) {
           </div>
         </details>
       </Question>
+
+      {props.access && access && (
+        <Question title="ظهور الأوردر للعمال" icon={Eye} hue="bg-violet-soft text-violet" id="q-visibility">
+          <div data-error={errors["access.userIds"] ? "true" : undefined}>
+            <OrderVisibilityPicker
+              staff={props.access.staff}
+              value={access}
+              onChange={(next) => {
+                setAccess(next);
+                setErrors((e) => (e["access.userIds"] ? { ...e, "access.userIds": "" } : e));
+              }}
+              error={errors["access.userIds"]}
+            />
+          </div>
+        </Question>
+      )}
 
       <FormMessage message={message} />
 

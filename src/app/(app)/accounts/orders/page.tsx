@@ -21,7 +21,7 @@ const STATUS = [
 ] as const;
 
 export default async function OrderContributionPage(props: PageProps<"/accounts/orders">) {
-  const user = await requirePermission("finance:view-summary");
+  const user = await requirePermission("finance:reports");
   const sp = await props.searchParams;
   const q = typeof sp.q === "string" ? sp.q.slice(0, 100) : "";
   const status = STATUS.find((s) => s.value === sp.status)?.value ?? "all";

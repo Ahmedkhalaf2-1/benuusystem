@@ -53,7 +53,7 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
 
   const result = await listOrders(prisma, user, { query: q, status, sort, page });
   const canCreate = hasPermission(user, "orders:create");
-  const showMoney = hasPermission(user, "payments:record");
+  const showMoney = hasPermission(user, "orders:view-prices");
 
   const linkWith = (patch: Record<string, string>) => {
     const params = new URLSearchParams({ ...(q ? { q } : {}), status, sort, ...patch });
@@ -209,9 +209,9 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
                     </td>
                     {showMoney && (
                       <>
-                        <td className="font-semibold">{formatMoneyString(o.totalPrice)}</td>
-                        <td className="text-green-ink">{formatMoneyString(o.paid)}</td>
-                        <td className="font-semibold text-primary">{formatMoneyString(o.outstanding)}</td>
+                        <td className="font-semibold">{o.money && formatMoneyString(o.money.totalPrice)}</td>
+                        <td className="text-green-ink">{o.money && formatMoneyString(o.money.paid)}</td>
+                        <td className="font-semibold text-primary">{o.money && formatMoneyString(o.money.outstanding)}</td>
                       </>
                     )}
                     <td className={cn(o.overdue && "font-semibold text-destructive")}>{formatDateAr(o.deliveryDate)}</td>

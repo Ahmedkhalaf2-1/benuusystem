@@ -56,6 +56,8 @@ describe.skipIf(!hasTestDatabase)("auth service (PostgreSQL)", () => {
       email: user.email,
       role: "STAFF",
       isActive: true,
+      // New staff accounts start with no permissions (deny by default).
+      permissions: [],
     });
     expect(result.user).not.toHaveProperty("passwordHash");
 

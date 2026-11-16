@@ -15,6 +15,7 @@ import "dotenv/config";
 import { createInterface } from "node:readline";
 import { stdin, stdout } from "node:process";
 import { getPrisma } from "@/lib/db/prisma";
+import { effectiveStaffPermissions } from "@/lib/auth/permissions";
 import { isAppError } from "@/lib/errors";
 import {
   createStaffUser,
@@ -25,8 +26,8 @@ import {
 } from "@/server/services/user-admin-service";
 
 const USAGE = `Usage: npm run users -- <command> [email]
-  list                     all accounts, role, status, open sessions
-  create-staff             new STAFF account (prompts)
+  list                     all accounts, role, status, open sessions, permissions
+  create-staff             new STAFF account (prompts); starts with no permissions
   reset-password <email>   new password; signs the user out everywhere
   deactivate <email>       blocks sign-in and signs the user out everywhere
   activate <email>         allows sign-in again
@@ -103,14 +104,24 @@ async function main() {
     switch (command) {
       case "list": {
         const users = await listUsers(db);
-        console.table(users.map((u) => ({ email: u.email, name: u.name, role: u.role, active: u.isActive, sessions: u.sessions })));
+        console.table(
+          users.map((u) => ({
+            email: u.email,
+            name: u.name,
+            role: u.role,
+            active: u.isActive,
+            sessions: u.sessions,
+            permissions: u.role === "OWNER_ADMIN" ? "all" : effectiveStaffPermissions(u.permissions).join(" ") || "(none)",
+          })),
+        );
         break;
       }
       case "create-staff": {
         const name = await ask("Full name: ");
         const userEmail = await ask("Email: ");
         const user = await createStaffUser(db, { name, email: userEmail, password: await askNewPassword() });
-        console.log(`✓ Staff account created for ${user.email}.`);
+        console.log(`✓ Staff account created for ${user.email} with NO permissions.`);
+        console.log("  Give it permissions in the app: المزيد → المستخدمين والصلاحيات.");
         break;
       }
       case "reset-password": {

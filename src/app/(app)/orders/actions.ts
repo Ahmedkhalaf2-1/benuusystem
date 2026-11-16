@@ -7,22 +7,24 @@ import { prisma } from "@/lib/db/prisma";
 import type { CreateOrderPayload, UpdateOrderPayload } from "@/lib/validations/order";
 import { archiveOrder, restoreOrder } from "@/server/services/order-archive-service";
 import { createOrder, updateOrder } from "@/server/services/order-service";
+import { updateOrderAccess } from "@/server/services/order-visibility-service";
 import { recordPayment, voidPayment } from "@/server/services/payment-service";
 
 /** Called with a plain object from the order form (groups make FormData awkward). */
-export async function createOrderAction(payload: CreateOrderPayload): Promise<ActionResult> {
+/** `access`: «ظهور الأوردر للعمال» — only honoured for the owner (the service enforces it). */
+export async function createOrderAction(payload: CreateOrderPayload, access?: unknown): Promise<ActionResult> {
   const user = await requireUser();
   let orderId = "";
   const failure = await toActionResult(async () => {
-    orderId = (await createOrder(prisma, user, payload)).orderId;
+    orderId = (await createOrder(prisma, user, payload, access)).orderId;
   });
   if (failure) return failure;
   redirect(`/orders/${orderId}?saved=created`);
 }
 
-export async function updateOrderAction(payload: UpdateOrderPayload): Promise<ActionResult> {
+export async function updateOrderAction(payload: UpdateOrderPayload, access?: unknown): Promise<ActionResult> {
   const user = await requireUser();
-  const failure = await toActionResult(() => updateOrder(prisma, user, payload));
+  const failure = await toActionResult(() => updateOrder(prisma, user, payload, access));
   if (failure) return failure;
   redirect(`/orders/${String(payload.orderId)}?saved=updated`);
 }
@@ -72,4 +74,19 @@ export async function restoreOrderAction(_prev: ActionResult | null, formData: F
   const failure = await toActionResult(() => restoreOrder(prisma, user, { orderId }));
   if (failure) return failure;
   redirect(`/orders/${orderId}?saved=restored`);
+}
+
+/** Owner: change «ظهور الأوردر للعمال» from the order page. */
+export async function updateOrderAccessAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const orderId = String(formData.get("orderId") ?? "");
+  let access: unknown;
+  try {
+    access = JSON.parse(String(formData.get("access") ?? "null"));
+  } catch {
+    return { ok: false, message: "صيغة البيانات المرسلة غير صحيحة" };
+  }
+  const failure = await toActionResult(() => updateOrderAccess(prisma, user, { orderId, access }));
+  if (failure) return failure;
+  redirect(`/orders/${orderId}?saved=access`);
 }

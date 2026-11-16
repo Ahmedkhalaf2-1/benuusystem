@@ -1,4 +1,4 @@
-import { assertPermission } from "@/lib/auth/permissions";
+import { assertPermission, hasPermission } from "@/lib/auth/permissions";
 import type { DbClient } from "@/lib/db/prisma";
 import { dateFromString, monthRange, todayDateString } from "@/lib/dates";
 import { centsToDecimalString, toCents } from "@/lib/money";
@@ -79,24 +79,25 @@ export async function getSupplierOutstandingTotal(db: DbClient, actor: Actor): P
   return centsToDecimalString(total);
 }
 
+/** Each figure is null when the viewer lacks the permission behind it. */
 export type FinanceDashboard = {
-  expensesThisMonth: string;
-  expensesPaidThisMonth: string;
+  expensesThisMonth: string | null;
+  expensesPaidThisMonth: string | null;
   paidOutThisMonth: string;
-  supplierOutstanding: string;
+  supplierOutstanding: string | null;
 };
 
 export async function getFinanceDashboard(db: DbClient, actor: Actor): Promise<FinanceDashboard> {
   assertPermission(actor, "finance:view-summary");
   const month = monthRange(todayDateString());
   const [expenses, cash, supplierOutstanding] = await Promise.all([
-    getExpenseTotals(db, actor, month),
+    hasPermission(actor, "expenses:view") ? getExpenseTotals(db, actor, month) : null,
     getCashMovement(db, actor, month),
-    getSupplierOutstandingTotal(db, actor),
+    hasPermission(actor, "suppliers:view-balances") ? getSupplierOutstandingTotal(db, actor) : null,
   ]);
   return {
-    expensesThisMonth: expenses.recorded,
-    expensesPaidThisMonth: expenses.paid,
+    expensesThisMonth: expenses?.recorded ?? null,
+    expensesPaidThisMonth: expenses?.paid ?? null,
     paidOutThisMonth: cash.totalPaidOut,
     supplierOutstanding,
   };

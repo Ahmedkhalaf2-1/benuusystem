@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { PrismaClient } from "@/generated/prisma/client";
 import type { OrderStatus, PrintOperation, QuantityUnit } from "@/generated/prisma/enums";
-import { assertPermission } from "@/lib/auth/permissions";
+import { assertPermission, hasPermission } from "@/lib/auth/permissions";
 import type { DbClient, DbTransaction } from "@/lib/db/prisma";
 import { dateFromString, dateToString, monthRange, todayDateString } from "@/lib/dates";
 import { AppError } from "@/lib/errors";
@@ -21,6 +21,7 @@ import { lockOrder } from "@/server/repositories/order-repository";
 import { isUniqueViolation } from "@/server/repositories/prisma-errors";
 import type { Actor } from "./actor";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
+import { canAccessOrder, orderScopeSql } from "./order-access";
 
 /**
  * Production & delivery in PHYSICAL units of the order (never worker prints).
@@ -207,8 +208,13 @@ export async function refreshOrderStatus(tx: DbTransaction, actor: Actor, orderI
 }
 
 /** Locks the order and returns its progress; refuses cancelled orders. */
-async function openOrderForWrite(tx: DbTransaction, orderId: string) {
-  if (!(await lockOrder(tx, orderId))) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
+/**
+ * Locks the order, then checks the actor may see it — under the same lock that
+ * visibility changes take, so a revoked assignment can't race a write. A hidden
+ * order is reported exactly like a missing one (nothing about it leaks).
+ */
+async function openOrderForWrite(tx: DbTransaction, actor: Actor, orderId: string) {
+  if (!(await lockOrder(tx, orderId)) || !(await canAccessOrder(tx, actor, orderId))) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
   const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { status: true, unit: true } });
   if (order.status === "CANCELLED") throw new AppError("CONFLICT", "الأوردر ده ملغي ومينفعش يتسجل عليه إنتاج أو تسليم");
   return { unit: order.unit, groups: await loadGroupProgress(tx, orderId) };
@@ -466,7 +472,7 @@ export async function insertStageFromWorkLog(
   input: { orderId: string; orderGroupId: string; operation: PrintOperation; quantity: number; workDate: string; workLogId: string },
 ) {
   assertPermission(actor, "production:record");
-  const ctx = await openOrderForWrite(tx, input.orderId);
+  const ctx = await openOrderForWrite(tx, actor, input.orderId);
   const g = findGroup(ctx.groups, input.orderGroupId);
   if (g.sizes.length > 0) {
     throw new AppError("VALIDATION_ERROR", undefined, {
@@ -501,7 +507,7 @@ export async function recordStageProgress(db: PrismaClient, actor: Actor, payloa
     () => db.productionStageProgress.findUnique({ where: { idempotencyKey: firstRowKey(input) }, select: { id: true } }),
     () =>
       db.$transaction(async (tx) => {
-        const ctx = await openOrderForWrite(tx, input.orderId);
+        const ctx = await openOrderForWrite(tx, actor, input.orderId);
         const twin = await tx.productionStageProgress.findUnique({ where: { idempotencyKey: firstRowKey(input) }, select: { id: true } });
         if (twin) return { id: twin.id, replayed: true };
         const g = findGroup(ctx.groups, input.orderGroupId);
@@ -553,7 +559,7 @@ export async function recordReady(db: PrismaClient, actor: Actor, payload: Recor
     () => db.productionReady.findUnique({ where: { idempotencyKey: firstRowKey(input) }, select: { id: true } }),
     () =>
       db.$transaction(async (tx) => {
-        const ctx = await openOrderForWrite(tx, input.orderId);
+        const ctx = await openOrderForWrite(tx, actor, input.orderId);
         const twin = await tx.productionReady.findUnique({ where: { idempotencyKey: firstRowKey(input) }, select: { id: true } });
         if (twin) return { id: twin.id, replayed: true };
         const g = findGroup(ctx.groups, input.orderGroupId);
@@ -596,7 +602,7 @@ export async function recordDelivery(db: PrismaClient, actor: Actor, payload: Re
     () => db.delivery.findUnique({ where: { idempotencyKey: firstRowKey(input) }, select: { id: true } }),
     () =>
       db.$transaction(async (tx) => {
-        const ctx = await openOrderForWrite(tx, input.orderId);
+        const ctx = await openOrderForWrite(tx, actor, input.orderId);
         const twin = await tx.delivery.findUnique({ where: { idempotencyKey: firstRowKey(input) }, select: { id: true } });
         if (twin) return { id: twin.id, replayed: true };
         const g = findGroup(ctx.groups, input.orderGroupId);
@@ -759,8 +765,17 @@ export type OrderProduction = {
   deliveryHistory: HistoryBase[];
 };
 
+/**
+ * Production view of one order. Needs "production:view" or "deliveries:view"
+ * plus access to the order. Totals (physical pieces) come with either; the
+ * step/ready history needs production:view and the delivery history needs
+ * deliveries:view — the other history is not even queried.
+ */
 export async function getOrderProduction(db: DbClient, actor: Actor, orderId: string): Promise<OrderProduction | null> {
-  assertPermission(actor, "orders:view");
+  const seeProduction = hasPermission(actor, "production:view");
+  const seeDeliveries = hasPermission(actor, "deliveries:view");
+  if (!seeProduction && !seeDeliveries) assertPermission(actor, "production:view");
+  if (!(await canAccessOrder(db, actor, orderId, { includeArchived: true }))) return null;
   const order = await db.order.findUnique({ where: { id: orderId }, select: { unit: true } });
   if (!order) return null;
   const by = {
@@ -772,12 +787,12 @@ export async function getOrderProduction(db: DbClient, actor: Actor, orderId: st
   const [groups, stages, ready, deliveries] = await Promise.all([
     loadGroupProgress(db, orderId),
     db.productionStageProgress.findMany({
-      where: { orderId },
+      where: seeProduction ? { orderId } : { orderId, id: { in: [] } },
       orderBy: [{ workDate: "desc" }, { createdAt: "desc" }],
       include: { ...by, workLog: { select: { worker: { select: { name: true } } } }, design: { select: { position: true, name: true } } },
     }),
-    db.productionReady.findMany({ where: { orderId }, orderBy: [{ readyDate: "desc" }, { createdAt: "desc" }], include: by }),
-    db.delivery.findMany({ where: { orderId }, orderBy: [{ deliveredAt: "desc" }, { createdAt: "desc" }], include: by }),
+    db.productionReady.findMany({ where: seeProduction ? { orderId } : { orderId, id: { in: [] } }, orderBy: [{ readyDate: "desc" }, { createdAt: "desc" }], include: by }),
+    db.delivery.findMany({ where: seeDeliveries ? { orderId } : { orderId, id: { in: [] } }, orderBy: [{ deliveredAt: "desc" }, { createdAt: "desc" }], include: by }),
   ]);
   const common = (
     r: {
@@ -835,21 +850,25 @@ export async function productionTotalsByOrder(db: DbClient, orderIds: string[]) 
 }
 
 /** Production numbers for the dashboard. Quantities are per unit — never added across units. */
+/** Production numbers for the dashboard, over the orders the actor may see only. */
 export async function getProductionDashboard(db: DbClient, actor: Actor) {
   assertPermission(actor, "orders:view");
+  const scope = orderScopeSql(actor, "o");
   const today = todayDateString();
   const month = monthRange(today);
   const [completed, deliveriesToday, deliveredByUnit] = await Promise.all([
     db.$queryRaw<{ n: number }[]>`
-      SELECT count(*)::int AS n FROM orders
-      WHERE status = 'COMPLETED'
-        AND (completed_at AT TIME ZONE 'Africa/Cairo')::date BETWEEN ${month.from}::date AND ${month.to}::date`,
-    db.delivery.count({ where: { voidedAt: null, deliveredAt: dateFromString(today) } }),
+      SELECT count(*)::int AS n FROM orders o
+      WHERE o.status = 'COMPLETED' AND ${scope}
+        AND (o.completed_at AT TIME ZONE 'Africa/Cairo')::date BETWEEN ${month.from}::date AND ${month.to}::date`,
+    db.$queryRaw<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM deliveries d JOIN orders o ON o.id = d.order_id
+      WHERE d.voided_at IS NULL AND d.delivered_at = ${today}::date AND ${scope}`,
     db.$queryRaw<{ unit: QuantityUnit; qty: number }[]>`
       SELECT o.unit AS unit, SUM(d.quantity)::int AS qty
       FROM deliveries d JOIN orders o ON o.id = d.order_id
-      WHERE d.voided_at IS NULL AND d.delivered_at BETWEEN ${month.from}::date AND ${month.to}::date
+      WHERE d.voided_at IS NULL AND d.delivered_at BETWEEN ${month.from}::date AND ${month.to}::date AND ${scope}
       GROUP BY o.unit ORDER BY o.unit`,
   ]);
-  return { completedThisMonth: completed[0]?.n ?? 0, deliveriesToday, deliveredThisMonth: deliveredByUnit };
+  return { completedThisMonth: completed[0]?.n ?? 0, deliveriesToday: deliveriesToday[0]?.n ?? 0, deliveredThisMonth: deliveredByUnit };
 }

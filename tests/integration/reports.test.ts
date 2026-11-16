@@ -6,7 +6,7 @@ import type { Actor } from "@/server/services/actor";
 import { recordOrderCost } from "@/server/services/cost-service";
 import { createCustomer } from "@/server/services/customer-service";
 import { recordExpense } from "@/server/services/expense-service";
-import { createOrder, getOrderDetails, updateOrder } from "@/server/services/order-service";
+import { getOrderDetails, updateOrder } from "@/server/services/order-service";
 import { payPayable } from "@/server/services/outgoing-payment-service";
 import { recordPayment, voidPayment } from "@/server/services/payment-service";
 import {
@@ -22,7 +22,7 @@ import {
 import { recordWorkday, recordWorkLog } from "@/server/services/work-service";
 import { payWorker } from "@/server/services/worker-payment-service";
 import { createWorker } from "@/server/services/worker-service";
-import { createTestPrisma, createTestUser, hasTestDatabase, migrateTestDatabase, resetDatabase } from "../support/test-db";
+import { createTestPrisma, createTestUser, hasTestDatabase, migrateTestDatabase, resetDatabase, createSharedOrder } from "../support/test-db";
 
 const TODAY = todayDateString();
 const MONTH = monthRange(TODAY);
@@ -53,7 +53,7 @@ describe.skipIf(!hasTestDatabase)("Phase 6 financial reports (PostgreSQL)", () =
   async function mahmoudOrder(extra: { totalPrice?: string; advance?: string; receivedDate?: string } = {}) {
     const c = await createCustomer(db, owner, { name: `محمود ${randomUUID().slice(0, 4)}` });
     return (
-      await createOrder(db, owner, {
+      await createSharedOrder(db, owner, {
         idempotencyKey: randomUUID(),
         customer: { mode: "existing", id: c.id },
         title: "200 تيشيرت",
@@ -231,7 +231,7 @@ describe.skipIf(!hasTestDatabase)("Phase 6 financial reports (PostgreSQL)", () =
       quantity: String(before.quantity),
       unit: before.unit,
       groups: before.groups.map((g) => ({ id: g.id, quantity: String(g.quantity), material: g.material, operations: g.operations, plain: g.operations.length === 0, notes: "" })),
-      totalPrice: before.totalPrice,
+      totalPrice: before.money!.totalPrice,
       receivedDate: before.receivedDate,
       deliveryDate: before.deliveryDate,
       notes: "",

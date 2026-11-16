@@ -18,6 +18,7 @@ import { isUniqueViolation } from "@/server/repositories/prisma-errors";
 import { lockOrder } from "@/server/repositories/order-repository";
 import { lockWorker } from "@/server/repositories/worker-repository";
 import type { Actor } from "./actor";
+import { canAccessOrder } from "./order-access";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
 import { insertStageFromWorkLog } from "./production-service";
 
@@ -145,7 +146,7 @@ export async function recordWorkLog(db: PrismaClient, actor: Actor, payload: Rec
       }
       if (input.orderId) {
         // Order lock after the worker lock (same order as production writes); archived = missing.
-        const order = (await lockOrder(tx, input.orderId)) ? await tx.order.findUnique({ where: { id: input.orderId }, select: { status: true } }) : null;
+        const order = (await lockOrder(tx, input.orderId)) && (await canAccessOrder(tx, actor, input.orderId)) ? await tx.order.findUnique({ where: { id: input.orderId }, select: { status: true } }) : null;
         if (!order) throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { orderId: ["الأوردر مش موجود"] } });
         if (order.status === "CANCELLED") {
           throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { orderId: ["الأوردر ده ملغي"] } });

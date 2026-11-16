@@ -175,6 +175,7 @@ journalctl -u benuuprint -n 50 --no-pager                   # "[startup] configu
 In a browser:
 - sign in as the owner;
 - sign in as staff and check that «الحسابات» shows no figures;
+- review every staff account in «المستخدمين والصلاحيات» and share the orders staff should see (Phase 10 makes all existing orders private);
 - on a phone, check «إضافة إلى الشاشة الرئيسية» (add to home screen).
 
 ## 9. Later deploys

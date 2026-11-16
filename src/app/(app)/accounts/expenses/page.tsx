@@ -12,7 +12,7 @@ import { getExpenseReport } from "@/server/services/reports-service";
 export const metadata: Metadata = { title: "تقرير المصاريف" };
 
 export default async function ExpenseReportPage(props: PageProps<"/accounts/expenses">) {
-  const user = await requirePermission("finance:view-summary");
+  const user = await requirePermission("finance:reports");
   const period = parsePeriod(await props.searchParams);
   const r = await getExpenseReport(prisma, user, period);
   return (

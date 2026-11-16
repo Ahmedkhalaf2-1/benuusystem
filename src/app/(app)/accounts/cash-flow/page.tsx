@@ -17,7 +17,7 @@ const KIND = { customers: "customer", costs: "cost", expenses: "expense", wages:
 const MONTHS = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
 
 export default async function CashFlowPage(props: PageProps<"/accounts/cash-flow">) {
-  const user = await requirePermission("finance:view-summary");
+  const user = await requirePermission("finance:reports");
   const period = parsePeriod(await props.searchParams);
   const cf = await getCashFlow(prisma, user, period);
   const peak = cf.months.reduce((m, r) => [toCents(r.in), toCents(r.out), m].reduce((a, b) => (a > b ? a : b)), 0n);

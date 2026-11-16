@@ -15,7 +15,7 @@ import { getReceivables } from "@/server/services/reports-service";
 export const metadata: Metadata = { title: "العملاء اللي عليهم فلوس" };
 
 export default async function ReceivablesPage(props: PageProps<"/accounts/receivables">) {
-  const user = await requirePermission("finance:view-summary");
+  const user = await requirePermission("finance:reports");
   const sp = await props.searchParams;
   const q = typeof sp.q === "string" ? sp.q.slice(0, 100) : "";
   const overdueOnly = sp.overdue === "1";
