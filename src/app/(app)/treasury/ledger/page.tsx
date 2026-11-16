@@ -70,7 +70,63 @@ export default async function TreasuryLedgerPage(props: PageProps<"/treasury/led
       {ledger.rows.length === 0 ? (
         <p className="rounded-2xl border-2 border-dashed border-line-strong bg-surface p-6 text-center text-sm text-graphite">مفيش حركات في الفترة دي.</p>
       ) : (
-        <ul className="divide-y divide-hairline overflow-hidden rounded-2xl border border-line bg-surface">
+        <>
+          {/* Desktop: a statement table with aligned money columns. */}
+          <div className="hidden overflow-hidden rounded-2xl border border-line bg-surface lg:block">
+            <table className="w-full text-sm" data-testid="ledger-table">
+              <caption className="sr-only">حركات الخزنة من {formatDateAr(from)} إلى {formatDateAr(to)}</caption>
+              <thead className="bg-well text-xs text-graphite">
+                <tr>
+                  <th scope="col" className="px-4 py-2.5 text-start font-semibold">التاريخ</th>
+                  <th scope="col" className="px-4 py-2.5 text-start font-semibold">البيان</th>
+                  <th scope="col" className="px-4 py-2.5 text-start font-semibold">الحساب</th>
+                  <th scope="col" className="px-4 py-2.5 text-end font-semibold">دخل</th>
+                  <th scope="col" className="px-4 py-2.5 text-end font-semibold">خرج</th>
+                  <th scope="col" className="px-4 py-2.5 text-end font-semibold">الرصيد</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-hairline">
+                {ledger.rows.map((r) => (
+                  <tr key={r.key} className={cn("align-top", r.internal && "bg-well/50")}>
+                    <td className="px-4 py-3 whitespace-nowrap text-graphite">{formatDateAr(r.date)}</td>
+                    <td className="px-4 py-3">
+                      <span className="font-semibold">
+                        {r.href ? (
+                          <Link href={r.href} className="hover:text-brand">
+                            {r.reference}
+                          </Link>
+                        ) : (
+                          r.reference
+                        )}
+                      </span>
+                      {r.internal && <span className="ms-1.5 rounded-full bg-surface px-2 py-0.5 text-[0.68rem] font-semibold text-graphite ring-1 ring-line">داخلي</span>}
+                      {(r.notes || r.recordedBy) && (
+                        <span className="block text-xs text-graphite">
+                          {r.notes}
+                          {r.notes && r.recordedBy && " · "}
+                          {r.recordedBy && `سجّلها ${r.recordedBy}`}
+                        </span>
+                      )}
+                      {r.movementId && <VoidMovementForm id={r.movementId} />}
+                    </td>
+                    <td className="px-4 py-3 text-graphite">
+                      {r.accountName}
+                      {r.otherAccountName && ` ← ${r.otherAccountName}`}
+                    </td>
+                    <td className="tabular px-4 py-3 text-end font-semibold text-success-ink">{!r.internal && r.moneyIn !== "0.00" ? egp(r.moneyIn) : ""}</td>
+                    <td className="tabular px-4 py-3 text-end font-semibold">{!r.internal && r.moneyOut !== "0.00" ? egp(r.moneyOut) : ""}</td>
+                    <td className="tabular px-4 py-3 text-end whitespace-nowrap">
+                      {r.internal && <span className="block text-xs text-graphite">{egp(r.moneyIn)}</span>}
+                      {r.balance === null ? <span className="text-xs text-graphite">غير معروف</span> : egp(r.balance)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Phones and tablets: one card row per movement. */}
+          <ul className="divide-y divide-hairline overflow-hidden rounded-2xl border border-line bg-surface lg:hidden">
           {ledger.rows.map((r) => (
             <li key={r.key} className="flex flex-wrap items-start gap-3 px-4 py-3" data-testid="ledger-row">
               <div className="min-w-0 flex-1">
@@ -104,7 +160,8 @@ export default async function TreasuryLedgerPage(props: PageProps<"/treasury/led
               </div>
             </li>
           ))}
-        </ul>
+          </ul>
+        </>
       )}
     </div>
   );

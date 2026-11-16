@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Banknote, ChevronLeft, Landmark, ListOrdered, Smartphone, Wallet, type LucideIcon } from "lucide-react";
+import { AlertTriangle, ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Banknote, CheckCircle2, ChevronDown, ChevronLeft, Landmark, ListOrdered, PlusCircle, Scale, Smartphone, Wallet, type LucideIcon } from "lucide-react";
 import { Flash } from "@/components/flash";
 import { Caveat, egp, PeriodPicker } from "@/components/reports/report-ui";
 import { AccountActiveForm, AccountSetupForm, AttributeForm, MovementForm, ReconcileForm } from "@/components/treasury/treasury-forms";
@@ -30,7 +30,7 @@ const FLASH: Record<string, string> = {
 function Section({ id, title, children, aside }: { id?: string; title: string; children: React.ReactNode; aside?: React.ReactNode }) {
   return (
     <section id={id} aria-labelledby={id ? `${id}-h` : undefined} className="rounded-2xl border border-line bg-surface p-4 sm:p-5">
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <h2 id={id ? `${id}-h` : undefined} className="font-display text-[1.1rem] font-semibold">
           {title}
         </h2>
@@ -38,6 +38,28 @@ function Section({ id, title, children, aside }: { id?: string; title: string; c
       </div>
       {children}
     </section>
+  );
+}
+
+/**
+ * A closed tool panel: the numbers stay on top, each tool opens on demand.
+ * Native <details>, so it works without JavaScript and keeps keyboard focus.
+ */
+function ToolPanel({ id, icon: Icon, title, hint, open, children }: { id?: string; icon: LucideIcon; title: string; hint: string; open?: boolean; children: React.ReactNode }) {
+  return (
+    <details id={id} open={open} className="group/tool rounded-2xl border border-line bg-surface open:pb-4 sm:open:pb-5">
+      <summary className="flex min-h-16 cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 hover:bg-well sm:px-5 [&::-webkit-details-marker]:hidden">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-ink">
+          <Icon className="size-5" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-display font-semibold">{title}</span>
+          <span className="block text-xs leading-snug text-graphite">{hint}</span>
+        </span>
+        <ChevronDown className="size-5 shrink-0 text-graphite transition-transform duration-200 group-open/tool:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
+      </summary>
+      <div className="px-4 pt-1 sm:px-5">{children}</div>
+    </details>
   );
 }
 
@@ -98,7 +120,20 @@ export default async function TreasuryPage(props: PageProps<"/treasury">) {
       {o.accounts.length > 0 && (
         <section aria-label="الأرصدة" className="stage relative overflow-hidden rounded-2xl p-5 text-on-panel sm:p-6">
           <div className="relative">
-            <p className="text-sm text-on-panel-muted">إجمالي الرصيد المسجل في كل الحسابات</p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm text-on-panel-muted">إجمالي الرصيد المسجل في كل الحسابات</p>
+              {o.complete ? (
+                <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-panel-2 px-2.5 text-xs font-semibold text-panel-success ring-1 ring-panel-line">
+                  <CheckCircle2 className="size-3.5" aria-hidden="true" />
+                  كل الحركات متحددة
+                </span>
+              ) : (
+                <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-panel-2 px-2.5 text-xs font-semibold text-panel-warning ring-1 ring-panel-line">
+                  <AlertTriangle className="size-3.5" aria-hidden="true" />
+                  غير مكتمل — مش رصيد نهائي
+                </span>
+              )}
+            </div>
             <p className="tabular mt-1 font-display text-[2.1rem] leading-tight font-semibold" data-testid="treasury-total">
               {o.total !== null ? egp(o.total) : "غير مكتمل"}
             </p>
@@ -124,24 +159,52 @@ export default async function TreasuryPage(props: PageProps<"/treasury">) {
               const Icon = ICONS[a.type];
               const count = lastCount.get(a.name);
               return (
-                <li key={a.id} className={cn("flex flex-wrap items-center gap-3 py-3", !a.isActive && "opacity-60")} data-testid="treasury-account">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-ink">
-                    <Icon className="size-5" aria-hidden="true" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold">
-                      {a.name} <span className="text-xs font-normal text-graphite">· {ACCOUNT_TYPE_LABELS[a.type]}{!a.isActive && " · متوقف"}</span>
-                    </p>
-                    <p className="text-xs text-graphite">
-                      افتتاحي {egp(a.openingBalance)} — جرد {a.basis === "START_OF_DAY" ? "بداية" : "آخر"} يوم {formatDateAr(a.countDate)}
-                      {count ? ` · آخر جرد ${formatDateAr(count.date)}: ${egp(count.counted)}${count.difference !== "0.00" ? ` (فرق ${egp(count.difference)})` : " (مطابق)"}` : " · لسه متعملش جرد"}
-                    </p>
-                    <AccountActiveForm accountId={a.id} active={a.isActive} />
+                <li key={a.id} className={cn("py-3.5", !a.isActive && "opacity-60")} data-testid="treasury-account">
+                  <div className="flex items-start gap-3">
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-ink">
+                      <Icon className="size-5" aria-hidden="true" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold">{a.name}</p>
+                      <p className="text-xs text-graphite">
+                        {ACCOUNT_TYPE_LABELS[a.type]}
+                        {!a.isActive && " · متوقف"}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-end">
+                      <p className="text-[0.7rem] text-graphite">الرصيد المسجل</p>
+                      <p className={cn("tabular font-display text-lg leading-tight font-semibold", negative.has(a.name) && "text-red")}>{egp(a.balance)}</p>
+                    </div>
                   </div>
-                  <div className="text-end">
-                    <p className="text-[0.7rem] text-graphite">الرصيد المسجل</p>
-                    <p className={cn("tabular font-display text-lg font-semibold", negative.has(a.name) && "text-red")}>{egp(a.balance)}</p>
-                    {negative.has(a.name) && <p className="text-[0.7rem] font-semibold text-red">رصيد سالب — راجع (سحب على المكشوف أو حركة ناقصة)</p>}
+                  {negative.has(a.name) && (
+                    <p className="mt-2 flex items-center gap-1.5 rounded-xl bg-danger-soft px-3 py-2 text-xs font-semibold text-danger-ink">
+                      <AlertTriangle className="size-3.5 shrink-0" aria-hidden="true" />
+                      رصيد سالب — راجع: سحب على المكشوف أو حركة ناقصة
+                    </p>
+                  )}
+                  <dl className="mt-2.5 grid gap-1 rounded-xl bg-well px-3 py-2.5 text-xs sm:grid-cols-2">
+                    <div className="flex flex-wrap gap-x-1.5">
+                      <dt className="text-graphite">الرصيد الافتتاحي:</dt>
+                      <dd>
+                        <b className="tabular font-semibold text-ink">{egp(a.openingBalance)}</b> — جرد {a.basis === "START_OF_DAY" ? "بداية" : "آخر"} يوم {formatDateAr(a.countDate)}
+                      </dd>
+                    </div>
+                    <div className="flex flex-wrap gap-x-1.5">
+                      <dt className="text-graphite">آخر جرد فعلي:</dt>
+                      <dd>
+                        {count ? (
+                          <>
+                            <b className="tabular font-semibold text-ink">{egp(count.counted)}</b> يوم {formatDateAr(count.date)}{" "}
+                            {count.difference === "0.00" ? <span className="font-semibold text-success-ink">مطابق</span> : <span className="font-semibold text-danger-ink">فرق {egp(count.difference)}</span>}
+                          </>
+                        ) : (
+                          <span className="text-graphite">لسه متعملش جرد</span>
+                        )}
+                      </dd>
+                    </div>
+                  </dl>
+                  <div className="mt-1 flex justify-end">
+                    <AccountActiveForm accountId={a.id} active={a.isActive} />
                   </div>
                 </li>
               );
@@ -217,45 +280,58 @@ export default async function TreasuryPage(props: PageProps<"/treasury">) {
         </Section>
       )}
 
-      {active.length > 0 && (
-        <div className="grid gap-5 lg:grid-cols-2">
-          <Section title="حركة على الحسابات">
-            <MovementForm accounts={active} today={today} />
-          </Section>
-          <Section title="جرد حساب">
-            <ReconcileForm accounts={active} today={today} />
-            {recs.length > 0 && (
-              <ul className="mt-4 divide-y divide-hairline text-sm">
-                {recs.map((r) => (
-                  <li key={r.id} className="flex justify-between gap-3 py-2">
-                    <span className="min-w-0">
-                      {r.accountName} · {formatDateAr(r.date)}
-                      <span className="block text-xs text-graphite">
-                        مسجل {egp(r.system)} · متعدّ {egp(r.counted)} · {r.recordedBy}
-                      </span>
-                    </span>
-                    <span className={cn("tabular shrink-0 font-semibold", r.difference === "0.00" ? "text-green-ink" : "text-red")}>{r.difference === "0.00" ? "مطابق" : egp(r.difference)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Section>
-        </div>
-      )}
-
-      <Section title={o.accounts.length === 0 ? "ابدأ الخزنة" : "إضافة حساب"}>
-        {o.accounts.length === 0 && (
-          <ol className="mb-4 list-decimal space-y-1 ps-5 text-sm text-graphite">
-            <li>اختار يوم الجرد، وحدد الجرد كان بداية اليوم (قبل أي فلوس تتحرك) ولا آخره (بعد آخر حركة).</li>
-            <li>عدّ الكاش اللي في الخزنة فعلًا.</li>
-            <li>راجع رصيد البنك والمحافظ من الكشف أو التطبيق.</li>
-            <li>سجّل كل حساب برصيده في التاريخ ده.</li>
-            <li>من بعدها، كل دفعة جديدة بتتسجل على الحساب اللي دخلت فيه أو خرجت منه.</li>
-            <li>الدفعات اللي قبل الجرد (ودفعات نفس اليوم لو الجرد آخر اليوم) جوّه الرصيد اللي عدّيته ومش هتتحسب تاني.</li>
-          </ol>
+      {/* Tools: closed by default so the numbers above stay the page. */}
+      <section aria-labelledby="tools-h" className="space-y-2.5">
+        <h2 id="tools-h" className="font-display text-[1.1rem] font-semibold">
+          {o.accounts.length === 0 ? "ابدأ الخزنة" : "أدوات الخزنة"}
+        </h2>
+        {active.length > 0 && (
+          <>
+            <ToolPanel icon={ArrowLeftRight} title="حركة على الحسابات" hint="تحويل بين حساباتك، إيداع أو سحب من صاحب الشغل، أو تصحيح بسبب.">
+              <MovementForm accounts={active} today={today} />
+            </ToolPanel>
+            <ToolPanel icon={Scale} title="جرد حساب" hint="اكتب اللي عدّيته فعلًا — البرنامج يقارنه بالرصيد المسجل ويسجّل الفرق.">
+              <ReconcileForm accounts={active} today={today} />
+              {recs.length > 0 && (
+                <>
+                  <h3 className="mt-5 text-sm font-semibold">آخر الجرد</h3>
+                  <ul className="mt-1 divide-y divide-hairline text-sm">
+                    {recs.map((r) => (
+                      <li key={r.id} className="flex justify-between gap-3 py-2">
+                        <span className="min-w-0">
+                          {r.accountName} · {formatDateAr(r.date)}
+                          <span className="block text-xs text-graphite">
+                            مسجل {egp(r.system)} · متعدّ {egp(r.counted)} · {r.recordedBy}
+                          </span>
+                        </span>
+                        <span className={cn("tabular shrink-0 font-semibold", r.difference === "0.00" ? "text-success-ink" : "text-danger-ink")}>{r.difference === "0.00" ? "مطابق" : egp(r.difference)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </ToolPanel>
+          </>
         )}
-        <AccountSetupForm today={today} />
-      </Section>
+        <ToolPanel
+          icon={PlusCircle}
+          title={o.accounts.length === 0 ? "سجّل أول حساب ورصيده الافتتاحي" : "إضافة حساب"}
+          hint="خزنة، حساب بنكي أو محفظة — بالرصيد اللي عدّيته فعلًا."
+          open={o.accounts.length === 0}
+        >
+          {o.accounts.length === 0 && (
+            <ol className="mb-4 list-decimal space-y-1 ps-5 text-sm text-graphite">
+              <li>اختار يوم الجرد، وحدد الجرد كان بداية اليوم (قبل أي فلوس تتحرك) ولا آخره (بعد آخر حركة).</li>
+              <li>عدّ الكاش اللي في الخزنة فعلًا.</li>
+              <li>راجع رصيد البنك والمحافظ من الكشف أو التطبيق.</li>
+              <li>سجّل كل حساب برصيده في التاريخ ده.</li>
+              <li>من بعدها، كل دفعة جديدة بتتسجل على الحساب اللي دخلت فيه أو خرجت منه.</li>
+              <li>الدفعات اللي قبل الجرد (ودفعات نفس اليوم لو الجرد آخر اليوم) جوّه الرصيد اللي عدّيته ومش هتتحسب تاني.</li>
+            </ol>
+          )}
+          <AccountSetupForm today={today} />
+        </ToolPanel>
+      </section>
 
       <p className="flex items-center justify-center gap-1 text-xs text-graphite">
         <Wallet className="size-3.5" aria-hidden="true" />

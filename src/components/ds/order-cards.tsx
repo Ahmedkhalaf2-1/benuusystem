@@ -49,13 +49,13 @@ export function OrderCard({ order, showMoney }: { order: OrderSummary; showMoney
             <ProductIcon productType={order.productType} className="size-6" />
           </span>
           <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-2">
-              <p className="truncate font-display text-[1.02rem] font-semibold">{order.customerName}</p>
-              <StatusBadge status={order.status} overdue={order.overdue} />
-            </div>
+            <p className="truncate font-display text-[1.02rem] font-semibold">{order.customerName}</p>
             <p className="truncate text-sm text-graphite">
               {order.title} <span dir="ltr" className="tabular text-xs text-graphite/80">{formatOrderNumber(order.number)}</span>
             </p>
+            <div className="mt-2">
+              <StatusBadge status={order.status} overdue={order.overdue} />
+            </div>
           </div>
         </div>
         <ProductionTrack className="mt-3.5" size="md" required={order.quantity} ready={prod.ready} delivered={prod.delivered} />

@@ -251,7 +251,7 @@ export function VoidMovementForm({ id }: { id: string }) {
   const [state, action, pending] = useActionState(voidMovementAction, null);
   return (
     <details className="mt-1">
-      <summary className="cursor-pointer text-xs font-semibold text-red">إلغاء الحركة</summary>
+      <summary className="inline-flex min-h-11 cursor-pointer list-none items-center rounded-lg px-1 text-xs font-semibold text-danger-ink hover:underline [&::-webkit-details-marker]:hidden">إلغاء الحركة…</summary>
       <form action={action} className="mt-2 flex flex-wrap gap-2">
         <input type="hidden" name="id" value={id} />
         <Input name="reason" placeholder="سبب الإلغاء" required minLength={3} className="h-10 min-w-0 flex-1" />
@@ -270,7 +270,7 @@ export function AccountActiveForm({ accountId, active }: { accountId: string; ac
     <form action={action}>
       <input type="hidden" name="accountId" value={accountId} />
       <input type="hidden" name="active" value={active ? "no" : "yes"} />
-      <button type="submit" disabled={pending} className="text-xs font-semibold text-graphite underline underline-offset-2">
+      <button type="submit" disabled={pending} className="inline-flex min-h-11 items-center rounded-lg px-2 text-xs font-semibold text-graphite underline underline-offset-4 hover:bg-well hover:text-ink disabled:opacity-50">
         {active ? "إيقاف الحساب" : "تفعيل الحساب"}
       </button>
     </form>

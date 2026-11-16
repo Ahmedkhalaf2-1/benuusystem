@@ -67,10 +67,14 @@ export function ItemCard({
     });
 
   return (
-    <article className="space-y-3 rounded-2xl border border-line bg-surface p-3.5 sm:p-4" aria-labelledby={`item-${index}-title`} data-item={index}>
+    <article className="space-y-3 rounded-2xl bg-well p-3.5 sm:p-4" aria-labelledby={`item-${index}-title`} data-item={index}>
       <div className="flex items-center justify-between gap-2">
-        <h3 id={`item-${index}-title`} className="font-display text-[1.05rem] font-semibold">
-          البند <span className="tabular text-brand">{index + 1}</span>
+        <h3 id={`item-${index}-title`} className="flex min-w-0 items-center gap-2 font-display text-[1.05rem] font-semibold">
+          <span className="tabular flex size-7 shrink-0 items-center justify-center rounded-lg bg-brand-solid text-sm text-on-brand" aria-hidden="true">
+            {index + 1}
+          </span>
+          <span className="truncate">{group.name.trim() || `البند ${index + 1}`}</span>
+          <span className="sr-only">(البند {index + 1})</span>
         </h3>
         {count > 1 && (
           <button type="button" onClick={onRemove} className="inline-flex h-10 items-center gap-1 rounded-full px-3 text-sm font-medium text-red hover:bg-red-soft" aria-label={`حذف البند ${index + 1}`}>
@@ -103,7 +107,7 @@ export function ItemCard({
         )}
       </div>
       {priced && (
-        <p className="flex items-baseline justify-between rounded-xl bg-well px-3 py-2 text-sm">
+        <p className="flex items-baseline justify-between rounded-xl bg-surface px-3 py-2 text-sm ring-1 ring-line">
           <span className="text-graphite">إجمالي البند</span>
           <span className="tabular font-display text-base font-semibold" data-testid={`line-total-${index}`}>
             {lineTotal !== null ? formatMoney(lineTotal) : "—"}
@@ -136,12 +140,12 @@ export function ItemCard({
               onMove={(by) => moveDesign(i, by)}
             />
           ))}
-          {group.designs.length === 0 && <p className="rounded-xl bg-well p-3 text-sm text-graphite">من غير طباعة أو تطريز.</p>}
+          {group.designs.length === 0 && <p className="rounded-xl bg-surface p-3 text-sm text-graphite ring-1 ring-line">من غير طباعة أو تطريز.</p>}
           {group.designs.length < MAX_DESIGNS_PER_ITEM && (
             <button
               type="button"
               onClick={() => onChange((g) => ({ designs: [...g.designs, newDesignDraft()], plain: false }))}
-              className="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-line-strong text-sm font-semibold text-brand hover:bg-brand-soft/40"
+              className="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-line-strong bg-surface/60 text-sm font-semibold text-brand hover:bg-brand-soft/40"
             >
               <Plus className="size-4" aria-hidden="true" />
               إضافة رسمة
@@ -157,7 +161,7 @@ export function ItemCard({
         </div>
       )}
 
-      <details className="group/more rounded-xl bg-well px-3" open={!!(e("pressesPerUnit") || group.notes || (count > 1 && group.material))}>
+      <details className="group/more rounded-xl bg-surface px-3 ring-1 ring-line" open={!!(e("pressesPerUnit") || group.notes || (count > 1 && group.material))}>
         <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-sm font-semibold [&::-webkit-details-marker]:hidden">
           الخامة {group.useDesigns ? "" : "والكبسات "}والملاحظات
           <ChevronDown className="size-4 text-graphite transition-transform group-open/more:rotate-180" aria-hidden="true" />
@@ -208,10 +212,13 @@ function DesignCard({
   const planned = pieces !== null && presses !== null && design.pressesPerUnit.trim() !== "" ? pieces * presses : null;
 
   return (
-    <div className="space-y-3 rounded-xl bg-well p-3" data-design={id}>
+    <div className="space-y-3 rounded-xl bg-surface p-3 ring-1 ring-line" data-design={id}>
       <div className="flex items-center gap-1">
-        <p className="flex-1 text-sm font-semibold">
-          رسمة <span className="tabular text-brand">{index + 1}</span>
+        <p className="flex min-w-0 flex-1 items-center gap-1.5 text-sm font-semibold">
+          <span className="tabular flex size-6 shrink-0 items-center justify-center rounded-md bg-brand-soft text-xs text-brand-ink" aria-hidden="true">
+            {index + 1}
+          </span>
+          <span className="truncate">{design.name.trim() || `رسمة ${index + 1}`}</span>
         </p>
         {count > 1 && (
           <>

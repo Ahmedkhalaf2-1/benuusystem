@@ -7,11 +7,13 @@ export function UserAvatar({ name, className }: { name: string; className?: stri
     <span
       aria-hidden="true"
       className={cn(
-        "flex size-9 shrink-0 items-center justify-center rounded-full bg-line-strong p-[2px]",
+        // A filled sapphire-tint disc with a bold initial: thin Arabic letters
+        // (أ، ا) read as a Latin "i" in a hairline outline.
+        "flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-soft font-display text-[1.05em] font-bold text-brand-ink ring-1 ring-line",
         className,
       )}
     >
-      <span className="flex size-full items-center justify-center rounded-full bg-surface font-display text-sm font-semibold text-violet">{initial}</span>
+      {initial}
     </span>
   );
 }

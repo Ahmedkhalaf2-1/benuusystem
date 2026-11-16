@@ -1,10 +1,15 @@
 import { SETTLEMENT_LABELS, type SettlementStatus } from "@/lib/finance/labels";
 import { cn } from "@/lib/utils";
 
+/**
+ * Meaning colours (DESIGN.md): paid = green, partly paid = sapphire (in
+ * progress), unpaid = amber (needs action). Red is kept for errors/overdue —
+ * an unpaid bill is a task, not a fault.
+ */
 const TONES: Record<SettlementStatus, string> = {
-  PAID: "bg-green-soft text-green-ink",
-  PARTIAL: "bg-amber-soft text-amber-ink",
-  UNPAID: "bg-destructive/10 text-destructive",
+  PAID: "bg-success-soft text-success-ink",
+  PARTIAL: "bg-brand-soft text-brand-ink",
+  UNPAID: "bg-warning-soft text-warning-ink",
 };
 
 export function SettlementBadge({ status, voided }: { status: SettlementStatus; voided?: boolean }) {

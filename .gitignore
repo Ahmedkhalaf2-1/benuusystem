@@ -50,3 +50,5 @@ next-env.d.ts
 # local design review captures and rejected references (not shipped)
 /design-review/
 /approved-reference.png
+# Playwright CLI output (may contain credentials)
+.playwright-cli/

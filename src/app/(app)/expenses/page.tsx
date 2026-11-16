@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Plus, Receipt, Wallet } from "lucide-react";
+import { ChevronDown, Plus, Receipt, SlidersHorizontal, Wallet } from "lucide-react";
 import { SettlementBadge } from "@/components/finance/settlement-badge";
 import { NativeSelect } from "@/components/forms/field";
 import { PageHeader } from "@/components/page-header";
@@ -79,8 +79,12 @@ export default async function ExpensesPage(props: PageProps<"/expenses">) {
             الشهر اللي فات
           </Link>
         </div>
-        <details open={period === "custom" || !!category} className="rounded-2xl bg-surface p-3 border border-line">
-          <summary className="flex min-h-9 cursor-pointer items-center text-sm font-semibold">فترة معيّنة أو نوع مصروف</summary>
+        <details open={period === "custom" || !!category} className="group/filter rounded-2xl border border-line bg-surface px-3 open:pb-3">
+          <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+            <SlidersHorizontal className="size-4 text-graphite" aria-hidden="true" />
+            <span className="flex-1">فترة معيّنة أو نوع مصروف</span>
+            <ChevronDown className="size-4 text-graphite transition-transform duration-200 group-open/filter:rotate-180 motion-reduce:transition-none" aria-hidden="true" />
+          </summary>
           <form action="/expenses" method="get" className="mt-3 grid grid-cols-2 gap-2">
             <input type="hidden" name="period" value="custom" />
             <label className="text-xs text-muted-foreground">
@@ -114,8 +118,8 @@ export default async function ExpensesPage(props: PageProps<"/expenses">) {
       </div>
 
       <dl className="mt-3 grid grid-cols-3 rounded-2xl bg-surface p-1.5 border border-line">
-        <div className="rounded-2xl bg-amber-soft px-3 py-3">
-          <dt className="text-[0.7rem] font-semibold text-amber-ink">المصاريف المسجلة</dt>
+        <div className="rounded-2xl bg-well px-3 py-3">
+          <dt className="text-[0.7rem] font-semibold text-graphite">المصاريف المسجلة</dt>
           <dd className="tabular mt-1 whitespace-nowrap font-display text-base font-semibold sm:text-lg" data-testid="expenses-recorded">
             {formatMoneyString(result.totals.recorded)}
           </dd>

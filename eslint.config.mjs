@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Third-party agent tooling and local design-review captures (not app code).
+    ".claude/**",
+    ".playwright-cli/**",
+    "design-review/**",
   ]),
 ]);
 

@@ -56,88 +56,311 @@ typography:
 rounded: { sm: "6px", md: "8px", lg: "10px", xl: "12px", 2xl: "14px", 3xl: "16px", pill: "9999px" }
 ---
 
-# Design System: Benuuprint ERP — Modern Luxury Tech
+# Design System: Benuuprint ERP
 
-## Brand
+## 1. Overview
 
-- **Primary asset:** `public/benuuprint-3d.png` (approved silver/white 3D logo,
-  1254×1254, transparent). It is never redrawn, recoloured or given effects.
-- **Derivatives** (`npm run icons` → `scripts/generate-icons.mjs`):
-  - `public/brand/benuuprint-logo-{512,1024}.png` — full logo, trimmed, transparent.
-  - `public/brand/benuuprint-symbol-{128,256,512}.png` — symbol only (the
-    wordmark bar is cut along the transparent gap above it, then trimmed).
-  - `public/icons/icon-{192,512}.png`, `maskable-512.png`, `src/app/icon.png`
-    (favicon), `src/app/apple-icon.png` — the symbol on a solid graphite
-    (#171A20) tile. The full wordmark is never squeezed into small icons.
-- **In the app:** `BrandSymbol` (symbol on a graphite tile: header, sidebar, 404)
-  and `BrandLogo` (full logo, only on graphite panels: login). The mark is
-  white, so it always sits on graphite in both themes.
+**Personality:** a precise workshop instrument. Calm graphite and silver,
+with one sapphire accent that marks the next action. Benuuprint runs a print
+and garment shop: staff use it one-handed on the shop floor, and the owner
+trusts its numbers. Every screen answers *what is the state of the work* first
+and *what is the money* only for those allowed to see it.
 
-## Principles
+**Mode: Operate.** This is a tool, not a brochure:
 
-1. **One accent.** Sapphire marks action, selection, focus, links and
-   progress. No module has its own colour.
-2. **Meaning colours only:** green = received/confirmed/completed, amber =
-   needs action/warning, red = overdue/error/destructive. Every colour is
-   paired with a word or icon — never colour alone.
-3. **No effects:** no shadows, glows, gradients, glass or blur. Depth comes from
-   surface steps (background → surface → well/elevated), 1px borders and the
-   graphite **panel**.
-4. **Precise shapes:** 10–14px radii for cards and fields, 12px for buttons,
-   pills only for small status chips and navigation markers.
-5. **Rich through composition:** a graphite panel opens the key screens
-   (dashboard, order, new order, profiles, login), large Readex Pro figures,
-   clear hierarchy — not decoration.
+- no hero sections, stock photography, scroll animations, 3D, gradients,
+  glass or glow;
+- brand lives in precise details: the graphite panel, Readex Pro figures, the
+  production track and the sapphire focus ring.
 
-## Tokens
+**Language:** natural Egyptian business Arabic, RTL first. No accounting or
+ERP jargon in the interface (`PRODUCT.md`).
 
-Semantic CSS variables in `src/app/globals.css` (`:root` = light, `.dark` =
-dark), exposed as Tailwind colours: `bg-background · bg-surface · bg-well ·
-bg-elevated · border-line · border-line-strong · bg-track · text-ink ·
-text-graphite · bg-panel · bg-panel-2 · ring-panel-line · text-on-panel ·
-text-on-panel-muted · text-brand · bg-brand-solid · bg-brand-soft ·
-text-brand-ink · bg-brand-muted · text-on-brand · success/warning/danger
-(-ink, -soft, -solid) · text-panel-{success,warning,danger}`.
-Legacy names (violet, blue, teal, rose…) are aliases of the brand tokens so
-older call sites cannot reintroduce per-module colours. Shadow tokens resolve
-to `none`.
+## 2. Colors
 
-Contrast (normal text, WCAG AA): light — ink 16.9:1, muted 6.1:1, brand 5.6:1
-on white, white on brand-solid 5.6:1; dark — ink 14.6:1, muted 7.6:1, brand
-6.0:1 on surface, white on brand-solid 4.8:1. Verified per screen by the
-browser contrast audit (both themes, 0 failures).
+All colours are semantic CSS variables in `src/app/globals.css` (`:root` =
+light, `.dark` = dark), exposed as Tailwind colours. Never hard-code a hex in
+a component.
 
-## Themes
+### Brand and accent
+
+- **Sapphire** (`brand`, `brand-solid`, `brand-soft`, `brand-ink`,
+  `brand-muted`) is the only accent. It marks:
+  - the primary action;
+  - the current selection;
+  - focus;
+  - links;
+  - progress.
+- No module has its own colour. Legacy names (`violet`, `blue`, `teal`…) are
+  aliases of the brand tokens and must not be used for new work.
+
+### Surface ladder (depth without shadows)
+
+`background` (pearl / deep graphite) → `surface` (sheets) → `well` (inset
+groups) → `elevated`, plus the graphite **panel** (`panel`, `panel-2`,
+`panel-line`, `on-panel`, `on-panel-muted`).
+
+Nested content **alternates** surfaces (surface → well → surface) instead of
+stacking bordered cards. Example: an order item on `well`, its designs on
+`surface` with a 1px ring.
+
+### Text
+
+- `ink` for primary text.
+- `graphite` / `muted-foreground` for secondary text.
+- On the panel, `on-panel` and `on-panel-muted` (silver).
+- Placeholders keep 4.5:1 contrast.
+
+### Meaning colours (always paired with a word or icon)
+
+| Meaning | Token | Used for |
+| --- | --- | --- |
+| Done / received / verified | `success` (`-soft`, `-ink`, `panel-success`) | completed orders, paid, «مطابق», «كل الحركات متحددة» |
+| Needs action | `warning` (`-soft`, `-ink`, `panel-warning`) | unpaid («لسه متدفعش»), due soon, incomplete treasury |
+| In progress | `brand-soft` / `brand-ink` | in-progress status, partly paid |
+| Wrong / overdue / destructive | `danger` (`-soft`, `-ink`, `-solid`) | overdue, negative balance, count difference, delete/void |
+
+An unpaid bill is **amber, not red**: it is a task, not a fault.
+
+### Contrast (WCAG AA, verified per theme)
+
+- **Light:** ink 16.9:1, muted 6.1:1, brand 5.6:1 on white, white on
+  brand-solid 5.6:1.
+- **Dark:** ink 14.6:1, muted 7.6:1, brand 6.0:1 on surface, white on
+  brand-solid 4.8:1.
+
+## 3. Typography
+
+| Role | Face | Size / weight | Notes |
+| --- | --- | --- | --- |
+| Page title | Readex Pro | 1.6–1.75rem / 600 | `tracking-[-0.02em]`, one per page |
+| Section title | Readex Pro | 1.05–1.15rem / 600 | names a thing, never an eyebrow above it |
+| Figures (money, pieces) | Readex Pro | 1.1–2.1rem / 600 | `tabular` numerals, always |
+| Body / labels | IBM Plex Sans Arabic | 1rem / 400–600 | line-height 1.6 |
+| Meta / hints | IBM Plex Sans Arabic | 0.75rem | `graphite`, never below 0.68rem |
+
+### Arabic hierarchy
+
+- Readex Pro carries headings and every quantity. IBM Plex Sans Arabic
+  carries text.
+- Both are loaded by `next/font` (`--font-display`, `--font-arabic`).
+- Arabic-Indic digits are accepted in every input (`normalizeDigits`). Numbers
+  are displayed in Western digits with Arabic separators (`formatNumber`,
+  `formatMoney`).
+
+The scale is a fixed rem scale (ratio about 1.15). Fluid type isn't used in
+the app.
+
+## 4. Layout
+
+### Spacing scale
+
+Tailwind's 4px scale. Rhythm by role:
+
+| Role | Spacing |
+| --- | --- |
+| Inside a field group | 6px (`space-y-1.5`) |
+| Between fields | 16px (`space-y-4`) |
+| Between page sections | 16–24px (`space-y-4` to `space-y-6`) |
+| Inside a card | 16px on phones, 20px from `sm` (`p-4 sm:p-5`) |
+| Page gutter | 16px phones, 32px desktop (`px-4 lg:px-8`) |
+
+More space goes above a heading than below it.
+
+### Grid and container
+
+- **Content width:** `max-w-6xl` for the app shell; `max-w-2xl` to
+  `max-w-4xl` for single-task pages (forms, order, treasury).
+- **Phones:** one column.
+- **From `lg`:**
+  - a desktop sidebar replaces the bottom bar;
+  - two-column compositions (order detail: work on the right, items and
+    money on the left);
+  - tables where rows are records (treasury ledger).
+
+### Responsive behaviour
+
+- Mobile-first at 390px. Verified at 390, 768 and 1280.
+- No horizontal page scroll at any width. Wide content scrolls inside its own
+  container (filter chips, dashboard attention cards).
+- Sticky action bars sit above the bottom navigation:
+  `bottom-[calc(6.5rem+env(safe-area-inset-bottom))]`, `lg:bottom-4`.
+
+## 5. Elevation and shape
+
+- **No shadows** (shadow tokens resolve to `none`). Depth comes from the
+  surface ladder, 1px `line` borders and the graphite panel.
+- **Radius scale:**
+  - 6, 8 and 10px for chips and small controls;
+  - 12px (`rounded-xl`) for buttons and fields;
+  - 14–16px (`rounded-2xl`) for cards and panels;
+  - `rounded-full` only for status pills, nav markers and avatars.
+- **Never** a coloured `border-left`/`border-right` accent, gradient text or
+  hard offset shadows.
+
+## 6. Components
+
+### Buttons and interactive states
+
+- **Primary:** `bg-brand-solid text-on-brand`, `h-12` (form submit), one per
+  area.
+- **Secondary:** `variant="outline"` (surface + `line` border).
+- **Destructive:** `bg-danger-solid`, or `text-danger-ink` for quiet links
+  that open a confirmation.
+- **States:**
+  - hover strengthens the border or tints `well`;
+  - press scales to 0.97–0.985;
+  - disabled is 50% opacity with no pointer;
+  - loading swaps the icon for `Loader2` spin and keeps the label.
+- **Touch targets:** at least 44px (`min-h-11`) for anything tappable outside
+  running text, including «إيقاف الحساب» and «إلغاء الحركة…».
+
+### Cards and page surfaces
+
+- **Card:** `rounded-2xl border border-line bg-surface`.
+- **No card inside a card with the same style.** Use the surface ladder.
+- **The graphite panel** (`stage` / `bg-panel`) opens key screens (dashboard
+  greeting, order hero, treasury balance). Inner chips use
+  `bg-panel-2 ring-1 ring-panel-line`.
+- **Collapsed sections** use native `<details>` with a chevron that rotates.
+  - Tool panels (treasury) have a 64px summary with an icon, a title and a
+    one-line purpose. Closed by default unless the page has nothing else to
+    show.
+  - Inline disclosures (filters, item extras) have a ≥44px summary with an
+    icon and a chevron.
+
+### Forms and validation
+
+- The label sits above the control (`Field`), optional fields say «(اختياري)»,
+  and hints sit under the control.
+- Errors appear under their own field (`role="alert"`, `aria-invalid`). The
+  form-level summary (`FormMessage`) says what to fix. On submit, the view
+  scrolls to the first invalid field.
+- Money fields use `MoneyInput`/`MoneyField` (`ج.م` suffix, decimal keypad).
+  Quantities are centred tabular numbers.
+- Choices with few options are chip/card radio groups (`role="radio"`,
+  `aria-checked`). Long lists are `NativeSelect`.
+- **The New Order form stays one screen.**
+  - Items are tinted `well` blocks headed by a numbered sapphire badge and the
+    item's own name.
+  - Designs are outlined surface rows inside the item, with their own number.
+  - The sticky save bar always shows pieces, item count and total.
+  - The server recomputes every total.
+
+### Navigation
+
+- **Phones:** a bottom bar with Home, Orders, Accounts and More, plus a raised
+  sapphire «+» only for accounts that can create orders.
+- **Desktop:** a sidebar. Extra destinations (customers, workers, suppliers,
+  expenses, treasury, users) appear **only when the account has the
+  permission** (`mainNavKeys`, `SIDEBAR_EXTRA_NAV`). No dead ends.
+- Back links (`BackLink`) sit at the top of task pages.
+
+### Tables and lists
+
+- **Phones:** one row per record, title + meta on the start side and the
+  figure on the end side, divided by `divide-hairline`.
+- **Desktop records with money:** a `<table>` with a caption, `th scope`, a
+  `well` header and right-aligned (`text-end`) tabular money columns: date ·
+  description · account · in · out · balance.
+- Internal movements (transfers, opening balances) are labelled «داخلي» and
+  excluded from totals.
+
+### Status badges
+
+- `StatusBadge` pills: new = neutral, in progress = sapphire tint, completed
+  = green tint, cancelled = muted and struck through, overdue = red tint,
+  partly delivered = neutral with a sapphire dot.
+- On list cards the badges sit on their **own row** under the title, never
+  competing with the customer name.
+- `SettlementBadge`: paid green, partly paid sapphire, unpaid amber.
+
+### Production track (signature)
+
+- A segmented bar: delivered = solid sapphire, ready = muted sapphire,
+  remaining = track.
+- It is always labelled with numbers.
+- Reused on order cards, the order hero and per-size rows.
+
+### Money truthfulness (treasury and reports)
+
+- A total that depends on unattributed movements shows «غير مكتمل», never a
+  number styled as verified. The panel carries a status chip: «كل الحركات
+  متحددة» (success) or «غير مكتمل — مش رصيد نهائي» (warning).
+- Recorded balance and the last physical count are shown **separately**, the
+  count with its difference.
+- Receivables are their own card, worded as money not yet in any account.
+  Net cash movement is captioned as not a balance and not profit.
+- Negative balances are shown in red with a reason, never clamped.
+
+### Modals and sheets
+
+Inline disclosure first:
+
+- confirmations are inline forms that need a reason (void, delete);
+- tools open in place (`<details>`).
+
+No modal is used today. If one is ever needed, use the native `<dialog>`
+with focus trapping and Escape to close.
+
+## 7. Themes
 
 - **Light:** pearl background, white sheets, graphite type, graphite panels.
-- **Dark:** designed separately — deep graphite background #12151B, surfaces
-  #1C212A, raised panels #252B35, borders #343C48, readable sapphire #6FA0F4 for
-  text and #2F6FD8 for filled buttons.
-- **Preference:** Light / Dark / System in «المزيد» → «شكل البرنامج», stored in
-  `localStorage` (`bp-theme`). An inline script in `<head>`
-  (`src/lib/theme.ts`) applies it before first paint (no flash), follows OS
-  changes in System mode, and keeps the browser `theme-color` in step.
-- **PWA:** manifest `theme_color` #171A20, `background_color` #F6F8FB.
+- **Dark:** designed separately, not inverted:
+  - deep graphite `#12151B`;
+  - surfaces `#1C212A`;
+  - raised `#252B35`;
+  - readable sapphire `#6FA0F4` for text and `#2F6FD8` for fills.
+- **Preference:** Light / Dark / System in «المزيد», stored in `bp-theme`,
+  applied before first paint (`src/lib/theme.ts`).
+- Every screen is checked in both themes.
 
-## Components
+## 8. Accessibility
 
-- **Panel** (`stage` utility / `bg-panel`): graphite block with on-panel text,
-  inner chips on `bg-panel-2` with `ring-panel-line`.
-- **Cards:** `bg-surface border border-line rounded-2xl`; hover strengthens the
-  border.
-- **Buttons:** primary `bg-brand-solid text-on-brand`; secondary
-  `bg-surface border-line`; destructive `bg-danger-solid`. One primary per area.
-- **Quick actions:** six equal tiles, sapphire-tint icon squares; «أوردر جديد»
-  is the only filled tile.
-- **Production bar:** delivered = solid sapphire, ready = muted sapphire,
-  remaining = track; on the panel: delivered = on-panel, ready = sapphire.
-  Always labelled with numbers.
-- **Status pills:** new = neutral, in progress = sapphire tint, completed =
-  green tint, cancelled = muted + struck through, overdue = red tint.
-- **Bottom bar:** solid surface with a border, raised sapphire «+».
+- WCAG AA contrast in both themes.
+- Visible `:focus-visible` ring in sapphire.
+- Landmarks: header, nav, main.
+- Headings go one level at a time.
+- Every icon-only control has an `aria-label`. Decorative icons are
+  `aria-hidden`.
+- Touch targets are at least 44px.
+- `prefers-reduced-motion`: transitions stop (`motion-reduce:transition-none`
+  and the global rule), and nothing hides content behind motion.
+- Motion is 150–250ms state feedback only: press, chevron, hover. No entrance
+  choreography.
 
-## Do / Don't
+## 9. RTL conventions
 
-Do keep every colour semantic, keep the logo on graphite, keep figures in
-Readex Pro tabular numerals, and test both themes. Don't add shadows, glows,
-gradients, blur, neon, per-module colours, or effects to the logo.
+- `<html dir="rtl" lang="ar">`. Use logical properties and utilities (`ps-`,
+  `pe-`, `ms-`, `me-`, `start-`, `end-`, `text-start`, `text-end`).
+- **Directional icons point the reading way:** «رجوع» uses an arrow pointing
+  right (→); «التفاصيل» and «كل …» use a chevron pointing left (‹). A
+  transfer reads «من ← إلى».
+- **Mixed content:**
+  - order numbers, emails, phone numbers and dates in inputs are `dir="ltr"`
+    inside RTL text;
+  - money is "1,500 ج.م" (amount then currency);
+  - English design names (DTF, AUC) sit inline without a forced direction.
+- **Number alignment:** numbers align to the end in table money columns and
+  to the start in prose.
+
+## 10. Do and don't
+
+**Do:**
+
+- keep every colour semantic, paired with a word;
+- keep figures in Readex Pro tabular numerals;
+- alternate surfaces for nesting;
+- collapse rarely used tools;
+- test 390, 768 and 1280 in both themes;
+- keep staff screens free of money they may not see (enforced server-side; the
+  UI only reflects it).
+
+**Don't:**
+
+- add shadows, glows, gradients, blur or per-module colours;
+- show a hero metric template on task pages;
+- put an eyebrow label above a heading;
+- show a fake or zero balance as verified;
+- leave a dead-end navigation item;
+- use a modal where an inline control works.

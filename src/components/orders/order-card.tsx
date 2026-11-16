@@ -34,16 +34,17 @@ export function OrderCard({ order, hideCustomer, showMoney = true }: { order: Or
           <ProductIcon productType={order.productType} className="size-6" />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <p className="min-w-0 truncate font-display text-[1.02rem] font-semibold">{hideCustomer ? order.title : order.customerName}</p>
-            <StatusBadge status={order.status} overdue={order.overdue} partlyDelivered={prod.delivered > 0 && order.status !== "COMPLETED"} />
-          </div>
+          {/* The name owns the title line; status lives on its own row so long names never collide with it. */}
+          <p className="truncate font-display text-[1.02rem] font-semibold">{hideCustomer ? order.title : order.customerName}</p>
           <p className="truncate text-sm text-graphite">
             {hideCustomer ? order.productType : order.title}{" "}
             <span dir="ltr" className="tabular text-xs text-graphite/80">
               {formatOrderNumber(order.number)}
             </span>
           </p>
+          <div className="mt-2">
+            <StatusBadge status={order.status} overdue={order.overdue} partlyDelivered={prod.delivered > 0 && order.status !== "COMPLETED"} />
+          </div>
         </div>
       </div>
 
