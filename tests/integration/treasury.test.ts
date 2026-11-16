@@ -46,8 +46,8 @@ describe.skipIf(!hasTestDatabase)("treasury & cash accounts (PostgreSQL)", () =>
     staff = await createTestUser(db, "STAFF", undefined, ["orders:view", "orders:view-prices", "payments:view", "payments:record", "expenses:record", "payables:pay", "costs:record", "customers:view"]);
   });
 
-  const open = async (name: string, type: "CASH" | "BANK" | "WALLET", openingBalance: string, openingDate = CUTOVER) =>
-    (await createAccount(db, owner, { name, type, openingBalance, openingDate, confirmed: true })).id;
+  const open = async (name: string, type: "CASH" | "BANK" | "WALLET", openingBalance: string, countDate = CUTOVER, basis: "START_OF_DAY" | "END_OF_DAY" = "START_OF_DAY") =>
+    (await createAccount(db, owner, { name, type, openingBalance, countDate, basis, confirmed: true })).id;
   const overview = () => getTreasuryOverview(db, owner, RANGE);
   const balance = async (id: string) => (await overview()).accounts.find((a) => a.id === id)!.balance;
   const order = async (extra: Record<string, unknown> = {}) =>
@@ -190,7 +190,7 @@ describe.skipIf(!hasTestDatabase)("treasury & cash accounts (PostgreSQL)", () =>
     const spanning = await getLedger(db, owner, { accountId: cash, from: daysAgo(20), to: TODAY });
     expect(spanning.opening).toBeNull();
     expect(spanning.closing).toBe("1000.00");
-    expect(spanning.rows[0]).toMatchObject({ reference: "رصيد افتتاحي (جرد مؤكد)", moneyIn: "1000.00", internal: true });
+    expect(spanning.rows[0]).toMatchObject({ reference: "رصيد افتتاحي — جرد بداية اليوم", moneyIn: "1000.00", internal: true });
   });
 
   it("reconciliation records discrepancies against the system balance; optional audited adjustment", async () => {
@@ -252,7 +252,7 @@ describe.skipIf(!hasTestDatabase)("treasury & cash accounts (PostgreSQL)", () =>
     await open("خزنة", "CASH", "123456");
     await expect(getTreasuryOverview(db, staff, RANGE)).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(getLedger(db, staff, RANGE)).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(createAccount(db, staff, { name: "x", type: "CASH", openingBalance: "1", openingDate: TODAY, confirmed: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(createAccount(db, staff, { name: "x", type: "CASH", openingBalance: "1", countDate: TODAY, basis: "START_OF_DAY", confirmed: true })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(recordMovement(db, staff, { kind: "CAPITAL_IN", accountId: randomUUID(), amount: "1", date: TODAY, idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(reconcileAccount(db, staff, { accountId: randomUUID(), date: TODAY, counted: "1", idempotencyKey: randomUUID() })).rejects.toMatchObject({ code: "FORBIDDEN" });
     const options = await listAccountOptions(db, staff);
@@ -265,10 +265,53 @@ describe.skipIf(!hasTestDatabase)("treasury & cash accounts (PostgreSQL)", () =>
   });
 
   it("opening balances are owner-confirmed initialization events, not revenue", async () => {
-    await expect(createAccount(db, owner, { name: "خزنة", type: "CASH", openingBalance: "100", openingDate: TODAY, confirmed: false })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(createAccount(db, owner, { name: "خزنة", type: "CASH", openingBalance: "100", countDate: TODAY, basis: "START_OF_DAY", confirmed: false })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     await open("خزنة", "CASH", "9999");
     expect((await overview()).period.receipts).toBe("0.00");
     expect((await getCashMovement(db, owner, RANGE)).customerPaymentsIn).toBe("0.00");
     expect(await db.auditLog.count({ where: { action: "TREASURY_ACCOUNT_CREATED" } })).toBe(1);
+  });
+
+  it("same-day payments: counted after a start-of-day count, never twice after an end-of-day count", async () => {
+    const day = daysAgo(3);
+    const orderId = await order();
+    // Money received on the count day, recorded before the treasury existed.
+    const sameDay = await pay(orderId, "400", undefined, { paidAt: day });
+    const nextDay = await pay(orderId, "300", undefined, { paidAt: daysAgo(2) });
+
+    // End-of-day count: the 400 is already inside the counted 5,000.
+    const endCash = await open("خزنة آخر اليوم", "CASH", "5000", day, "END_OF_DAY");
+    let o = await overview();
+    expect(o.accounts[0]).toMatchObject({ countDate: day, basis: "END_OF_DAY", openingDate: daysAgo(2), balance: "5000.00" });
+    expect(o.unattributed.map((u) => u.id)).toEqual([nextDay.paymentId]); // only the next day's payment needs an account
+    await expect(attributePayment(db, owner, { side: "in", paymentId: sameDay.paymentId, accountId: endCash })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    await expect(pay(orderId, "50", endCash, { paidAt: day })).rejects.toMatchObject({ fieldErrors: { accountId: [expect.stringContaining("آخر اليوم")] } });
+    await pay(orderId, "50", undefined, { paidAt: day }); // no account needed on the counted day
+    await attributePayment(db, owner, { side: "in", paymentId: nextDay.paymentId, accountId: endCash });
+    expect(await balance(endCash)).toBe("5300.00");
+    const ledger = await getLedger(db, owner, { accountId: endCash, from: day, to: TODAY });
+    expect(ledger).toMatchObject({ opening: null, closing: "5300.00", totalIn: "300.00" });
+    expect(ledger.rows[0]).toMatchObject({ reference: "رصيد افتتاحي — جرد آخر اليوم", date: day, moneyIn: "5000.00" });
+
+    // Start-of-day count on the same day: the same-day payment comes after it.
+    await resetDatabase(db);
+    owner = await createTestUser(db, "OWNER_ADMIN");
+    staff = await createTestUser(db, "STAFF", undefined, ["orders:view", "orders:view-prices", "payments:view", "payments:record"]);
+    const o2 = await order();
+    const p2 = await pay(o2, "400", undefined, { paidAt: day });
+    const startCash = await open("خزنة بداية اليوم", "CASH", "5000", day, "START_OF_DAY");
+    o = await overview();
+    expect(o.unattributed.map((u) => u.id)).toEqual([p2.paymentId]);
+    await attributePayment(db, owner, { side: "in", paymentId: p2.paymentId, accountId: startCash });
+    expect(await balance(startCash)).toBe("5400.00");
+  });
+
+  it("an end-of-day count made today is known now and needs no account for today's money", async () => {
+    const cash = await open("خزنة", "CASH", "800", TODAY, "END_OF_DAY");
+    const o = await overview();
+    expect(o).toMatchObject({ complete: true, total: "800.00", cutover: daysAgo(-1) });
+    await pay(await order(), "100"); // today, inside the count: accepted without an account
+    expect(await balance(cash)).toBe("800.00");
+    expect((await reconcileAccount(db, owner, { accountId: cash, date: TODAY, counted: "800", idempotencyKey: randomUUID() })).difference).toBe("0.00");
   });
 });

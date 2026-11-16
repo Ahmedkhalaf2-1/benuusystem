@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { PrismaClient } from "@/generated/prisma/client";
-import type { FinancialAccountType, MoneyDirection, TreasuryMovementKind } from "@/generated/prisma/enums";
+import type { FinancialAccountType, MoneyDirection, OpeningBasis, TreasuryMovementKind } from "@/generated/prisma/enums";
 import { assertPermission, hasPermission } from "@/lib/auth/permissions";
 import type { DbClient, DbTransaction } from "@/lib/db/prisma";
 import { dateFromString, dateToString, isValidDateString, todayDateString } from "@/lib/dates";
@@ -57,6 +57,10 @@ function pastDate(field: string, raw: unknown): string {
   return v;
 }
 
+function addDays(day: string, n: number): string {
+  return dateToString(new Date(dateFromString(day).getTime() + n * 86_400_000));
+}
+
 function text(raw: unknown, max: number): string | null {
   const v = typeof raw === "string" ? raw.trim() : "";
   return v ? v.slice(0, max) : null;
@@ -82,9 +86,16 @@ export async function listAccountOptions(db: DbClient, actor: Actor): Promise<Ac
  */
 export async function resolvePaymentAccount(tx: DbClient, accountId: string | undefined, paidAt: string, field = "accountId"): Promise<string | null> {
   if (!accountId) return null;
-  const a = await tx.financialAccount.findUnique({ where: { id: accountId }, select: { isActive: true, openingDate: true } });
+  const a = await tx.financialAccount.findUnique({ where: { id: accountId }, select: { isActive: true, openingDate: true, openingCountDate: true, openingBasis: true } });
   if (!a || !a.isActive) bad(field, "الحساب ده مش موجود أو متوقف");
-  if (paidAt < dateToString(a.openingDate)) bad(field, `تاريخ الدفعة قبل الرصيد الافتتاحي للحساب (${dateToString(a.openingDate)})`);
+  if (paidAt < dateToString(a.openingDate)) {
+    bad(
+      field,
+      a.openingBasis === "END_OF_DAY" && paidAt === dateToString(a.openingCountDate)
+        ? "الدفعة دي في يوم الجرد، والجرد اتعمل آخر اليوم — يعني هي جوّه الرصيد الافتتاحي ومش هتتحسب تاني. سجّلها من غير حساب."
+        : `تاريخ الدفعة قبل بداية حساب الخزنة (${dateToString(a.openingDate)}) — هي جوّه الرصيد الافتتاحي. سجّلها من غير حساب.`,
+    );
+  }
   return accountId;
 }
 
@@ -113,14 +124,18 @@ export async function treasuryRequiresAccount(db: DbClient): Promise<{ required:
 export async function createAccount(
   db: PrismaClient,
   actor: Actor,
-  payload: { name: unknown; type: unknown; openingBalance: unknown; openingDate: unknown; notes?: unknown; confirmed: unknown },
+  payload: { name: unknown; type: unknown; openingBalance: unknown; countDate: unknown; basis: unknown; notes?: unknown; confirmed: unknown },
 ) {
   guard(actor);
   const name = text(payload.name, 80);
   if (!name) bad("name", "اكتب اسم الحساب");
   if (!(ACCOUNT_TYPES as readonly unknown[]).includes(payload.type)) bad("type", "اختار نوع الحساب");
   const opening = money("openingBalance", payload.openingBalance, { allowZero: true, allowNegative: true });
-  const openingDate = pastDate("openingDate", payload.openingDate);
+  const countDate = pastDate("countDate", payload.countDate);
+  if (payload.basis !== "START_OF_DAY" && payload.basis !== "END_OF_DAY") bad("basis", "اختار الجرد كان بداية اليوم ولا آخره");
+  const basis = payload.basis as OpeningBasis;
+  // START: that day's payments come after the count. END: they are inside it, so counting starts the next day.
+  const openingDate = basis === "START_OF_DAY" ? countDate : addDays(countDate, 1);
   if (payload.confirmed !== true) bad("confirmed", "أكّد إنك عدّيت الفلوس أو راجعت الرصيد فعلًا");
   try {
     return await db.$transaction(async (tx) => {
@@ -129,6 +144,8 @@ export async function createAccount(
           name,
           type: payload.type as FinancialAccountType,
           openingBalance: centsToDecimalString(opening),
+          openingCountDate: dateFromString(countDate),
+          openingBasis: basis,
           openingDate: dateFromString(openingDate),
           notes: text(payload.notes, 300),
           createdById: actor.id,
@@ -141,7 +158,7 @@ export async function createAccount(
         action: AUDIT_ACTIONS.TREASURY_ACCOUNT_CREATED,
         entityType: "FinancialAccount",
         entityId: account.id,
-        metadata: { name, type: payload.type as string, openingBalance: centsToDecimalString(opening), openingDate, confirmedByOwner: true },
+        metadata: { name, type: payload.type as string, openingBalance: centsToDecimalString(opening), countDate, basis, firstCountedDay: openingDate, confirmedByOwner: true },
       });
       return account;
     });
@@ -331,11 +348,26 @@ export type LedgerEntry = {
   movementId: string | null;
 };
 
-type AccountRow = { id: string; name: string; type: FinancialAccountType; openingBalance: Cents; openingDate: string; isActive: boolean };
+/**
+ * `openingDate`: first day whose movements count after the opening balance.
+ * `knownFrom`: the balance is known at the END of this day (= openingDate − 1;
+ * the end of one day is the start of the next).
+ */
+type AccountRow = { id: string; name: string; type: FinancialAccountType; openingBalance: Cents; openingDate: string; knownFrom: string; countDate: string; basis: OpeningBasis; isActive: boolean };
 
 async function loadAccounts(db: DbClient): Promise<AccountRow[]> {
   const rows = await db.financialAccount.findMany({ orderBy: [{ type: "asc" }, { name: "asc" }] });
-  return rows.map((a) => ({ id: a.id, name: a.name, type: a.type, openingBalance: toCents(a.openingBalance), openingDate: dateToString(a.openingDate), isActive: a.isActive }));
+  return rows.map((a) => ({
+    id: a.id,
+    name: a.name,
+    type: a.type,
+    openingBalance: toCents(a.openingBalance),
+    openingDate: dateToString(a.openingDate),
+    knownFrom: addDays(dateToString(a.openingDate), -1),
+    countDate: dateToString(a.openingCountDate),
+    basis: a.openingBasis,
+    isActive: a.isActive,
+  }));
 }
 
 /** Every valid attributed money movement up to `to` (inclusive), one entry per account side. */
@@ -417,11 +449,11 @@ async function loadEntries(db: DbClient, accounts: AccountRow[], to: string): Pr
 }
 
 /**
- * Balance of an account at the END of `date`; null before its opening date
- * (unknown — never shown as zero).
+ * Balance of an account at the END of `date`; null before the count (unknown
+ * — never shown as zero).
  */
 function balanceAt(account: AccountRow, entries: LedgerEntry[], date: string): Cents | null {
-  if (date < account.openingDate) return null;
+  if (date < account.knownFrom) return null;
   let b = account.openingBalance;
   for (const e of entries) if (e.accountId === account.id && e.date <= date) b += e.moneyIn - e.moneyOut;
   return b;
@@ -454,7 +486,7 @@ async function unattributedSince(db: DbClient, since: string) {
 }
 
 export type TreasuryOverview = {
-  accounts: { id: string; name: string; type: FinancialAccountType; isActive: boolean; openingBalance: string; openingDate: string; balance: string }[];
+  accounts: { id: string; name: string; type: FinancialAccountType; isActive: boolean; openingBalance: string; openingDate: string; countDate: string; basis: OpeningBasis; balance: string }[];
   /** Sum of account balances. Null when the treasury is incomplete (never a fabricated number). */
   total: string | null;
   /** Sum of the accounts' balances by type (only when complete). */
@@ -513,7 +545,7 @@ export async function getTreasuryOverview(db: DbClient, actor: Actor, range: { f
   const capSum = (k: TreasuryMovementKind) => toCents(caps.find((c) => c.kind === k)?._sum.amount);
 
   return {
-    accounts: balances.map(({ a, b }) => ({ id: a.id, name: a.name, type: a.type, isActive: a.isActive, openingBalance: centsToDecimalString(a.openingBalance), openingDate: a.openingDate, balance: centsToDecimalString(b) })),
+    accounts: balances.map(({ a, b }) => ({ id: a.id, name: a.name, type: a.type, isActive: a.isActive, openingBalance: centsToDecimalString(a.openingBalance), openingDate: a.openingDate, countDate: a.countDate, basis: a.basis, balance: centsToDecimalString(b) })),
     total: complete ? centsToDecimalString(balances.reduce((s, x) => s + x.b, 0n)) : null,
     byType: complete ? Object.fromEntries(Object.entries(byType).map(([k, v]) => [k, centsToDecimalString(v!)])) : {},
     complete,
@@ -572,7 +604,11 @@ export async function getLedger(db: DbClient, actor: Actor, filter: { accountId?
 
   type Item = { date: string; order: number; createdAt: number; opening?: AccountRow; entry?: LedgerEntry };
   const items: Item[] = [
-    ...scope.filter((a) => a.openingDate >= filter.from && a.openingDate <= filter.to).map((a) => ({ date: a.openingDate, order: 0, createdAt: 0, opening: a })),
+    // The opening balance becomes known inside the period: placed at the start of
+    // the first counted day (start-of-day count) or the end of the count day.
+    ...scope
+      .filter((a) => a.knownFrom > dayBefore && a.knownFrom <= filter.to)
+      .map((a) => (a.basis === "START_OF_DAY" ? { date: a.openingDate, order: 0, createdAt: 0, opening: a } : { date: a.countDate, order: 2, createdAt: 0, opening: a })),
     ...entries.filter((e) => ids.has(e.accountId) && e.date >= filter.from && e.date <= filter.to).map((e) => ({ date: e.date, order: 1, createdAt: e.createdAt.getTime(), entry: e })),
   ].sort((x, y) => (x.date !== y.date ? (x.date < y.date ? -1 : 1) : x.order - y.order || x.createdAt - y.createdAt));
 
@@ -587,8 +623,8 @@ export async function getLedger(db: DbClient, actor: Actor, filter: { accountId?
       known += a.openingBalance;
       unknown -= 1;
       rows.push({
-        key: `open:${a.id}`, date: a.openingDate, createdAt: new Date(0), accountId: a.id, otherAccountId: null, kind: "ADJUSTMENT",
-        reference: "رصيد افتتاحي (جرد مؤكد)", href: null, recordedBy: "", notes: null, movementId: null,
+        key: `open:${a.id}`, date: a.countDate, createdAt: new Date(0), accountId: a.id, otherAccountId: null, kind: "ADJUSTMENT",
+        reference: a.basis === "START_OF_DAY" ? "رصيد افتتاحي — جرد بداية اليوم" : "رصيد افتتاحي — جرد آخر اليوم", href: null, recordedBy: "", notes: null, movementId: null,
         accountName: a.name, otherAccountName: null, moneyIn: centsToDecimalString(a.openingBalance), moneyOut: "0.00", balance: shown(), internal: true,
       });
       continue;

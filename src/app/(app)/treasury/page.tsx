@@ -133,7 +133,7 @@ export default async function TreasuryPage(props: PageProps<"/treasury">) {
                       {a.name} <span className="text-xs font-normal text-graphite">· {ACCOUNT_TYPE_LABELS[a.type]}{!a.isActive && " · متوقف"}</span>
                     </p>
                     <p className="text-xs text-graphite">
-                      افتتاحي {egp(a.openingBalance)} في {formatDateAr(a.openingDate)}
+                      افتتاحي {egp(a.openingBalance)} — جرد {a.basis === "START_OF_DAY" ? "بداية" : "آخر"} يوم {formatDateAr(a.countDate)}
                       {count ? ` · آخر جرد ${formatDateAr(count.date)}: ${egp(count.counted)}${count.difference !== "0.00" ? ` (فرق ${egp(count.difference)})` : " (مطابق)"}` : " · لسه متعملش جرد"}
                     </p>
                     <AccountActiveForm accountId={a.id} active={a.isActive} />
@@ -246,12 +246,12 @@ export default async function TreasuryPage(props: PageProps<"/treasury">) {
       <Section title={o.accounts.length === 0 ? "ابدأ الخزنة" : "إضافة حساب"}>
         {o.accounts.length === 0 && (
           <ol className="mb-4 list-decimal space-y-1 ps-5 text-sm text-graphite">
-            <li>اختار تاريخ بداية (النهارده مثلًا).</li>
+            <li>اختار يوم الجرد، وحدد الجرد كان بداية اليوم (قبل أي فلوس تتحرك) ولا آخره (بعد آخر حركة).</li>
             <li>عدّ الكاش اللي في الخزنة فعلًا.</li>
             <li>راجع رصيد البنك والمحافظ من الكشف أو التطبيق.</li>
             <li>سجّل كل حساب برصيده في التاريخ ده.</li>
             <li>من بعدها، كل دفعة جديدة بتتسجل على الحساب اللي دخلت فيه أو خرجت منه.</li>
-            <li>الدفعات القديمة قبل التاريخ ده مش هتتحسب تاني — هي جوّه الرصيد اللي عدّيته.</li>
+            <li>الدفعات اللي قبل الجرد (ودفعات نفس اليوم لو الجرد آخر اليوم) جوّه الرصيد اللي عدّيته ومش هتتحسب تاني.</li>
           </ol>
         )}
         <AccountSetupForm today={today} />

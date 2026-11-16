@@ -4,6 +4,9 @@
 -- invented. Historical totals and reports are unchanged.
 
 -- CreateEnum
+CREATE TYPE "OpeningBasis" AS ENUM ('START_OF_DAY', 'END_OF_DAY');
+
+-- CreateEnum
 CREATE TYPE "FinancialAccountType" AS ENUM ('CASH', 'BANK', 'WALLET');
 
 -- CreateEnum
@@ -25,6 +28,8 @@ CREATE TABLE "financial_accounts" (
     "type" "FinancialAccountType" NOT NULL,
     "currency" CHAR(3) NOT NULL DEFAULT 'EGP',
     "opening_balance" DECIMAL(14,2) NOT NULL,
+    "opening_count_date" DATE NOT NULL,
+    "opening_basis" "OpeningBasis" NOT NULL,
     "opening_date" DATE NOT NULL,
     "is_active" BOOLEAN NOT NULL DEFAULT true,
     "notes" VARCHAR(300),
@@ -119,6 +124,12 @@ ALTER TABLE "treasury_reconciliations" ADD CONSTRAINT "treasury_reconciliations_
 
 -- Integrity the application also enforces.
 ALTER TABLE "financial_accounts" ADD CONSTRAINT "financial_accounts_currency_egp" CHECK ("currency" = 'EGP');
+-- The effective start follows from the count: same day when counted at the
+-- start of the day, the next day when counted at the end of the day.
+ALTER TABLE "financial_accounts" ADD CONSTRAINT "financial_accounts_opening_consistent" CHECK (
+  ("opening_basis" = 'START_OF_DAY' AND "opening_date" = "opening_count_date")
+  OR ("opening_basis" = 'END_OF_DAY' AND "opening_date" = "opening_count_date" + 1)
+);
 ALTER TABLE "treasury_movements" ADD CONSTRAINT "treasury_movements_amount_positive" CHECK ("amount" > 0);
 ALTER TABLE "treasury_movements" ADD CONSTRAINT "treasury_movements_shape" CHECK (
   ("kind" = 'TRANSFER' AND "to_account_id" IS NOT NULL AND "to_account_id" <> "account_id" AND "direction" IS NULL)

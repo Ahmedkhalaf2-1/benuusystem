@@ -53,6 +53,13 @@ function AccountSelect({ name, accounts, label, error, exclude }: { name: string
 export function AccountSetupForm({ today }: { today: string }) {
   const [state, action, pending] = useActionState(createAccountAction, null);
   const [opening, setOpening] = useState("");
+  const [basis, setBasis] = useState<"START_OF_DAY" | "END_OF_DAY" | "">("");
+  const [countDate, setCountDate] = useState(today);
+  const nextDay = (() => {
+    const d = new Date(`${countDate}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1);
+    return d.toISOString().slice(0, 10);
+  })();
   return (
     <form action={action} className="space-y-4" data-testid="account-setup">
       <Field label="اسم الحساب" htmlFor="acc-name" error={fe(state, "name")} hint="مثال: خزنة المحل، بنك مصر، فودافون كاش">
@@ -67,10 +74,38 @@ export function AccountSetupForm({ today }: { today: string }) {
           ))}
         </NativeSelect>
       </Field>
-      <Field label="تاريخ البداية (التاريخ اللي عدّيت فيه الفلوس)" htmlFor="acc-date" error={fe(state, "openingDate")} hint="الدفعات قبل التاريخ ده داخلة في الرصيد اللي هتكتبه ومش هتتحسب تاني.">
-        <Input id="acc-date" name="openingDate" type="date" defaultValue={today} max={today} required />
+      <Field label="يوم الجرد (اليوم اللي عدّيت فيه الفلوس)" htmlFor="acc-date" error={fe(state, "countDate")}>
+        <Input id="acc-date" name="countDate" type="date" value={countDate} onChange={(e) => setCountDate(e.target.value)} max={today} required />
       </Field>
-      <Field label="الرصيد الفعلي في بداية اليوم ده" htmlFor="acc-opening" error={fe(state, "openingBalance")} hint="كاش: عدّ الفلوس اللي في الخزنة. بنك/محفظة: الرصيد من كشف الحساب أو التطبيق.">
+      <fieldset className="space-y-2" data-error={fe(state, "basis") ? "true" : undefined}>
+        <legend className="text-sm font-semibold text-ink">الجرد كان إمتى في اليوم ده؟</legend>
+        <input type="hidden" name="basis" value={basis} />
+        {(
+          [
+            { v: "START_OF_DAY", title: "بداية اليوم — قبل أي فلوس تدخل أو تخرج", body: `أي دفعة بتاريخ ${countDate} هتتحسب على الحساب بعد الرصيد ده.` },
+            { v: "END_OF_DAY", title: "آخر اليوم — بعد آخر حركة فلوس", body: `دفعات يوم ${countDate} جوّه الرصيد اللي عدّيته ومش هتتحسب تاني. الحساب يبدأ يحسب من ${nextDay}.` },
+          ] as const
+        ).map((o) => (
+          <button
+            key={o.v}
+            type="button"
+            role="radio"
+            aria-checked={basis === o.v}
+            onClick={() => setBasis(o.v)}
+            className={cn("block w-full rounded-xl border p-3 text-start", basis === o.v ? "border-primary bg-brand-soft" : "border-border bg-surface")}
+          >
+            <span className="block text-sm font-semibold">{o.title}</span>
+            <span className="mt-0.5 block text-xs text-graphite">{o.body}</span>
+          </button>
+        ))}
+        {fe(state, "basis") && <p className="text-sm text-destructive">{fe(state, "basis")}</p>}
+      </fieldset>
+      <Field
+        label={basis === "END_OF_DAY" ? "الرصيد اللي عدّيته آخر اليوم" : basis === "START_OF_DAY" ? "الرصيد اللي عدّيته بداية اليوم" : "الرصيد اللي عدّيته"}
+        htmlFor="acc-opening"
+        error={fe(state, "openingBalance")}
+        hint="كاش: عدّ الفلوس اللي في الخزنة. بنك/محفظة: الرصيد من كشف الحساب أو التطبيق في نفس اللحظة."
+      >
         <MoneyField id="acc-opening" name="openingBalance" value={opening} onChange={setOpening} invalid={!!fe(state, "openingBalance")} />
       </Field>
       <Field label="ملاحظات" htmlFor="acc-notes" optional>

@@ -39,6 +39,24 @@ balance(account, day) =
 
 ## Cutover (historical data)
 
+### Start or end of the count day
+
+The owner records the count date and **when** the count was made:
+
+| Basis | Meaning | Payments dated the count day | First day counted after the opening |
+| --- | --- | --- | --- |
+| `START_OF_DAY` | Counted before any money moved that day | Come after the count, so they need an account and are added | the count day |
+| `END_OF_DAY` | Counted after the day's last movement | Already inside the counted amount, so they take no account and attributing them is refused | the next day |
+
+- **Stored:** `financial_accounts.opening_count_date` and `opening_basis`.
+- **Derived:** `opening_date` (first counted day). A CHECK constraint keeps all
+  three consistent.
+- **When the balance becomes known:** at the end of `opening_date − 1`. The
+  end of one day is the start of the next.
+- **Ledger:** the opening row reads «جرد بداية اليوم» or «جرد آخر اليوم».
+- **Labels:** every screen labels the amount as counted at the start or the
+  end of that day.
+
 - Existing payments keep `account_id = NULL`. Nothing is classified
   automatically and no opening balance is invented.
 - The owner creates each account with a counted, confirmed opening balance

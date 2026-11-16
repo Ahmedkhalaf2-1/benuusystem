@@ -798,6 +798,13 @@ model OrderAccess {
 
 // ───────────────────────────── Treasury ─────────────────────────────
 
+enum OpeningBasis {
+  /// Counted before any money moved that day: that day's payments come after it.
+  START_OF_DAY
+  /// Counted after the day's last movement: that day's payments are inside it.
+  END_OF_DAY
+}
+
 enum FinancialAccountType {
   /// خزنة كاش
   CASH
@@ -815,8 +822,15 @@ model FinancialAccount {
   name           String               @unique @db.VarChar(80)
   type           FinancialAccountType
   currency       String               @default("EGP") @db.Char(3)
-  /// The amount the owner counted/confirmed at the start of `openingDate`.
+  /// The amount the owner physically counted / confirmed.
   openingBalance Decimal              @map("opening_balance") @db.Decimal(14, 2)
+  /// The day the count was made, and whether it was before any money moved
+  /// that day (START_OF_DAY) or after the last movement (END_OF_DAY).
+  openingCountDate DateTime           @map("opening_count_date") @db.Date
+  openingBasis   OpeningBasis         @map("opening_basis")
+  /// First day whose movements count AFTER the opening balance (derived:
+  /// the count day for START_OF_DAY, the next day for END_OF_DAY). Money
+  /// dated before it is inside the counted balance and is never attributed.
   openingDate    DateTime             @map("opening_date") @db.Date
   isActive       Boolean              @default(true) @map("is_active")
   notes          String?              @db.VarChar(300)
