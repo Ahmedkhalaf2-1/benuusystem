@@ -87,3 +87,36 @@ export const MATERIAL_SUGGESTIONS: readonly string[] = [
 export function formatOrderNumber(number: number): string {
   return `#${String(number).padStart(4, "0")}`;
 }
+
+// ───────────── Line items («بنود») and designs («رسومات») ─────────────
+
+/** Fixed print placements. «أخرى» is free text, stored separately. */
+export const PLACEMENTS = ["CHEST", "BACK", "BADGE", "RIGHT_SLEEVE", "LEFT_SLEEVE"] as const;
+export type Placement = (typeof PLACEMENTS)[number];
+
+export const PLACEMENT_LABELS: Record<Placement, string> = {
+  CHEST: "الصدر",
+  BACK: "الظهر",
+  BADGE: "بادج",
+  RIGHT_SLEEVE: "كم يمين",
+  LEFT_SLEEVE: "كم شمال",
+};
+
+export const OTHER_PLACEMENT_LABEL = "أخرى";
+export const MAX_CUSTOM_PLACEMENTS = 5;
+
+/** An item's display name: its own name, else «البند N» (older orders have no names). */
+export function itemLabel(position: number, name?: string | null): string {
+  return name?.trim() ? name.trim() : `البند ${position}`;
+}
+
+/** A design's display name: its own name, else «رسمة N». */
+export function designLabel(position: number, name?: string | null): string {
+  return name?.trim() ? name.trim() : `رسمة ${position}`;
+}
+
+/** "الصدر، الظهر، تحت الرقبة" — fixed placements in their usual order, then custom ones. */
+export function placementsText(placements: readonly string[], custom: readonly string[] = []): string {
+  const fixed = PLACEMENTS.filter((p) => placements.includes(p)).map((p) => PLACEMENT_LABELS[p]);
+  return [...fixed, ...custom].join("، ");
+}

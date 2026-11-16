@@ -6,6 +6,7 @@ const row = (o: Partial<DeliveryRow> & { quantity: number; deliveredAt: string }
   id: `d${String(++n).padStart(4, "0")}`,
   groupId: "g1",
   groupPosition: 1,
+  groupLabel: "البند 1",
   sizeLabel: null,
   sizePosition: null,
   createdAt: new Date(`${o.deliveredAt}T10:00:00.${String(n % 1000).padStart(3, "0")}Z`),
@@ -101,10 +102,10 @@ describe("buildDeliveryHistory", () => {
       { id: "g1", position: 1, quantity: 40 },
       { id: "g2", position: 2, quantity: 30 },
     ];
-    const partial = buildDeliveryHistory(groups, [row({ quantity: 40, deliveredAt: "2026-11-10" }), row({ groupId: "g2", groupPosition: 2, quantity: 20, deliveredAt: "2026-11-11" })]);
+    const partial = buildDeliveryHistory(groups, [row({ quantity: 40, deliveredAt: "2026-11-10" }), row({ groupId: "g2", groupPosition: 2, groupLabel: "البند 2", quantity: 20, deliveredAt: "2026-11-11" })]);
     expect(partial).toMatchObject({ total: 70, delivered: 60, remaining: 10, status: "partial" });
     expect(partial.entries.map((e) => e.groupPosition)).toEqual([1, 2]);
-    const done = buildDeliveryHistory(groups, [row({ quantity: 40, deliveredAt: "2026-11-10" }), row({ groupId: "g2", groupPosition: 2, quantity: 30, deliveredAt: "2026-11-11" })]);
+    const done = buildDeliveryHistory(groups, [row({ quantity: 40, deliveredAt: "2026-11-10" }), row({ groupId: "g2", groupPosition: 2, groupLabel: "البند 2", quantity: 30, deliveredAt: "2026-11-11" })]);
     expect(done.status).toBe("complete");
   });
 
@@ -120,6 +121,6 @@ describe("buildDeliveryHistory", () => {
   it("flags records that exceed a group's quantity instead of hiding them", () => {
     const h = buildDeliveryHistory([{ id: "g1", position: 1, quantity: 10 }], [row({ quantity: 12, deliveredAt: "2026-11-01" })]);
     expect(h.remaining).toBe(-2);
-    expect(h.overDeliveredGroups).toEqual([1]);
+    expect(h.overDeliveredGroups).toEqual(["البند 1"]);
   });
 });

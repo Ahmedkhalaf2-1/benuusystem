@@ -14,6 +14,7 @@ import {
   type RecordOrderCostPayload,
 } from "@/lib/validations/finance";
 import { toFieldErrors } from "@/lib/validations/utils";
+import { lockOrder } from "@/server/repositories/order-repository";
 import { lockPayable, paidByCostIds, sumPaidFor } from "@/server/repositories/payable-repository";
 import { isUniqueViolation } from "@/server/repositories/prisma-errors";
 import type { Actor } from "./actor";
@@ -67,6 +68,8 @@ export async function recordOrderCost(
 
   try {
     return await db.$transaction(async (tx) => {
+      // Order lock: serializes with archiving (an archived order counts as missing).
+      if (!(await lockOrder(tx, input.orderId))) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
       const order = await tx.order.findUnique({ where: { id: input.orderId }, select: { id: true, number: true } });
       if (!order) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
 

@@ -34,7 +34,7 @@ export function DeliveryForm({ orderId, unit, groups, today }: { orderId: string
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (pending) return;
-    if (!group) return setErrors({ orderGroupId: "اختار المجموعة" });
+    if (!group) return setErrors({ orderGroupId: "اختار البند" });
     setMessage(undefined);
     startTransition(async () => {
       const sized = group.sizes.length > 0;
@@ -80,8 +80,8 @@ export function DeliveryForm({ orderId, unit, groups, today }: { orderId: string
       {withStock.length > 1 && (
         <FlowCard>
           <ChoiceCards
-            label="المجموعة"
-            options={withStock.map((g) => ({ value: g.id, label: `مجموعة ${g.position}: ${g.description} — جاهز ${formatNumber(available(g))} ${u}` }))}
+            label="البند"
+            options={withStock.map((g) => ({ value: g.id, label: `${g.label}: ${g.description} — جاهز ${formatNumber(available(g))} ${u}` }))}
             value={groupId}
             onChange={(id) => {
               setGroupId(id);

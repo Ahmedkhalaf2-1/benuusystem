@@ -5,6 +5,7 @@ import { dateToString, isValidDateString } from "@/lib/dates";
 import { buildStatement, inPeriod, orderBalance, totalsFor, type DocOrder, type Period, type Statement } from "@/lib/documents/customer-account";
 import { buildDeliveryHistory, type DeliveryHistory } from "@/lib/documents/delivery-history";
 import { AppError } from "@/lib/errors";
+import { designLabel, itemLabel, placementsText } from "@/lib/orders/labels";
 import { toCents } from "@/lib/money";
 import type { Actor } from "./actor";
 
@@ -55,7 +56,20 @@ export type InvoiceData = {
     payments: (DocOrder["payments"][number] & { method: PaymentMethod })[];
   };
   customer: { name: string; phone: string | null };
-  groups: { position: number; quantity: number; material: string; operations: PrintOperation[]; sizes: { label: string; quantity: number }[] }[];
+  /** "PER_ITEM": each item has a unit price and line total; "ORDER_TOTAL": one agreed total (older orders). */
+  pricing: "PER_ITEM" | "ORDER_TOTAL";
+  groups: {
+    position: number;
+    label: string;
+    quantity: number;
+    material: string;
+    operations: PrintOperation[];
+    sizes: { label: string; quantity: number }[];
+    unitPrice: bigint | null;
+    lineTotal: bigint | null;
+    /** Customer-facing design lines: "AUC Logo — DTF — الصدر، الظهر" (no workload figures). */
+    designs: { label: string; operation: PrintOperation; placements: string; quantity: number }[];
+  }[];
   balance: ReturnType<typeof orderBalance>;
   voidedPayments: number;
   /** Physical deliveries — independent of the money figures above. */
@@ -67,7 +81,7 @@ export async function getOrderInvoiceData(db: DbClient, actor: Actor, orderId: s
   guard(actor);
   if (!UUID.test(orderId)) return null;
   const o = await db.order.findUnique({
-    where: { id: orderId },
+    where: { id: orderId, archivedAt: null },
     select: {
       id: true,
       number: true,
@@ -80,10 +94,21 @@ export async function getOrderInvoiceData(db: DbClient, actor: Actor, orderId: s
       receivedDate: true,
       deliveryDate: true,
       status: true,
+      pricing: true,
       customer: { select: { name: true, phone: true } },
       groups: {
         orderBy: { position: "asc" },
-        select: { id: true, position: true, quantity: true, material: true, operations: { select: { operation: true } }, sizes: { orderBy: { position: "asc" }, select: { label: true, quantity: true } } },
+        select: {
+          id: true,
+          position: true,
+          name: true,
+          quantity: true,
+          material: true,
+          unitPrice: true,
+          operations: { select: { operation: true } },
+          sizes: { orderBy: { position: "asc" }, select: { label: true, quantity: true } },
+          designs: { orderBy: { position: "asc" }, select: { position: true, name: true, operation: true, placements: true, customPlacements: true, quantity: true } },
+        },
       },
       deliveries: {
         select: {
@@ -94,7 +119,7 @@ export async function getOrderInvoiceData(db: DbClient, actor: Actor, orderId: s
           recordedById: true,
           notes: true,
           voidedAt: true,
-          orderGroup: { select: { id: true, position: true } },
+          orderGroup: { select: { id: true, position: true, name: true } },
           orderGroupSize: { select: { label: true, position: true } },
         },
       },
@@ -121,17 +146,32 @@ export async function getOrderInvoiceData(db: DbClient, actor: Actor, orderId: s
     generatedAt: new Date(),
     order,
     customer: o.customer,
-    groups: o.groups.map((g) => ({ position: g.position, quantity: g.quantity, material: g.material, operations: g.operations.map((x) => x.operation), sizes: g.sizes })),
+    pricing: o.pricing,
+    groups: o.groups.map((g) => {
+      const unitPrice = o.pricing === "PER_ITEM" && g.unitPrice !== null ? toCents(g.unitPrice) : null;
+      return {
+        position: g.position,
+        label: itemLabel(g.position, g.name),
+        quantity: g.quantity,
+        material: g.material,
+        operations: g.operations.map((x) => x.operation),
+        sizes: g.sizes,
+        unitPrice,
+        lineTotal: unitPrice === null ? null : unitPrice * BigInt(g.quantity),
+        designs: g.designs.map((d) => ({ label: designLabel(d.position, d.name), operation: d.operation, placements: placementsText(d.placements, d.customPlacements), quantity: d.quantity })),
+      };
+    }),
     balance: orderBalance(order),
     voidedPayments: o.payments.length - payments.length,
     deliveries: buildDeliveryHistory(
-      o.groups.map((g) => ({ id: g.id, position: g.position, quantity: g.quantity })),
+      o.groups.map((g) => ({ id: g.id, position: g.position, quantity: g.quantity, label: itemLabel(g.position, g.name) })),
       o.deliveries
         .filter((d) => d.voidedAt === null)
         .map((d) => ({
           id: d.id,
           groupId: d.orderGroup.id,
           groupPosition: d.orderGroup.position,
+          groupLabel: itemLabel(d.orderGroup.position, d.orderGroup.name),
           sizeLabel: d.orderGroupSize?.label ?? null,
           sizePosition: d.orderGroupSize?.position ?? null,
           quantity: d.quantity,
@@ -161,6 +201,7 @@ async function loadCustomerOrders(db: DbClient, customerId: string): Promise<{ c
       name: true,
       phone: true,
       orders: {
+        where: { archivedAt: null },
         orderBy: [{ receivedDate: "asc" }, { number: "asc" }],
         select: { id: true, number: true, title: true, productType: true, status: true, totalPrice: true, receivedDate: true, payments: { select: PAYMENT_SELECT } },
       },

@@ -140,7 +140,7 @@ describe.skipIf(!hasTestDatabase)("garment sizes (PostgreSQL)", () => {
       order([{ quantity: "100", operations: ["DTF"], sizes: [{ label: "S", quantity: "50" }, { label: "M", quantity: "30" }] }, { quantity: "100", operations: ["EMBROIDERY"], sizes: [{ label: "S", quantity: "100" }] }], "200"),
     ).rejects.toMatchObject({ fieldErrors: { "groups.0.sizes": ["لسه 20 قطعة محتاجة توزيع على المقاسات"] } });
     await expect(order([{ operations: ["DTF"], sizes: [{ label: "S", quantity: "60" }] }], "50")).rejects.toMatchObject({
-      fieldErrors: { "groups.0.sizes": ["المقاسات زيادة 10 قطعة عن كمية المجموعة"] },
+      fieldErrors: { "groups.0.sizes": ["المقاسات زيادة 10 قطعة عن كمية البند"] },
     });
     await expect(order([{ operations: ["DTF"], sizes: [] }], "50")).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });

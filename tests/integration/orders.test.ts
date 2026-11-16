@@ -192,7 +192,7 @@ describe.skipIf(!hasTestDatabase)("customers & orders (PostgreSQL)", () => {
       ),
     ).rejects.toMatchObject({
       code: "VALIDATION_ERROR",
-      fieldErrors: { groups: ["مجموع كميات المجموعات (150) لازم يساوي الكمية المطلوبة (200)"] },
+      fieldErrors: { groups: ["مجموع كميات البنود (150) لازم يساوي الكمية المطلوبة (200)"] },
     });
     expect(await db.order.count()).toBe(0);
   });

@@ -241,8 +241,9 @@ export async function getReceivables(db: DbClient, actor: Actor, opts: { q?: str
     FROM orders o
     JOIN customers c ON c.id = o.customer_id
     LEFT JOIN (SELECT order_id, SUM(amount) AS paid FROM order_payments WHERE voided_at IS NULL GROUP BY order_id) p ON p.order_id = o.id
-    WHERE (o.status <> 'CANCELLED' AND o.total_price <> COALESCE(p.paid, 0))
-       OR (o.status = 'CANCELLED' AND COALESCE(p.paid, 0) > 0)`;
+    WHERE o.archived_at IS NULL
+      AND ((o.status <> 'CANCELLED' AND o.total_price <> COALESCE(p.paid, 0))
+       OR (o.status = 'CANCELLED' AND COALESCE(p.paid, 0) > 0))`;
 
   const open: Receivable[] = [];
   const needsDecision: (Receivable & { reason: "cancelled-with-payments" | "overpaid" })[] = [];
@@ -454,6 +455,7 @@ export async function getOrderContributions(
   assertPermission(actor, "labor:view");
   const orders = await db.order.findMany({
     where: {
+      archivedAt: null,
       ...(opts.orderIds ? { id: { in: opts.orderIds } } : {}),
       ...(opts.range ? { receivedDate: between(opts.range) } : {}),
       ...(opts.status === "open" ? { status: { in: ["NEW", "IN_PROGRESS"] } } : opts.status === "completed" ? { status: "COMPLETED" } : {}),

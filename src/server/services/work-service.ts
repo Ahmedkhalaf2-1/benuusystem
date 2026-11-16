@@ -15,6 +15,7 @@ import {
 } from "@/lib/validations/workers";
 import { WORK_TYPE_TO_OPERATION, WORK_UNIT_LABELS } from "@/lib/workers/labels";
 import { isUniqueViolation } from "@/server/repositories/prisma-errors";
+import { lockOrder } from "@/server/repositories/order-repository";
 import { lockWorker } from "@/server/repositories/worker-repository";
 import type { Actor } from "./actor";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
@@ -143,7 +144,8 @@ export async function recordWorkLog(db: PrismaClient, actor: Actor, payload: Rec
         throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { orderId: ["اختار الأوردر"] } });
       }
       if (input.orderId) {
-        const order = await tx.order.findUnique({ where: { id: input.orderId }, select: { status: true } });
+        // Order lock after the worker lock (same order as production writes); archived = missing.
+        const order = (await lockOrder(tx, input.orderId)) ? await tx.order.findUnique({ where: { id: input.orderId }, select: { status: true } }) : null;
         if (!order) throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { orderId: ["الأوردر مش موجود"] } });
         if (order.status === "CANCELLED") {
           throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { orderId: ["الأوردر ده ملغي"] } });
@@ -151,7 +153,7 @@ export async function recordWorkLog(db: PrismaClient, actor: Actor, payload: Rec
         if (input.orderGroupId) {
           const group = await tx.orderGroup.findUnique({ where: { id: input.orderGroupId }, select: { orderId: true } });
           if (!group || group.orderId !== input.orderId) {
-            throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { orderGroupId: ["المجموعة دي مش تبع الأوردر ده"] } });
+            throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { orderGroupId: ["البند ده مش تبع الأوردر ده"] } });
           }
         }
       }

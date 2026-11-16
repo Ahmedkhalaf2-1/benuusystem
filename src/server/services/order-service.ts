@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
-import type { OrderStatus, PaymentMethod, PrintOperation, QuantityUnit, WorkUnit } from "@/generated/prisma/enums";
+import type { OrderPricing, OrderStatus, PaymentMethod, PrintOperation, QuantityUnit, WorkUnit } from "@/generated/prisma/enums";
 import { assertPermission, hasPermission } from "@/lib/auth/permissions";
 import type { DbClient, DbTransaction } from "@/lib/db/prisma";
 import { dateFromString, dateToString, todayDateString } from "@/lib/dates";
 import { AppError } from "@/lib/errors";
-import { centsToDecimalString, formatMoney, toCents } from "@/lib/money";
+import { centsToDecimalString, formatMoney, toCents, type Cents } from "@/lib/money";
 import { normalizeDigits } from "@/lib/numbers";
-import { OPEN_ORDER_STATUSES, OPERATION_LABELS, describeOperations } from "@/lib/orders/labels";
+import { OPEN_ORDER_STATUSES, OPERATION_LABELS, describeOperations, designLabel, itemLabel } from "@/lib/orders/labels";
 import {
   createOrderSchema,
   updateOrderSchema,
@@ -71,15 +71,102 @@ async function resolveCustomerId(
   return choice.id;
 }
 
+/** The new per-item columns, as stored. */
+function itemFields(group: { name: string | null; unitPrice: Cents | null; pressesPerUnit: number | null }) {
+  return {
+    name: group.name,
+    unitPrice: group.unitPrice === null ? null : centsToDecimalString(group.unitPrice),
+    pressesPerUnit: group.pressesPerUnit,
+  };
+}
+
 function groupsCreateData(groups: CreateOrderInput["groups"]) {
   return groups.map((group, index) => ({
     position: index + 1,
     quantity: group.quantity,
     material: group.material,
     notes: group.notes,
+    ...itemFields(group),
     operations: { create: group.operations.map((operation) => ({ operation })) },
     sizes: { create: group.sizes.map((size, i) => ({ label: size.label, quantity: size.quantity, position: i + 1 })) },
+    designs: { create: group.designs.map((design, i) => designData(design, i)) },
   }));
+}
+
+type DesignInput = CreateOrderInput["groups"][number]["designs"][number];
+
+function designData(design: DesignInput, index: number) {
+  return {
+    position: index + 1,
+    name: design.name,
+    operation: design.operation,
+    placements: design.placements,
+    customPlacements: design.customPlacements,
+    quantity: design.quantity,
+    pressesPerUnit: design.pressesPerUnit,
+    notes: design.notes,
+  };
+}
+
+/**
+ * Applies edited designs of one item IN PLACE (ids kept, so their production
+ * records stay attached). Refuses edits that would rewrite recorded work:
+ * removing a design with progress, changing its operation after work was
+ * recorded, or cutting its quantity below the pieces already done. An older
+ * item whose progress was recorded at item level is never split into designs
+ * (that history can't be assigned to a design truthfully).
+ */
+async function applyDesignChanges(tx: DbTransaction, groupId: string, groupIndex: number, designs: DesignInput[]) {
+  const existing = await tx.orderGroupDesign.findMany({ where: { orderGroupId: groupId }, select: { id: true, position: true, operation: true, name: true } });
+  const field = (d: number, key: string) => `groups.${groupIndex}.designs.${d}.${key}`;
+
+  if (existing.length === 0 && designs.length > 0) {
+    const itemLevel = await tx.productionStageProgress.count({ where: { orderGroupId: groupId, designId: null } });
+    if (itemLevel > 0) {
+      throw new AppError("CONFLICT", `البند ${groupIndex + 1} عليه إنتاج متسجل على البند كله — مينفعش يتقسم لرسومات. سيبه زي ما هو أو أضف بند جديد.`);
+    }
+  }
+
+  const byId = new Map(existing.map((d) => [d.id, d]));
+  const kept = new Set<string>();
+  designs.forEach((d, i) => {
+    if (!d.id) return;
+    if (!byId.has(d.id) || kept.has(d.id)) {
+      throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { [field(i, "name")]: ["الرسمة دي مش تبع البند ده. افتح صفحة التعديل من جديد."] } });
+    }
+    kept.add(d.id);
+  });
+
+  const progress = await tx.productionStageProgress.groupBy({ by: ["designId"], where: { orderGroupId: groupId, designId: { not: null }, voidedAt: null }, _sum: { quantity: true } });
+  const anyRows = await tx.productionStageProgress.groupBy({ by: ["designId"], where: { orderGroupId: groupId, designId: { not: null } }, _count: { _all: true } });
+  const done = new Map(progress.map((r) => [r.designId!, r._sum.quantity ?? 0]));
+  const hasRows = new Set(anyRows.map((r) => r.designId!));
+
+  const removed = existing.filter((d) => !kept.has(d.id));
+  const blocked = removed.filter((d) => hasRows.has(d.id));
+  if (blocked.length > 0) {
+    throw new AppError("CONFLICT", `${blocked.map((d) => designLabel(d.position, d.name)).join("، ")} عليها إنتاج متسجل ومينفعش تتشال.`);
+  }
+  designs.forEach((d, i) => {
+    if (!d.id) return;
+    const before = byId.get(d.id)!;
+    if (before.operation !== d.operation && hasRows.has(d.id)) {
+      throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { [field(i, "operation")]: ["مينفعش تغيّر نوع شغل رسمة اتسجل عليها إنتاج"] } });
+    }
+    const already = done.get(d.id) ?? 0;
+    if (d.quantity < already) {
+      throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { [field(i, "quantity")]: [`مينفعش تقل عن اللي اتعمل فعلًا (${already})`] } });
+    }
+  });
+
+  for (const d of existing.filter((x) => kept.has(x.id))) {
+    await tx.orderGroupDesign.update({ where: { id: d.id }, data: { position: d.position + 1000 } });
+  }
+  if (removed.length > 0) await tx.orderGroupDesign.deleteMany({ where: { id: { in: removed.map((d) => d.id) } } });
+  for (const [i, d] of designs.entries()) {
+    if (d.id) await tx.orderGroupDesign.update({ where: { id: d.id }, data: designData(d, i) });
+    else await tx.orderGroupDesign.create({ data: { ...designData(d, i), orderGroupId: groupId } });
+  }
 }
 
 /**
@@ -188,6 +275,7 @@ export async function createOrder(
           quantity: input.quantity,
           unit: input.unit,
           totalPrice: centsToDecimalString(input.totalPrice),
+          pricing: input.pricing === "items" ? "PER_ITEM" : "ORDER_TOTAL",
           receivedDate: dateFromString(input.receivedDate),
           deliveryDate: dateFromString(input.deliveryDate),
           notes: input.notes,
@@ -208,7 +296,14 @@ export async function createOrder(
           customerId,
           quantity: input.quantity,
           totalPrice: centsToDecimalString(input.totalPrice),
-          groups: input.groups.map((g) => ({ quantity: g.quantity, operations: g.operations })),
+          pricing: input.pricing,
+          groups: input.groups.map((g) => ({
+            name: g.name,
+            quantity: g.quantity,
+            operations: g.operations,
+            unitPrice: g.unitPrice === null ? null : centsToDecimalString(g.unitPrice),
+            pressesPerUnit: g.pressesPerUnit,
+          })),
         },
       });
 
@@ -263,18 +358,46 @@ export function parseUpdateOrder(payload: UpdateOrderPayload): UpdateOrderInput 
   return parsed.data;
 }
 
-type GroupSnapshot = { id: string | null; quantity: number; material: string; notes: string | null; operations: PrintOperation[]; sizes: string[] };
+type GroupSnapshot = {
+  id: string | null;
+  name: string | null;
+  quantity: number;
+  material: string;
+  notes: string | null;
+  operations: PrintOperation[];
+  sizes: string[];
+  unitPrice: string | null;
+  pressesPerUnit: number | null;
+  designs: string[];
+};
 
 function snapshotGroups(
-  groups: { id?: string | null; quantity: number; material: string; notes?: string | null; operations: PrintOperation[]; sizes?: { label: string; quantity: number }[] }[],
+  groups: {
+    id?: string | null;
+    name?: string | null;
+    quantity: number;
+    material: string;
+    notes?: string | null;
+    operations: PrintOperation[];
+    sizes?: { label: string; quantity: number }[];
+    unitPrice?: Cents | null;
+    pressesPerUnit?: number | null;
+    designs?: { id?: string | null; name: string | null; operation: PrintOperation; placements: string[]; customPlacements: string[]; quantity: number; pressesPerUnit: number | null; notes: string | null }[];
+  }[],
 ): GroupSnapshot[] {
   return groups.map((g) => ({
     id: g.id ?? null,
+    name: g.name ?? null,
     quantity: g.quantity,
     material: g.material,
     notes: g.notes ?? null,
     operations: [...g.operations].sort(),
     sizes: (g.sizes ?? []).map((x) => `${x.label}:${x.quantity}`),
+    unitPrice: g.unitPrice === undefined || g.unitPrice === null ? null : centsToDecimalString(g.unitPrice),
+    pressesPerUnit: g.pressesPerUnit ?? null,
+    designs: (g.designs ?? []).map((d) =>
+      [d.id ?? "new", d.name ?? "", d.operation, [...d.placements].sort().join("+"), d.customPlacements.join("+"), d.quantity, d.pressesPerUnit ?? "", d.notes ?? ""].join("|"),
+    ),
   }));
 }
 
@@ -348,7 +471,8 @@ async function applyGroupChanges(
   const production = new Map((await loadGroupProgress(tx, orderId)).map((g) => [g.id, g]));
   groups.forEach((g, index) => {
     const p = g.id ? production.get(g.id) : undefined;
-    const produced = p ? Math.max(p.ready, ...Object.values(p.stage).map((v) => v ?? 0)) : 0;
+    // Physical pieces already worked on (designs on the same pieces are not added).
+    const produced = p ? p.worked : 0;
     const done = Math.max(g.id ? (committed.get(g.id) ?? 0) : 0, produced);
     if (g.quantity < done) {
       throw new AppError("VALIDATION_ERROR", undefined, {
@@ -366,7 +490,7 @@ async function applyGroupChanges(
     await tx.orderGroup.deleteMany({ where: { id: { in: removed.map((g) => g.id) } } });
   }
   for (const [index, g] of groups.entries()) {
-    const data = { position: index + 1, quantity: g.quantity, material: g.material, notes: g.notes ?? null };
+    const data = { position: index + 1, quantity: g.quantity, material: g.material, notes: g.notes ?? null, ...itemFields(g) };
     if (g.id) {
       await tx.orderGroup.update({ where: { id: g.id }, data });
       // Change only what changed, so steps with recorded progress keep their rows.
@@ -392,6 +516,7 @@ async function applyGroupChanges(
         await tx.orderGroupOperation.createMany({ data: toAdd.map((operation) => ({ groupId: g.id!, operation })) });
       }
       await applySizeChanges(tx, g.id, index, g.sizes);
+      await applyDesignChanges(tx, g.id, index, g.designs);
     } else {
       await tx.orderGroup.create({
         data: {
@@ -399,6 +524,7 @@ async function applyGroupChanges(
           orderId,
           operations: { create: g.operations.map((operation) => ({ operation })) },
           sizes: { create: g.sizes.map((size, i) => ({ label: size.label, quantity: size.quantity, position: i + 1 })) },
+          designs: { create: g.designs.map((design, i) => designData(design, i)) },
         },
       });
     }
@@ -433,6 +559,7 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
         quantity: true,
         unit: true,
         totalPrice: true,
+        pricing: true,
         receivedDate: true,
         deliveryDate: true,
         notes: true,
@@ -446,6 +573,13 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
             quantity: true,
             material: true,
             notes: true,
+            name: true,
+            unitPrice: true,
+            pressesPerUnit: true,
+            designs: {
+              orderBy: { position: "asc" },
+              select: { id: true, name: true, operation: true, placements: true, customPlacements: true, quantity: true, pressesPerUnit: true, notes: true },
+            },
             operations: { select: { operation: true } },
             sizes: { orderBy: { position: "asc" }, select: { id: true, label: true, quantity: true } },
           },
@@ -462,9 +596,27 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
       throw new AppError("CONFLICT", "الأوردر ده مكتمل ومينفعش يتعدل");
     }
 
+    // Pricing mode: an itemized order never goes back to a single total; an
+    // order-total (older) order is converted only by the owner, and if the
+    // item prices change its agreed total that must be confirmed explicitly.
+    const converting = before.pricing === "ORDER_TOTAL" && input.pricing === "items";
+    if (before.pricing === "PER_ITEM" && input.pricing !== "items") {
+      throw new AppError("CONFLICT", "الأوردر ده متسعر بالبند — عدّل أسعار البنود.");
+    }
+    if (converting && !hasPermission(actor, "orders:edit-price")) {
+      throw new AppError("FORBIDDEN", "تحويل الأوردر لتسعير بالبند للمدير بس");
+    }
+
     const paid = await sumValidPayments(tx, input.orderId);
     const oldPrice = toCents(before.totalPrice);
     const priceChanged = oldPrice !== input.totalPrice;
+    if (converting && priceChanged && !input.confirmPriceChange) {
+      throw new AppError("VALIDATION_ERROR", undefined, {
+        fieldErrors: {
+          confirmPriceChange: [`مجموع أسعار البنود ${formatMoney(input.totalPrice)} مختلف عن السعر المتفق عليه ${formatMoney(oldPrice)}. أكّد تعديل السعر.`],
+        },
+      });
+    }
     if (priceChanged) {
       if (!hasPermission(actor, "orders:edit-price")) {
         throw new AppError("FORBIDDEN", "تعديل سعر الأوردر للمدير بس");
@@ -504,7 +656,11 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
     const customerId = await resolveCustomerId(tx, actor, input.customer);
 
     const beforeGroups = snapshotGroups(
-      before.groups.map((g) => ({ ...g, operations: g.operations.map((o) => o.operation) })),
+      before.groups.map((g) => ({
+        ...g,
+        operations: g.operations.map((o) => o.operation),
+        unitPrice: g.unitPrice === null ? null : toCents(g.unitPrice),
+      })),
     );
     const afterGroups = snapshotGroups(input.groups);
     const groupsChanged = JSON.stringify(beforeGroups) !== JSON.stringify(afterGroups);
@@ -550,12 +706,28 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
         quantity: input.quantity,
         unit: input.unit,
         totalPrice: centsToDecimalString(input.totalPrice),
+        pricing: input.pricing === "items" ? "PER_ITEM" : "ORDER_TOTAL",
         receivedDate: dateFromString(input.receivedDate),
         deliveryDate: dateFromString(input.deliveryDate),
         notes: input.notes ?? null,
         status: input.status,
       },
     });
+    if (converting) {
+      await recordAudit(tx, {
+        userId: actor.id,
+        action: AUDIT_ACTIONS.ORDER_PRICING_CONVERTED,
+        entityType: "Order",
+        entityId: input.orderId,
+        metadata: {
+          number: before.number,
+          totalBefore: centsToDecimalString(oldPrice),
+          totalAfter: centsToDecimalString(input.totalPrice),
+          priceChangeConfirmed: priceChanged,
+          items: afterGroups.map((g) => ({ name: g.name, quantity: g.quantity, unitPrice: g.unitPrice })),
+        },
+      });
+    }
 
     if (Object.keys(changes).length > 0) {
       await recordAudit(tx, {
@@ -577,6 +749,7 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
           from: centsToDecimalString(oldPrice),
           to: centsToDecimalString(input.totalPrice),
           paidAtChange: centsToDecimalString(paid),
+          ...(converting ? { reason: "conversion to item pricing" } : {}),
         },
       });
     }
@@ -598,7 +771,8 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
 
 // ───────────────────────────── Read ─────────────────────────────
 
-export type OrderStatusFilter = "all" | "open" | "overdue" | OrderStatus;
+/** "archived": owner review of removed orders; every other filter hides them. */
+export type OrderStatusFilter = "all" | "open" | "overdue" | "archived" | OrderStatus;
 export type OrderSort = "newest" | "oldest" | "delivery";
 export const ORDERS_PAGE_SIZE = 20;
 
@@ -606,9 +780,12 @@ function orderListWhere(query: string, status: OrderStatusFilter): Prisma.OrderW
   const and: Prisma.OrderWhereInput[] = [];
   const today = dateFromString(todayDateString());
 
-  if (status === "open") and.push({ status: { in: [...OPEN_ORDER_STATUSES] } });
+  and.push(status === "archived" ? { archivedAt: { not: null } } : { archivedAt: null });
+  if (status === "archived" || status === "all") {
+    // no status condition
+  } else if (status === "open") and.push({ status: { in: [...OPEN_ORDER_STATUSES] } });
   else if (status === "overdue") and.push({ status: { in: [...OPEN_ORDER_STATUSES] }, deliveryDate: { lt: today } });
-  else if (status !== "all") and.push({ status });
+  else and.push({ status });
 
   const q = normalizeDigits(query).trim();
   if (q) {
@@ -638,6 +815,8 @@ export async function listOrders(
   actor: Actor,
   options: { query?: string; status?: OrderStatusFilter; sort?: OrderSort; page?: number },
 ): Promise<{ items: OrderSummary[]; total: number; page: number; pageCount: number }> {
+  // Removed orders are listed for the owner only.
+  if (options.status === "archived") assertPermission(actor, "orders:archive");
   assertPermission(actor, "orders:view");
   const where = orderListWhere(options.query ?? "", options.status ?? "all");
   const total = await db.order.count({ where });
@@ -675,20 +854,54 @@ export type OrderPaymentView = {
   voided: null | { at: Date; byName: string; reason: string };
 };
 
+export type OrderDesignView = {
+  id: string;
+  position: number;
+  name: string | null;
+  label: string;
+  operation: PrintOperation;
+  placements: string[];
+  customPlacements: string[];
+  /** Pieces of the item that get this design (work, not extra pieces). */
+  quantity: number;
+  pressesPerUnit: number | null;
+  /** quantity × pressesPerUnit; null when presses weren't planned. */
+  plannedPresses: number | null;
+  notes: string | null;
+};
+
 export type OrderDetails = OrderSummary & {
   customerPhone: string | null;
   notes: string | null;
   createdByName: string;
+  /** "ORDER_TOTAL" (one agreed price, older orders) or "PER_ITEM". */
+  pricing: OrderPricing;
+  archived: null | { at: Date; byName: string; reason: string };
   groups: {
     id: string;
     position: number;
+    name: string | null;
+    /** «اسم البند» or «البند N». */
+    label: string;
     quantity: number;
     material: string;
     notes: string | null;
     operations: PrintOperation[];
     description: string;
     sizes: { id: string; label: string; quantity: number }[];
+    /** Per-item pricing only (decimal strings). */
+    unitPrice: string | null;
+    lineTotal: string | null;
+    designs: OrderDesignView[];
+    pressesPerUnit: number | null;
+    /** Planned presses for the item (Σ designs, or quantity × item presses); null if not planned. */
+    plannedPresses: number | null;
+    /** Presses recorded in worker output (unit «كبسة») for this item. */
+    recordedPresses: number;
   }[];
+  /** Σ planned presses of the items that have a plan. */
+  plannedPresses: number | null;
+  recordedPresses: number;
   /** True when the order has a size breakdown. */
   sizesEnabled: boolean;
   /** ISO timestamp — sent back by the edit form for stale-edit protection. */
@@ -706,6 +919,10 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
       updatedAt: true,
       customer: { select: { id: true, name: true, phone: true } },
       createdBy: { select: { name: true } },
+      pricing: true,
+      archivedAt: true,
+      archiveReason: true,
+      archivedBy: { select: { name: true } },
       groups: {
         orderBy: { position: "asc" },
         select: {
@@ -714,6 +931,13 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
             quantity: true,
             material: true,
             notes: true,
+            name: true,
+            unitPrice: true,
+            pressesPerUnit: true,
+            designs: {
+              orderBy: { position: "asc" },
+              select: { id: true, position: true, name: true, operation: true, placements: true, customPlacements: true, quantity: true, pressesPerUnit: true, notes: true },
+            },
             operations: { select: { operation: true } },
             sizes: { orderBy: { position: "asc" }, select: { id: true, label: true, quantity: true } },
           },
@@ -742,25 +966,63 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
     .filter((p) => p.voidedAt === null)
     .reduce((sum, p) => sum + toCents(p.amount), 0n);
 
+  // Actual presses come only from worker output recorded in presses for this item.
+  const pressRows = await db.workerWorkLog.groupBy({
+    by: ["orderGroupId"],
+    where: { orderId: order.id, unit: "PRESS", voidedAt: null, orderGroupId: { not: null } },
+    _sum: { quantity: true },
+  });
+  const recordedByGroup = new Map(pressRows.map((r) => [r.orderGroupId!, r._sum.quantity ?? 0]));
+
+  const groups = order.groups.map((g) => {
+    const operations = g.operations.map((o) => o.operation);
+    const designs: OrderDesignView[] = g.designs.map((d) => ({
+      ...d,
+      label: designLabel(d.position, d.name),
+      plannedPresses: d.pressesPerUnit === null ? null : d.quantity * d.pressesPerUnit,
+    }));
+    const planned = designs.length > 0 ? designs.filter((d) => d.plannedPresses !== null) : [];
+    const plannedPresses =
+      designs.length > 0
+        ? planned.length > 0
+          ? planned.reduce((sum, d) => sum + d.plannedPresses!, 0)
+          : null
+        : g.pressesPerUnit === null
+          ? null
+          : g.quantity * g.pressesPerUnit;
+    const unitPrice = g.unitPrice === null ? null : toCents(g.unitPrice);
+    return {
+      id: g.id,
+      position: g.position,
+      name: g.name,
+      label: itemLabel(g.position, g.name),
+      quantity: g.quantity,
+      material: g.material,
+      notes: g.notes,
+      operations,
+      description: describeOperations(operations),
+      sizes: g.sizes,
+      unitPrice: unitPrice === null ? null : centsToDecimalString(unitPrice),
+      lineTotal: unitPrice === null ? null : centsToDecimalString(unitPrice * BigInt(g.quantity)),
+      designs,
+      pressesPerUnit: g.pressesPerUnit,
+      plannedPresses,
+      recordedPresses: recordedByGroup.get(g.id) ?? 0,
+    };
+  });
+  const plannedItems = groups.filter((g) => g.plannedPresses !== null);
+
   return {
     ...toOrderSummary(order, paid),
     customerPhone: order.customer.phone,
     notes: order.notes,
     createdByName: order.createdBy.name,
+    pricing: order.pricing,
+    archived: order.archivedAt && order.archivedBy && order.archiveReason ? { at: order.archivedAt, byName: order.archivedBy.name, reason: order.archiveReason } : null,
     updatedAt: order.updatedAt.toISOString(),
-    groups: order.groups.map((g) => {
-      const operations = g.operations.map((o) => o.operation);
-      return {
-        id: g.id,
-        position: g.position,
-        quantity: g.quantity,
-        material: g.material,
-        notes: g.notes,
-        operations,
-        description: describeOperations(operations),
-        sizes: g.sizes,
-      };
-    }),
+    groups,
+    plannedPresses: plannedItems.length > 0 ? plannedItems.reduce((sum, g) => sum + g.plannedPresses!, 0) : null,
+    recordedPresses: groups.reduce((sum, g) => sum + g.recordedPresses, 0),
     sizesEnabled: order.groups.some((g) => g.sizes.length > 0),
     payments: order.payments.map((p) => ({
       id: p.id,
@@ -813,8 +1075,8 @@ export async function getDashboardStats(db: DbClient, actor: Actor): Promise<Das
 
   const canSeeMoney = hasPermission(actor, "finance:view-summary");
   const [activeOrders, overdueOrders, payments] = await Promise.all([
-    db.order.count({ where: { status: { in: [...OPEN_ORDER_STATUSES] } } }),
-    db.order.count({ where: { status: { in: [...OPEN_ORDER_STATUSES] }, deliveryDate: { lt: todayDate } } }),
+    db.order.count({ where: { archivedAt: null, status: { in: [...OPEN_ORDER_STATUSES] } } }),
+    db.order.count({ where: { archivedAt: null, status: { in: [...OPEN_ORDER_STATUSES] }, deliveryDate: { lt: todayDate } } }),
     canSeeMoney
       ? db.orderPayment.aggregate({
           where: { voidedAt: null, paidAt: { gte: monthStart, lte: todayDate } },
@@ -839,18 +1101,18 @@ export async function getDashboardOverview(db: DbClient, actor: Actor) {
   const today = todayDateString();
   const todayDate = dateFromString(today);
   const soon = dateFromString(new Date(todayDate.getTime() + 3 * 86_400_000).toISOString().slice(0, 10));
-  const open = { status: { in: [...OPEN_ORDER_STATUSES] } } satisfies Prisma.OrderWhereInput;
+  const open = { archivedAt: null, status: { in: [...OPEN_ORDER_STATUSES] } } satisfies Prisma.OrderWhereInput;
   const select = { ...ORDER_SUMMARY_SELECT, customer: { select: { id: true, name: true } } };
 
   const [byStatus, readyRows, attentionRows, recentRows, readyWaitingIds] = await Promise.all([
-    db.order.groupBy({ by: ["status"], _count: { _all: true } }),
+    db.order.groupBy({ by: ["status"], where: { archivedAt: null }, _count: { _all: true } }),
     db.$queryRaw<{ n: number }[]>`
       SELECT count(*)::int AS n FROM orders o
       WHERE o.status IN ('NEW', 'IN_PROGRESS')
         AND COALESCE((SELECT SUM(quantity) FROM production_ready r WHERE r.order_id = o.id AND r.voided_at IS NULL), 0)
           > COALESCE((SELECT SUM(quantity) FROM deliveries d WHERE d.order_id = o.id AND d.voided_at IS NULL), 0)`,
     db.order.findMany({ where: { ...open, deliveryDate: { lte: soon } }, orderBy: [{ deliveryDate: "asc" }, { number: "asc" }], take: 4, select }),
-    db.order.findMany({ orderBy: [{ createdAt: "desc" }, { number: "desc" }], take: 4, select }),
+    db.order.findMany({ where: { archivedAt: null }, orderBy: [{ createdAt: "desc" }, { number: "desc" }], take: 4, select }),
     // Open orders holding finished pieces the customer hasn't received yet.
     db.$queryRaw<{ id: string }[]>`
       SELECT o.id FROM orders o
@@ -925,7 +1187,7 @@ export async function searchOpenOrders(db: DbClient, actor: Actor, query: string
       customer: { select: { name: true } },
       groups: {
         orderBy: { position: "asc" },
-        select: { id: true, position: true, quantity: true, operations: { select: { operation: true } } },
+        select: { id: true, position: true, name: true, quantity: true, operations: { select: { operation: true } } },
       },
     },
   });
@@ -939,6 +1201,7 @@ export async function searchOpenOrders(db: DbClient, actor: Actor, query: string
     groups: o.groups.map((g) => ({
       id: g.id,
       position: g.position,
+      label: itemLabel(g.position, g.name),
       quantity: g.quantity,
       operations: g.operations.map((x) => x.operation),
       description: describeOperations(g.operations.map((x) => x.operation)),

@@ -1,34 +1,24 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { CalendarDays, Check, ChevronDown, Layers, Loader2, Minus, Package, Plus, Printer, Shirt, Smartphone, Trash2, TriangleAlert, User, Wallet, type LucideIcon } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, Layers, Loader2, Package, Plus, Shirt, Smartphone, TriangleAlert, User, Wallet, type LucideIcon } from "lucide-react";
 import { createOrderAction, updateOrderAction } from "@/app/(app)/orders/actions";
 import { Field, FormMessage, NativeSelect, Textarea } from "@/components/forms/field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { OrderStatus, PaymentMethod, PrintOperation, QuantityUnit } from "@/generated/prisma/enums";
+import type { OrderStatus, PaymentMethod, QuantityUnit } from "@/generated/prisma/enums";
 import { formatMoney, parseMoney, toCents } from "@/lib/money";
 import { formatNumber, parseWholeNumber } from "@/lib/numbers";
-import {
-  MATERIAL_SUGGESTIONS,
-  NO_OPERATION_LABEL,
-  OPERATION_LABELS,
-  ORDER_STATUS_LABELS,
-  PAYMENT_METHOD_LABELS,
-  PAYMENT_METHODS,
-  PRINT_OPERATIONS,
-  PRODUCT_SUGGESTIONS,
-  QUANTITY_UNITS,
-  UNIT_LABELS,
-} from "@/lib/orders/labels";
+import { MATERIAL_SUGGESTIONS, ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS, PAYMENT_METHODS, PRODUCT_SUGGESTIONS, QUANTITY_UNITS, UNIT_LABELS } from "@/lib/orders/labels";
 import { isClothingProduct } from "@/lib/orders/sizes";
 import { dateFromString, dateToString, isValidDateString, todayDateString } from "@/lib/dates";
 import { newRequestId } from "@/lib/request-id";
 import { cn } from "@/lib/utils";
 import { createOrderSchema, MAX_ORDER_GROUPS, updateOrderSchema } from "@/lib/validations/order";
 import { CustomerPicker } from "./customer-picker";
-import { newGroupDraft, type GroupDraft, type OrderDraft } from "./order-draft";
-import { SizeGrid } from "./size-grid";
+import { customPlacementsOf, newGroupDraft, type GroupDraft, type OrderDraft } from "./order-draft";
+import { chip, MoneyInput } from "./order-form-parts";
+import { ItemCard, itemLineTotal } from "./order-items";
 
 type Props =
   | { mode: "create"; initial: OrderDraft; materialSuggestions: string[] }
@@ -41,6 +31,8 @@ type Props =
       version: string;
       /** Decimal string of valid payments so far. */
       paid: string;
+      /** Agreed total when the edit screen opened (decimal string). */
+      originalTotal: string;
       canEditPrice: boolean;
       canCancel: boolean;
       orderLabel?: string;
@@ -81,16 +73,6 @@ function Question({
   );
 }
 
-/** A selectable option: violet and lifted when chosen, a soft well when not. */
-function chip(selected: boolean) {
-  return cn(
-    "inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl px-3.5 text-[0.95rem] font-semibold transition-[background-color,box-shadow,color,transform] duration-200 ease-[var(--ease-out-expo)] active:scale-[0.96]",
-    selected
-      ? "bg-brand-solid text-white"
-      : "bg-well text-ink ring-1 ring-hairline hover:ring-violet/40",
-  );
-}
-
 const PRODUCT_ICONS: Record<string, LucideIcon> = { تيشيرت: Shirt, هودي: Shirt, بولو: Shirt, "جراب موبايل": Smartphone };
 
 /** "YYYY-MM-DD" + n days. */
@@ -128,7 +110,7 @@ export function OrderForm(props: Props) {
       ...d,
       groups: d.groups.map((g, i) => (i === index ? { ...g, ...(typeof patch === "function" ? patch(g) : patch) } : g)),
     }));
-    setErrors((e) => ({ ...e, groups: "", [`groups.${index}.operations`]: "", [`groups.${index}.quantity`]: "", [`groups.${index}.sizes`]: "" }));
+    setErrors((e) => Object.fromEntries(Object.entries(e).filter(([k]) => k !== "groups" && k !== "totalPrice" && !k.startsWith(`groups.${index}.`))));
   };
 
   /** Product type changes suggest the size breakdown — until the employee flips the switch themselves. */
@@ -145,18 +127,37 @@ export function OrderForm(props: Props) {
     setErrors((e) => (e.productType ? { ...e, productType: "" } : e));
   }
 
-  const multiple = draft.groups.length > 1;
-  const orderQuantity = parseWholeNumber(draft.quantity);
-  const groupSum = draft.groups.reduce((sum, g) => sum + (parseWholeNumber(g.quantity) ?? 0), 0);
+  const priced = draft.pricing === "items";
+  const itemsCount = draft.groups.length;
+  const pieces = draft.groups.reduce((sum, g) => sum + (parseWholeNumber(g.quantity) ?? 0), 0);
   const unitLabel = UNIT_LABELS[draft.unit];
+  const legacyTotal = props.mode === "edit" ? toCents(props.originalTotal) : null;
 
   const money = useMemo(() => {
-    const total = parseMoney(draft.totalPrice);
-    const already = mode === "edit" ? toCents(props.mode === "edit" ? props.paid : "0") : 0n;
+    // Item pricing: Σ quantity × unit price (the server computes the same and keeps its own).
+    let total: bigint | null = null;
+    if (priced) {
+      total = 0n;
+      for (const g of draft.groups) {
+        const line = itemLineTotal(g);
+        if (line === null) {
+          total = null;
+          break;
+        }
+        total += line;
+      }
+    } else {
+      total = parseMoney(draft.totalPrice);
+    }
+    const already = props.mode === "edit" ? toCents(props.paid) : 0n;
     const advance = mode === "create" ? (draft.advance.trim() === "" ? 0n : parseMoney(draft.advance)) : 0n;
     const paidNow = advance === null ? null : already + advance;
     return { total, paidNow, remaining: total !== null && paidNow !== null ? total - paidNow : null };
-  }, [draft.totalPrice, draft.advance, mode, props]);
+  }, [draft.groups, draft.totalPrice, draft.advance, priced, mode, props]);
+
+  // Converting an order-total order to item pricing with a different sum: an explicit price correction.
+  const converting = props.mode === "edit" && props.initial.pricing === "order" && priced;
+  const conversionChangesPrice = converting && money.total !== null && legacyTotal !== null && money.total !== legacyTotal;
 
   function buildPayload() {
     const customer = draft.customer
@@ -165,23 +166,38 @@ export function OrderForm(props: Props) {
         : { mode: "new" as const, name: draft.customer.name, phone: draft.customer.phone }
       : undefined;
     const common = {
+      pricing: draft.pricing,
       customer: customer as NonNullable<typeof customer>,
       title: draft.title,
       productType: draft.productType,
       material: draft.material,
-      quantity: draft.quantity,
       unit: draft.unit,
       sizesEnabled: draft.sizesEnabled,
       groups: draft.groups.map((g) => ({
         ...(props.mode === "edit" && g.id ? { id: g.id } : {}),
+        name: g.name,
         quantity: g.quantity,
         material: g.material,
-        operations: g.operations,
-        plain: g.plain,
+        ...(priced ? { unitPrice: g.unitPrice } : {}),
+        pressesPerUnit: g.useDesigns ? undefined : g.pressesPerUnit,
+        operations: g.useDesigns ? [] : g.operations,
+        plain: g.useDesigns ? g.designs.length === 0 : g.plain,
+        designs: g.useDesigns
+          ? g.designs.map((d) => ({
+              ...(props.mode === "edit" && d.id ? { id: d.id } : {}),
+              name: d.name,
+              operation: d.operation ?? "",
+              placements: d.placements,
+              customPlacements: customPlacementsOf(d),
+              quantity: d.quantity,
+              pressesPerUnit: d.pressesPerUnit,
+              notes: d.notes,
+            }))
+          : [],
         notes: g.notes,
         sizes: g.sizes.filter((s) => s.quantity.trim() !== ""),
       })),
-      totalPrice: draft.totalPrice,
+      ...(priced ? {} : { totalPrice: draft.totalPrice }),
       receivedDate: draft.receivedDate,
       deliveryDate: draft.deliveryDate,
       notes: draft.notes,
@@ -193,6 +209,7 @@ export function OrderForm(props: Props) {
           orderId: props.orderId,
           expectedUpdatedAt: props.version,
           status: draft.status as "NEW" | "IN_PROGRESS" | "CANCELLED",
+          confirmPriceChange: draft.confirmPriceChange,
         };
   }
 
@@ -231,6 +248,10 @@ export function OrderForm(props: Props) {
       return;
     }
 
+    if (conversionChangesPrice && !draft.confirmPriceChange) {
+      showErrors({ confirmPriceChange: ["أكّد تعديل سعر الأوردر الأول"] }, "مجموع أسعار البنود مختلف عن السعر المتفق عليه.");
+      return;
+    }
     setMessage(undefined);
     startTransition(async () => {
       const result =
@@ -247,8 +268,6 @@ export function OrderForm(props: Props) {
     [props.materialSuggestions],
   );
 
-  const quantityNow = orderQuantity ?? 0;
-  const stepQuantity = (delta: number) => set("quantity", String(Math.max(0, quantityNow + delta)));
   const dueChips = [
     { label: "بكرة", days: 1 },
     { label: "بعد ٣ أيام", days: 3 },
@@ -256,16 +275,15 @@ export function OrderForm(props: Props) {
     { label: "بعد أسبوعين", days: 14 },
   ];
   const from = draft.receivedDate || todayDateString();
-  const sizedGroups = draft.sizesEnabled ? draft.groups.filter((g) => g.sizes.some((sz) => sz.quantity.trim() !== "")).length : 0;
   // Sizes that don't add up yet: said in the save bar, so nobody is surprised by a refused save.
   const sizeIssue = (() => {
     if (!draft.sizesEnabled) return null;
     for (const [i, g] of draft.groups.entries()) {
-      const target = multiple ? parseWholeNumber(g.quantity) : orderQuantity;
+      const target = parseWholeNumber(g.quantity);
       if (!target) continue;
       const sum = g.sizes.reduce((acc, sz) => acc + (parseWholeNumber(sz.quantity) ?? 0), 0);
       if (sum !== target) {
-        const where = multiple ? ` في مجموعة ${i + 1}` : "";
+        const where = itemsCount > 1 ? ` في البند ${i + 1}` : "";
         return {
           grid: `g${i}`,
           text: sum < target ? `لسه ${formatNumber(target - sum)} قطعة من غير مقاس${where}` : `المقاسات زيادة ${formatNumber(sum - target)} قطعة${where}`,
@@ -354,7 +372,7 @@ export function OrderForm(props: Props) {
           />
           {errors.productType && <p className="mt-1.5 text-sm text-red">{errors.productType}</p>}
         </div>
-        <Field label="الخامة" htmlFor="material" error={errors.material}>
+        <Field label="الخامة" htmlFor="material" error={errors.material} hint="لكل البنود، إلا لو اتغيرت جوه البند">
           <Input
             id="material"
             list="material-suggestions"
@@ -364,42 +382,6 @@ export function OrderForm(props: Props) {
             aria-invalid={errors.material ? true : undefined}
           />
         </Field>
-      </Question>
-
-      <Question title="كام قطعة؟" id="q-quantity" icon={Layers} hue="bg-brand-soft text-brand-ink">
-        <div data-error={errors.quantity ? "true" : undefined}>
-          <div className="flex items-stretch gap-2">
-            <button
-              type="button"
-              onClick={() => stepQuantity(1)}
-              aria-label="زوّد قطعة"
-              className="flex w-14 shrink-0 items-center justify-center rounded-2xl bg-well text-violet ring-1 ring-hairline transition-transform active:scale-90"
-            >
-              <Plus className="size-5" aria-hidden="true" />
-            </button>
-            <label htmlFor="quantity" className="sr-only">
-              الكمية المطلوبة
-            </label>
-            <Input
-              id="quantity"
-              inputMode="numeric"
-              value={draft.quantity}
-              onChange={(e) => set("quantity", e.target.value)}
-              placeholder="0"
-              className="tabular h-16 min-w-0 flex-1 rounded-2xl text-center font-display text-[2rem] font-semibold tracking-[-0.02em] placeholder:text-ink/25"
-              aria-invalid={errors.quantity ? true : undefined}
-            />
-            <button
-              type="button"
-              onClick={() => stepQuantity(-1)}
-              aria-label="قلّل قطعة"
-              className="flex w-14 shrink-0 items-center justify-center rounded-2xl bg-well text-violet ring-1 ring-hairline transition-transform active:scale-90"
-            >
-              <Minus className="size-5" aria-hidden="true" />
-            </button>
-          </div>
-          {errors.quantity && <p className="mt-1.5 text-sm text-red" role="alert">{errors.quantity}</p>}
-        </div>
         <div className="flex items-center justify-between gap-3">
           <label htmlFor="unit" className="text-sm font-semibold">
             الوحدة
@@ -412,11 +394,10 @@ export function OrderForm(props: Props) {
             ))}
           </NativeSelect>
         </div>
-
         <label className="flex min-h-14 cursor-pointer items-center justify-between gap-3 rounded-2xl bg-well px-3.5 py-2">
           <span>
             <span className="block font-semibold">تقسيم بالمقاسات</span>
-            <span className="block text-xs text-graphite">للملابس: كام قطعة من كل مقاس</span>
+            <span className="block text-xs text-graphite">للملابس: كام قطعة من كل مقاس في كل بند</span>
           </span>
           <span className="relative inline-flex">
             <input
@@ -430,136 +411,109 @@ export function OrderForm(props: Props) {
             <span className="absolute top-1 start-1 size-5 rounded-full bg-on-panel transition-transform duration-200 ease-[var(--ease-out-expo)] peer-checked:-translate-x-5" />
           </span>
         </label>
-
-        {draft.sizesEnabled && !multiple && (
-          <SizeGrid
-            idPrefix="g0"
-            sizes={draft.groups[0]!.sizes}
-            target={orderQuantity}
-            unitLabel={unitLabel}
-            error={errors["groups.0.sizes"]}
-            onChange={(sizes) => setGroup(0, { sizes })}
-          />
-        )}
       </Question>
 
-      <Question title="الشغل المطلوب" id="q-work" icon={Printer} hue="bg-brand-soft text-brand-ink">
-        {!multiple && <p className="-mt-2 text-sm text-graphite">ينفع أكتر من نوع على نفس القطعة، والقطعة بتتحسب مرة واحدة.</p>}
-
+      <Question
+        title="البنود"
+        id="q-items"
+        icon={Layers}
+        hue="bg-brand-soft text-brand-ink"
+        aside={<span className="tabular text-sm text-graphite">{formatNumber(itemsCount)} بند · {formatNumber(pieces)} {unitLabel}</span>}
+      >
+        <p className="-mt-2 text-sm text-graphite">كل بند ليه اسمه وكميته وسعره. لو البند عليه أكتر من رسمة (صدر وظهر مثلًا) ضيفها جوه نفس البند.</p>
         {draft.groups.map((group, index) => (
-          <div key={group.key} className={cn(multiple && "space-y-3 rounded-2xl bg-well p-3.5")}>
-            {multiple && (
-              <div className="flex items-center justify-between">
-                <h3 className="font-display text-[1.05rem] font-semibold">
-                  مجموعة <span className="tabular text-violet">{index + 1}</span>
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setDraft((d) => ({ ...d, groups: d.groups.filter((_, i) => i !== index) }))}
-                  className="inline-flex h-10 items-center gap-1 rounded-full px-3 text-sm font-medium text-red hover:bg-red-soft"
-                  aria-label={`حذف مجموعة ${index + 1}`}
-                >
-                  <Trash2 className="size-4" aria-hidden="true" />
-                  حذف
-                </button>
-              </div>
-            )}
-
-            {multiple && (
-              <div className="grid grid-cols-[7rem_1fr] gap-3">
-                <Field label="الكمية" htmlFor={`g${index}-qty`} error={errors[`groups.${index}.quantity`]}>
-                  <Input
-                    id={`g${index}-qty`}
-                    inputMode="numeric"
-                    value={group.quantity}
-                    onChange={(e) => setGroup(index, { quantity: e.target.value })}
-                    className="tabular text-center font-display text-lg font-semibold"
-                    aria-invalid={errors[`groups.${index}.quantity`] ? true : undefined}
-                  />
-                </Field>
-                <Field label="الخامة" htmlFor={`g${index}-mat`}>
-                  <Input
-                    id={`g${index}-mat`}
-                    list="material-suggestions"
-                    value={group.material}
-                    onChange={(e) => setGroup(index, { material: e.target.value })}
-                    placeholder={draft.material || "نفس خامة الأوردر"}
-                  />
-                </Field>
-              </div>
-            )}
-
-            <OperationPicker group={group} error={errors[`groups.${index}.operations`]} onChange={(patch) => setGroup(index, patch)} />
-
-            {multiple && draft.sizesEnabled && (
-              <SizeGrid
-                idPrefix={`g${index}`}
-                sizes={group.sizes}
-                target={parseWholeNumber(group.quantity)}
-                unitLabel={unitLabel}
-                error={errors[`groups.${index}.sizes`]}
-                onChange={(sizes) => setGroup(index, { sizes })}
-              />
-            )}
-
-            {multiple && (
-              <Field label="ملاحظات المجموعة" htmlFor={`g${index}-notes`} optional>
-                <Input id={`g${index}-notes`} value={group.notes} onChange={(e) => setGroup(index, { notes: e.target.value })} placeholder="مثال: لوجو على الضهر" />
-              </Field>
-            )}
-          </div>
+          <ItemCard
+            key={group.key}
+            index={index}
+            count={itemsCount}
+            group={group}
+            priced={priced}
+            priceLocked={props.mode === "edit" && !props.canEditPrice}
+            sizesEnabled={draft.sizesEnabled}
+            unitLabel={unitLabel}
+            defaultMaterial={draft.material}
+            errors={errors}
+            onChange={(patch) => setGroup(index, patch)}
+            onRemove={() => setDraft((d) => ({ ...d, groups: d.groups.filter((_, i) => i !== index) }))}
+          />
         ))}
-
-        {multiple && (
-          <p
-            data-error={errors.groups ? "true" : undefined}
-            className={cn("text-sm font-semibold", orderQuantity !== null && groupSum === orderQuantity ? "text-success-ink" : "text-warning-ink")}
-          >
-            المتوزّع على المجموعات <span className="tabular">{formatNumber(groupSum)}</span> من <span className="tabular">{orderQuantity !== null ? formatNumber(orderQuantity) : "—"}</span>
-            {orderQuantity !== null && groupSum !== orderQuantity && (
-              <span> — {groupSum < orderQuantity ? `فاضل ${formatNumber(orderQuantity - groupSum)}` : `زيادة ${formatNumber(groupSum - orderQuantity)}`}</span>
-            )}
-            {errors.groups && <span className="mt-1 block text-red">{errors.groups}</span>}
-          </p>
-        )}
-
+        {errors.groups && <p className="text-sm text-red" data-error="true">{errors.groups}</p>}
         {draft.groups.length < MAX_ORDER_GROUPS && (
           <button
             type="button"
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-line-strong text-[0.95rem] font-semibold text-violet transition-colors hover:border-violet/50 hover:bg-violet-soft/40"
-            onClick={() =>
-              setDraft((d) => {
-                const groups = d.groups.map((g, i) =>
-                  // Splitting for the first time: the first group starts with the whole quantity.
-                  d.groups.length === 1 && i === 0 && !g.quantity ? { ...g, quantity: d.quantity } : g,
-                );
-                return { ...d, groups: [...groups, newGroupDraft()] };
-              })
-            }
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-line-strong text-[0.95rem] font-semibold text-brand transition-colors hover:bg-brand-soft/40"
+            onClick={() => setDraft((d) => ({ ...d, groups: [...d.groups, newGroupDraft()] }))}
           >
             <Plus className="size-5" aria-hidden="true" />
-            إضافة مجموعة تانية
+            إضافة بند جديد
           </button>
         )}
-        {!multiple && <p className="text-xs text-graphite">لو جزء من الكمية شغله مختلف (مثلًا 100 DTF و 50 تطريز) ضيف مجموعة تانية.</p>}
       </Question>
 
       <Question title="الحساب" id="q-money" icon={Wallet} hue="bg-brand-soft text-brand-ink">
-        <Field
-          label="سعر الأوردر كله"
-          htmlFor="totalPrice"
-          error={errors.totalPrice}
-          hint={props.mode === "edit" && !props.canEditPrice ? "تعديل السعر للمدير بس" : undefined}
-        >
-          <MoneyInput
-            id="totalPrice"
-            value={draft.totalPrice}
-            onChange={(v) => set("totalPrice", v)}
-            invalid={!!errors.totalPrice}
-            disabled={props.mode === "edit" && !props.canEditPrice}
-            large
-          />
-        </Field>
+        {priced ? (
+          <div data-error={errors.totalPrice ? "true" : undefined}>
+            <ul className="divide-y divide-line rounded-2xl bg-well px-3.5 text-sm">
+              {draft.groups.map((g, i) => {
+                const line = itemLineTotal(g);
+                return (
+                  <li key={g.key} className="flex items-baseline justify-between gap-3 py-2">
+                    <span className="min-w-0 truncate">
+                      {g.name.trim() || `البند ${i + 1}`} <span className="tabular text-graphite">{g.quantity || "0"} × {g.unitPrice || "0"}</span>
+                    </span>
+                    <span className="tabular shrink-0 font-semibold">{line !== null ? formatMoney(line) : "—"}</span>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="mt-2 flex items-baseline justify-between px-1">
+              <span className="font-semibold">إجمالي الأوردر</span>
+              <span className="tabular font-display text-2xl font-semibold" data-testid="order-total" aria-live="polite">
+                {money.total !== null ? formatMoney(money.total) : "—"}
+              </span>
+            </p>
+            {errors.totalPrice && <p className="mt-1 text-sm text-red">{errors.totalPrice}</p>}
+            {converting && legacyTotal !== null && (
+              <div className={cn("mt-3 rounded-2xl p-3 text-sm", conversionChangesPrice ? "bg-warning-soft text-warning-ink" : "bg-well text-graphite")} data-error={errors.confirmPriceChange ? "true" : undefined}>
+                <p>السعر المتفق عليه قبل التحويل: <b className="tabular">{formatMoney(legacyTotal)}</b></p>
+                {conversionChangesPrice ? (
+                  <label className="mt-2 flex items-start gap-2 font-semibold">
+                    <input type="checkbox" className="mt-1 size-4" checked={draft.confirmPriceChange} onChange={(e) => set("confirmPriceChange", e.target.checked)} />
+                    أكّد تعديل سعر الأوردر من {formatMoney(legacyTotal)} لـ {money.total !== null ? formatMoney(money.total) : "—"} (هيتسجل كتعديل سعر).
+                  </label>
+                ) : (
+                  <p className="mt-1">مجموع البنود = نفس السعر المتفق عليه ✓</p>
+                )}
+                {errors.confirmPriceChange && <p className="mt-1 text-red">{errors.confirmPriceChange}</p>}
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            <Field
+              label="سعر الأوردر كله"
+              htmlFor="totalPrice"
+              error={errors.totalPrice}
+              hint={props.mode === "edit" && !props.canEditPrice ? "تعديل السعر للمدير بس" : "أوردر قديم متسعّر بسعر إجمالي واحد"}
+            >
+              <MoneyInput id="totalPrice" value={draft.totalPrice} onChange={(v) => set("totalPrice", v)} invalid={!!errors.totalPrice} disabled={props.mode === "edit" && !props.canEditPrice} large />
+            </Field>
+            {props.mode === "edit" && props.canEditPrice && (
+              <button
+                type="button"
+                onClick={() => setDraft((d) => ({ ...d, pricing: "items", confirmPriceChange: false }))}
+                className="flex h-11 w-full items-center justify-center rounded-xl border border-line text-sm font-semibold text-brand hover:bg-brand-soft/40"
+              >
+                تحويل لتسعير بالبند (تكتب سعر القطعة لكل بند)
+              </button>
+            )}
+          </>
+        )}
+        {converting && (
+          <button type="button" onClick={() => setDraft((d) => ({ ...d, pricing: "order", confirmPriceChange: false }))} className="text-sm font-semibold text-graphite underline">
+            رجوع للسعر الإجمالي الواحد
+          </button>
+        )}
 
         {props.mode === "create" && (
           <div className="grid grid-cols-[1fr_auto] items-start gap-3">
@@ -591,10 +545,7 @@ export function OrderForm(props: Props) {
           <div className="flex items-baseline gap-2 py-1.5">
             <dt className="text-sm text-on-panel-muted">المتبقي على العميل</dt>
             <span className="flex-1" aria-hidden="true" />
-            <dd
-              className={cn("tabular font-display text-2xl font-semibold", money.remaining !== null && money.remaining < 0n ? "text-panel-danger" : "text-panel-success")}
-              aria-live="polite"
-            >
+            <dd className={cn("tabular font-display text-2xl font-semibold", money.remaining !== null && money.remaining < 0n ? "text-panel-danger" : "text-panel-success")} aria-live="polite">
               {money.remaining !== null ? formatMoney(money.remaining) : "—"}
             </dd>
           </div>
@@ -655,8 +606,8 @@ export function OrderForm(props: Props) {
         <div className={cn("flex items-center gap-3 rounded-2xl bg-panel py-2 ps-4 pe-2 text-on-panel border border-line transition-shadow", sizeIssue && "ring-2 ring-panel-warning")}>
           <div className="min-w-0 flex-1 leading-tight" aria-live="polite">
             <p className="tabular truncate font-display text-[1.05rem] font-semibold">
-              {orderQuantity ? `${formatNumber(orderQuantity)} ${unitLabel}` : "لسه مفيش كمية"}
-              {sizedGroups > 0 && <span className="text-sm font-normal text-on-panel-muted"> بالمقاسات</span>}
+              {pieces ? `${formatNumber(pieces)} ${unitLabel}` : "لسه مفيش كمية"}
+              <span className="text-sm font-normal text-on-panel-muted"> · {formatNumber(itemsCount)} بند</span>
             </p>
             {sizeIssue ? (
               <button
@@ -692,87 +643,3 @@ export function OrderForm(props: Props) {
   );
 }
 
-function MoneyInput({
-  id,
-  value,
-  onChange,
-  invalid,
-  disabled,
-  placeholder,
-  large,
-}: {
-  id: string;
-  value: string;
-  onChange: (value: string) => void;
-  invalid?: boolean;
-  disabled?: boolean;
-  placeholder?: string;
-  large?: boolean;
-}) {
-  return (
-    <div className="relative">
-      <Input
-        id={id}
-        inputMode="decimal"
-        dir="ltr"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder ?? "0"}
-        className={cn(
-          "tabular pe-3.5 ps-14 text-left font-display font-semibold placeholder:font-normal placeholder:text-ink/25",
-          large ? "h-16 text-[1.75rem] tracking-[-0.02em]" : "h-12 text-lg",
-        )}
-        aria-invalid={invalid ? true : undefined}
-        disabled={disabled}
-      />
-      <span className="pointer-events-none absolute inset-y-0 left-3.5 flex items-center text-sm font-medium text-graphite">ج.م</span>
-    </div>
-  );
-}
-
-/** Work on the piece: steps combine on the same garment; "none" is exclusive. */
-function OperationPicker({
-  group,
-  error,
-  onChange,
-}: {
-  group: GroupDraft;
-  error?: string;
-  onChange: (patch: (latest: GroupDraft) => Partial<GroupDraft>) => void;
-}) {
-  // Computed from the latest state, so two quick taps never lose a selection.
-  const toggle = (op: PrintOperation) =>
-    onChange((latest) => ({
-      plain: false,
-      operations: latest.operations.includes(op) ? latest.operations.filter((o) => o !== op) : [...latest.operations, op],
-    }));
-
-  return (
-    <div data-error={error ? "true" : undefined}>
-      <div className="flex flex-wrap gap-2" role="group" aria-label="نوع الشغل">
-        {PRINT_OPERATIONS.map((op) => {
-          const selected = group.operations.includes(op);
-          return (
-            <button key={op} type="button" role="checkbox" aria-checked={selected} onClick={() => toggle(op)} className={chip(selected)}>
-              {OPERATION_LABELS[op]}
-            </button>
-          );
-        })}
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={group.plain}
-          onClick={() => onChange((latest) => ({ plain: !latest.plain, operations: [] }))}
-          className={cn(chip(group.plain), "font-medium")}
-        >
-          {NO_OPERATION_LABEL}
-        </button>
-      </div>
-      {error && (
-        <p className="mt-1.5 text-sm text-red" role="alert">
-          {error}
-        </p>
-      )}
-    </div>
-  );
-}

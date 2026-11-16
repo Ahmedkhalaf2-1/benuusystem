@@ -5,6 +5,7 @@ import { toActionResult, type ActionResult } from "@/lib/actions";
 import { requireUser } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
 import type { CreateOrderPayload, UpdateOrderPayload } from "@/lib/validations/order";
+import { archiveOrder, restoreOrder } from "@/server/services/order-archive-service";
 import { createOrder, updateOrder } from "@/server/services/order-service";
 import { recordPayment, voidPayment } from "@/server/services/payment-service";
 
@@ -53,4 +54,22 @@ export async function voidPaymentAction(_prev: ActionResult | null, formData: Fo
   });
   if (failure) return failure;
   redirect(`/orders/${orderId}?saved=voided`);
+}
+
+/** «حذف الأوردر» (owner): archives an untouched order; the service refuses anything else. */
+export async function archiveOrderAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const orderId = String(formData.get("orderId") ?? "");
+  if (formData.get("confirm") !== "yes") return { ok: false, message: "أكّد الحذف الأول", fieldErrors: { confirm: ["أكّد الحذف الأول"] } };
+  const failure = await toActionResult(() => archiveOrder(prisma, user, { orderId, reason: formData.get("reason") }));
+  if (failure) return failure;
+  redirect(`/orders?status=archived&saved=archived`);
+}
+
+export async function restoreOrderAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const orderId = String(formData.get("orderId") ?? "");
+  const failure = await toActionResult(() => restoreOrder(prisma, user, { orderId }));
+  if (failure) return failure;
+  redirect(`/orders/${orderId}?saved=restored`);
 }

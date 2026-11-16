@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ClipboardList, Plus } from "lucide-react";
 import { OrderCard } from "@/components/orders/order-card";
 import { ProductionTrack } from "@/components/ds/production-track";
+import { Flash } from "@/components/flash";
 import { StatusBadge } from "@/components/orders/status-badge";
 import { PageHeader } from "@/components/page-header";
 import { Pagination } from "@/components/pagination";
@@ -44,7 +45,9 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
   const user = await requirePermission("orders:view");
   const sp = await props.searchParams;
   const q = typeof sp.q === "string" ? sp.q.slice(0, 100) : "";
-  const status = pick(sp.status, FILTERS.map((f) => f.value), "all");
+  const canArchive = hasPermission(user, "orders:archive");
+  const filters = canArchive ? [...FILTERS, { value: "archived" as const, label: "المحذوفة" }] : FILTERS;
+  const status = pick(sp.status, filters.map((f) => f.value), "all");
   const sort = pick(sp.sort, SORTS.map((s) => s.value), "newest");
   const page = Math.max(1, Number.parseInt(typeof sp.page === "string" ? sp.page : "1", 10) || 1);
 
@@ -64,6 +67,12 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
 
   return (
     <div>
+      <Flash message={sp.saved === "archived" ? "تم حذف الأوردر (اتنقل للمحذوفة) ✓" : undefined} />
+      {status === "archived" && (
+        <p className="mb-3 rounded-2xl bg-well p-3 text-sm text-graphite">
+          الأوردرات المحذوفة: مش ظاهرة في القوايم ولا حسابات العملاء ولا التقارير. افتح أي أوردر عشان تشوف مين حذفه وليه، أو ترجّعه.
+        </p>
+      )}
       <PageHeader
         title="كل الأوردرات"
         subtitle={result.total > 0 ? `${formatNumber(result.total)} أوردر` : undefined}
@@ -85,7 +94,7 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
           hidden={{ status: status === "all" ? undefined : status, sort: sort === "newest" ? undefined : sort }}
         />
         <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] lg:mx-0 lg:flex-wrap lg:px-0" aria-label="فلترة بالحالة">
-          {FILTERS.map((f) => (
+          {filters.map((f) => (
             <Link
               key={f.value}
               href={linkWith({ status: f.value, page: "1" })}

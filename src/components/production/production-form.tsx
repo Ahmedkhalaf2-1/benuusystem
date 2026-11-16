@@ -9,21 +9,43 @@ import { FlowCard } from "@/components/ds/primitives";
 import { Input } from "@/components/ui/input";
 import type { PrintOperation, QuantityUnit } from "@/generated/prisma/enums";
 import { formatNumber } from "@/lib/numbers";
-import { OPERATION_LABELS, UNIT_LABELS } from "@/lib/orders/labels";
+import { OPERATION_LABELS, placementsText, UNIT_LABELS } from "@/lib/orders/labels";
 import { newRequestId } from "@/lib/request-id";
 import type { GroupProgress } from "@/server/services/production-service";
 import { SizeQuantities, sizeLines } from "./size-quantities";
 
 const READY = "READY" as const;
-type Step = PrintOperation | typeof READY;
+/** "READY", an item-level operation ("op:DTF", older items) or a design ("design:<id>"). */
+type Step = string;
+
+type StepInfo = { kind: "ready" } | { kind: "op"; op: PrintOperation } | { kind: "design"; design: GroupProgress["designs"][number] };
+
+function stepInfo(g: GroupProgress | undefined, step: Step): StepInfo | null {
+  if (!g || step === "") return null;
+  if (step === READY) return { kind: "ready" };
+  if (step.startsWith("design:")) {
+    const design = g.designs.find((d) => d.id === step.slice(7));
+    return design ? { kind: "design", design } : null;
+  }
+  return { kind: "op", op: step.slice(3) as PrintOperation };
+}
+
+/** Same rules as the server: one full-coverage step can also mark pieces ready; several need a confirmation. */
+const singleStep = (g: GroupProgress) => (g.designs.length > 0 ? g.designs.length === 1 && g.designs[0]!.quantity >= g.quantity : g.operations.length === 1);
+const needsConfirm = (g: GroupProgress) => (g.designs.length > 0 ? g.designs.length > 1 || g.designs.some((d) => d.quantity < g.quantity) : g.operations.length > 1);
 
 /** "تسجيل إنتاج": which step finished how many pieces — or which pieces are ready. */
 export function ProductionForm({ orderId, unit, groups, today }: { orderId: string; unit: QuantityUnit; groups: GroupProgress[]; today: string }) {
   const [requestId] = useState(newRequestId);
   const [groupId, setGroupId] = useState(groups.length === 1 ? groups[0]!.id : "");
   const group = groups.find((g) => g.id === groupId);
-  const defaultStep = (g?: GroupProgress): Step | "" => (!g ? "" : g.operations.length === 0 ? READY : g.operations.length === 1 ? g.operations[0]! : "");
-  const [step, setStep] = useState<Step | "">(defaultStep(group));
+  const defaultStep = (g?: GroupProgress): Step => {
+    if (!g) return "";
+    if (g.designs.length > 0) return g.designs.length === 1 ? `design:${g.designs[0]!.id}` : "";
+    return g.operations.length === 0 ? READY : g.operations.length === 1 ? `op:${g.operations[0]!}` : "";
+  };
+  const [step, setStep] = useState<Step>(defaultStep(group));
+  const info = stepInfo(group, step);
   const [alsoReady, setAlsoReady] = useState(true);
   const [confirmAll, setConfirmAll] = useState(false);
   const [quantity, setQuantity] = useState("");
@@ -47,12 +69,12 @@ export function ProductionForm({ orderId, unit, groups, today }: { orderId: stri
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (pending) return;
-    if (!group) return setErrors({ orderGroupId: "اختار المجموعة" });
-    if (!step) return setErrors({ step: "اختار إيه اللي خلص" });
+    if (!group) return setErrors({ orderGroupId: "اختار البند" });
+    if (!info) return setErrors({ step: "اختار إيه اللي خلص" });
     setMessage(undefined);
     startTransition(async () => {
       const result =
-        step === READY
+        info.kind === "ready"
           ? await recordReadyAction({
               orderId,
               orderGroupId: group.id,
@@ -66,11 +88,12 @@ export function ProductionForm({ orderId, unit, groups, today }: { orderId: stri
               orderId,
               orderGroupId: group.id,
               idempotencyKey: requestId,
-              operation: step,
+              operation: info.kind === "design" ? info.design.operation : info.op,
+              ...(info.kind === "design" ? { designId: info.design.id } : {}),
               ...(sized ? { sizes: sizeLines(sizeValues) } : { quantity }),
               workDate: date,
               notes,
-              alsoReady: group.operations.length === 1 && alsoReady,
+              alsoReady: singleStep(group) && alsoReady,
             });
       if (result && !result.ok) {
         const fe: Record<string, string> = {};
@@ -81,8 +104,9 @@ export function ProductionForm({ orderId, unit, groups, today }: { orderId: stri
     });
   }
 
-  const multiStep = (group?.operations.length ?? 0) > 1;
-  const leftForStep = !group || step === "" ? 0 : step === READY ? Math.max(0, group.maxReady - group.ready) : group.quantity - (group.stage[step] ?? 0);
+  const multiStep = group ? needsConfirm(group) : false;
+  const doneOf = (c: GroupProgress | GroupProgress["sizes"][number], i: StepInfo) => (i.kind === "design" ? (c.design[i.design.id] ?? 0) : i.kind === "op" ? (c.stage[i.op] ?? 0) : c.ready);
+  const leftForStep = !group || !info ? 0 : info.kind === "ready" ? Math.max(0, group.maxReady - group.ready) : (info.kind === "design" ? info.design.quantity : group.quantity) - doneOf(group, info);
   const bar = (label: string, done: number, total: number, tone: "blue" | "teal", note?: string) => (
     <div key={label}>
       <div className="flex items-baseline justify-between text-sm">
@@ -103,9 +127,9 @@ export function ProductionForm({ orderId, unit, groups, today }: { orderId: stri
       {groups.length > 1 && (
         <FlowCard>
           <ChoiceCards
-            label="المجموعة"
+            label="البند"
             columns={2}
-            options={groups.map((g) => ({ value: g.id, label: `مجموعة ${g.position}: ${formatNumber(g.quantity)} ${u} — ${g.description}` }))}
+            options={groups.map((g) => ({ value: g.id, label: `${g.label}: ${formatNumber(g.quantity)} ${u} — ${g.designs.length > 0 ? g.designs.map((d) => d.label).join(" + ") : g.description}` }))}
             value={groupId}
             onChange={chooseGroup}
             error={errors.orderGroupId}
@@ -117,7 +141,9 @@ export function ProductionForm({ orderId, unit, groups, today }: { orderId: stri
         <>
           <FlowCard title="وصلنا لفين" icon={Gauge} hue="blue">
             <div className="space-y-3">
-              {group.operations.map((op) => bar(OPERATION_LABELS[op], group.stage[op] ?? 0, group.quantity, "blue"))}
+              {group.designs.length > 0
+                ? group.designs.map((d) => bar(`${d.label} — ${OPERATION_LABELS[d.operation]}`, group.design[d.id] ?? 0, d.quantity, "blue"))
+                : group.operations.map((op) => bar(OPERATION_LABELS[op], group.stage[op] ?? 0, group.quantity, "blue"))}
               {bar(
                 "جاهز للتسليم",
                 group.ready,
@@ -133,8 +159,10 @@ export function ProductionForm({ orderId, unit, groups, today }: { orderId: stri
               <ChoiceCards
                 label="إيه اللي خلص؟"
                 options={[
-                  ...group.operations.map((op) => ({ value: op as Step, label: `مرحلة ${OPERATION_LABELS[op]}` })),
-                  { value: READY as Step, label: "جاهز للتسليم" },
+                  ...(group.designs.length > 0
+                    ? group.designs.map((d) => ({ value: `design:${d.id}`, label: `${d.label} — ${OPERATION_LABELS[d.operation]}${placementsText(d.placements, d.customPlacements) ? ` (${placementsText(d.placements, d.customPlacements)})` : ""}` }))
+                    : group.operations.map((op) => ({ value: `op:${op}`, label: `مرحلة ${OPERATION_LABELS[op]}` }))),
+                  { value: READY, label: "جاهز للتسليم" },
                 ]}
                 value={step}
                 onChange={(s) => {
@@ -144,18 +172,18 @@ export function ProductionForm({ orderId, unit, groups, today }: { orderId: stri
                 error={errors.step ?? errors.operation}
               />
 
-              {sized && step !== "" ? (
+              {sized && info ? (
                 <div>
-                  <p className="mb-2 text-sm font-semibold">{step === READY ? "كام قطعة جاهزة من كل مقاس؟" : "عملنا كام من كل مقاس؟"}</p>
+                  <p className="mb-2 text-sm font-semibold">{info.kind === "ready" ? "كام قطعة جاهزة من كل مقاس؟" : "عملنا كام من كل مقاس؟"}</p>
                   <SizeQuantities
                     rows={group.sizes.map((s) => ({
                       id: s.id,
                       label: s.label,
                       hint:
-                        step === READY
+                        info.kind === "ready"
                           ? `جاهز ${formatNumber(s.ready)} من ${formatNumber(s.quantity)} · ممكن لحد ${formatNumber(Math.max(0, s.maxReady - s.ready))}`
-                          : `${OPERATION_LABELS[step]}: ${formatNumber(s.stage[step] ?? 0)} من ${formatNumber(s.quantity)}`,
-                      max: step === READY ? Math.max(0, s.maxReady - s.ready) : s.quantity - (s.stage[step] ?? 0),
+                          : `${info.kind === "design" ? info.design.label : OPERATION_LABELS[info.op]}: ${formatNumber(doneOf(s, info))} من ${formatNumber(s.quantity)}`,
+                      max: info.kind === "ready" ? Math.max(0, s.maxReady - s.ready) : Math.max(0, s.quantity - doneOf(s, info)),
                     }))}
                     values={sizeValues}
                     onChange={(v) => {
@@ -164,13 +192,13 @@ export function ProductionForm({ orderId, unit, groups, today }: { orderId: stri
                     }}
                     errors={errors}
                     unitLabel={u}
-                    quickFill={step === READY ? "كل الممكن يبقى جاهز" : "كل اللي فاضل"}
+                    quickFill={info.kind === "ready" ? "كل الممكن يبقى جاهز" : "كل اللي فاضل"}
                   />
                   {errors.sizes && <p className="mt-1.5 text-sm text-red">{errors.sizes}</p>}
                 </div>
               ) : (
-                step !== "" && (
-                  <Field label={step === READY ? "كام قطعة جاهزة؟" : "عملنا كام؟"} htmlFor="quantity" error={errors.quantity}>
+                info && (
+                  <Field label={info.kind === "ready" ? "كام قطعة جاهزة؟" : "عملنا كام؟"} htmlFor="quantity" error={errors.quantity}>
                     <div className="relative">
                       <Input
                         id="quantity"
@@ -190,24 +218,24 @@ export function ProductionForm({ orderId, unit, groups, today }: { orderId: stri
                         onClick={() => setQuantity(String(leftForStep))}
                         className="mt-2 inline-flex h-9 items-center rounded-full bg-blue-soft px-3.5 text-sm font-semibold text-blue-ink transition-transform active:scale-95"
                       >
-                        {step === READY ? "كل الممكن" : "كل اللي فاضل"} ({formatNumber(leftForStep)} {u})
+                        {info.kind === "ready" ? "كل الممكن" : "كل اللي فاضل"} ({formatNumber(leftForStep)} {u})
                       </button>
                     )}
                   </Field>
                 )
               )}
 
-              {step !== READY && step !== "" && group.operations.length === 1 && (
+              {info && info.kind !== "ready" && singleStep(group) && (
                 <label className="flex min-h-13 cursor-pointer items-center gap-3 rounded-2xl bg-teal-soft px-3.5 text-[0.95rem] font-semibold text-teal-ink">
                   <input type="checkbox" checked={alsoReady} onChange={(e) => setAlsoReady(e.target.checked)} className="size-5 accent-[var(--brand)]" />
                   القطع دي كمان جاهزة للتسليم
                 </label>
               )}
-              {step === READY && multiStep && (
+              {info?.kind === "ready" && multiStep && (
                 <div data-error={errors.confirmAllOperations ? "true" : undefined}>
                   <label className="flex min-h-13 cursor-pointer items-start gap-3 rounded-2xl bg-amber-soft px-3.5 py-3 text-[0.95rem] font-medium text-amber-ink">
                     <input type="checkbox" checked={confirmAll} onChange={(e) => setConfirmAll(e.target.checked)} className="mt-0.5 size-5 accent-[var(--warning)]" />
-                    <span>متأكد إن نفس القطع دي خلصت كل الشغل: {group.description}</span>
+                    <span>متأكد إن نفس القطع دي خلصت كل الشغل المطلوب لها: {group.designs.length > 0 ? group.designs.map((d) => d.label).join(" + ") : group.description}</span>
                   </label>
                   {errors.confirmAllOperations && <p className="mt-1 text-sm text-red">{errors.confirmAllOperations}</p>}
                 </div>

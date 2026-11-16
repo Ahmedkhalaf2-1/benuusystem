@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Banknote, CalendarDays, ClipboardList, Factory, HardHat, Pencil, Phone, ReceiptText, TrendingUp, Truck, Wallet } from "lucide-react";
+import { Archive, Banknote, CalendarDays, ClipboardList, Factory, HardHat, Layers, Pencil, Phone, ReceiptText, TrendingUp, Truck, Wallet } from "lucide-react";
+import { ArchiveOrderForm, RestoreOrderForm } from "@/components/orders/archive-order";
+import { OrderItemsList } from "@/components/orders/order-items-section";
+import { ARCHIVE_BLOCKER_LABELS, getArchiveCheck } from "@/server/services/order-archive-service";
 import { OrderInvoiceActions } from "@/components/documents/document-actions";
 import { Fold, ProductionBreakdown, ProductionReadout, StagesCard } from "@/components/production/production-section";
 import { OrderCostsSection } from "@/components/finance/order-costs-section";
@@ -45,6 +48,7 @@ const FLASH: Record<string, string> = {
   delivered: "تم تسجيل التسليم ✓",
   "production-voided": "تم إلغاء سجل الإنتاج",
   "delivery-voided": "تم إلغاء التسليم",
+  restored: "رجع الأوردر للقوايم ✓",
 };
 
 function Line({ label, children, strong, testId, tone }: { label: string; children: React.ReactNode; strong?: boolean; testId?: string; tone?: string }) {
@@ -71,13 +75,15 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
   const partlyDelivered = production.totals.delivered > 0 && order.status !== "COMPLETED";
 
   const outstanding = toCents(order.outstanding);
-  const canPay = hasPermission(user, "payments:record") && outstanding > 0n && order.status !== "CANCELLED" && order.status !== "COMPLETED";
-  const canEdit = hasPermission(user, "orders:edit") && order.status !== "COMPLETED";
+  const live = order.archived === null;
+  const canPay = live && hasPermission(user, "payments:record") && outstanding > 0n && order.status !== "CANCELLED" && order.status !== "COMPLETED";
+  const canEdit = live && hasPermission(user, "orders:edit") && order.status !== "COMPLETED";
+  const archiveCheck = live && hasPermission(user, "orders:archive") ? await getArchiveCheck(prisma, user, order.id) : null;
   const canVoid = hasPermission(user, "payments:void");
   const open = order.status === "NEW" || order.status === "IN_PROGRESS";
   const due = dueText(order.deliveryDate);
-  const canRecordProd = hasPermission(user, "production:record") && order.status !== "CANCELLED";
-  const canDeliver = hasPermission(user, "deliveries:record") && order.status !== "CANCELLED";
+  const canRecordProd = live && hasPermission(user, "production:record") && order.status !== "CANCELLED";
+  const canDeliver = live && hasPermission(user, "deliveries:record") && order.status !== "CANCELLED";
   const u = UNIT_LABELS[order.unit];
   const ops = [...new Set(order.groups.flatMap((g) => g.operations))];
   const hasReady = production.totals.readyNotDelivered > 0;
@@ -112,6 +118,18 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
     <div className="mx-auto max-w-5xl">
       <Flash message={typeof saved === "string" ? FLASH[saved] : undefined} />
       <BackLink href="/orders" label="كل الأوردرات" />
+      {order.archived && (
+        <section className="mb-4 rounded-2xl bg-danger-soft p-4 text-danger-ink" data-testid="archived-banner">
+          <p className="flex items-center gap-2 font-semibold">
+            <Archive className="size-5" aria-hidden="true" />
+            الأوردر ده محذوف (مؤرشف)
+          </p>
+          <p className="mt-1 text-sm">
+            حذفه {order.archived.byName}، {formatDateTimeAr(order.archived.at)} — {order.archived.reason}. مش ظاهر في القوايم ولا حسابات العميل ولا التقارير.
+          </p>
+          {hasPermission(user, "orders:archive") && <RestoreOrderForm orderId={order.id} />}
+        </section>
+      )}
 
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:gap-6">
         <div className="min-w-0 space-y-4">
@@ -175,6 +193,16 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
 
         {/* Money and paperwork */}
         <div className="mt-4 space-y-4 lg:mt-0">
+          <Fold
+            title="البنود"
+            icon={Layers}
+            hue="bg-brand-soft text-brand-ink"
+            meta={`${formatNumber(order.groups.length)} بند · ${formatNumber(order.quantity)} ${u}`}
+            open
+          >
+            <OrderItemsList order={order} unitLabel={u} />
+          </Fold>
+
           <Fold
             title="الحساب"
             icon={Wallet}
@@ -336,7 +364,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
                 {order.groups.map((g) =>
                   g.material !== order.material || g.notes ? (
                     <li key={g.position}>
-                      <span className="font-semibold">مجموعة {formatNumber(g.position)}: </span>
+                      <span className="font-semibold">{g.label}: </span>
                       {g.material !== order.material && <>الخامة {g.material}. </>}
                       {g.notes}
                     </li>
@@ -354,6 +382,14 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
               سجّله {order.createdByName}، {formatDateTimeAr(order.createdAt)}
             </p>
           </Fold>
+
+          {archiveCheck && (
+            <ArchiveOrderForm
+              orderId={order.id}
+              orderLabel={formatOrderNumber(order.number)}
+              blockers={archiveCheck.blockers.map((b) => `${ARCHIVE_BLOCKER_LABELS[b.kind]} (${formatNumber(b.count)})`)}
+            />
+          )}
         </div>
       </div>
 

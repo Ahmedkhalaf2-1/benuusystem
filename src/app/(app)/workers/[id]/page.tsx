@@ -103,7 +103,7 @@ export default async function WorkerPage(props: PageProps<"/workers/[id]">) {
                                 <Link href={`/orders/${l.orderId}`} className="text-primary hover:underline">
                                   {l.orderLabel}
                                 </Link>
-                                {l.groupPosition && ` (مجموعة ${l.groupPosition})`}
+                                {l.groupPosition && ` (البند ${l.groupPosition})`}
                               </>
                             ) : (
                               " · بدون أوردر"

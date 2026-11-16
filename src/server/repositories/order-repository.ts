@@ -14,10 +14,10 @@ export async function nextOrderNumber(tx: DbTransaction): Promise<number> {
   return value;
 }
 
-/** Locks the order row until the transaction ends (payments, edits). */
+/** Locks the order row until the transaction ends (payments, edits, production, costs, work). Archived orders count as missing: nothing can be recorded on them. */
 export async function lockOrder(tx: DbTransaction, orderId: string): Promise<boolean> {
   const rows = await tx.$queryRaw<{ id: string }[]>`
-    SELECT id FROM orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+    SELECT id FROM orders WHERE id = ${orderId}::uuid AND archived_at IS NULL FOR UPDATE`;
   return rows.length > 0;
 }
 

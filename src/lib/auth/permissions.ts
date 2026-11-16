@@ -27,6 +27,8 @@ export const PERMISSIONS = [
   /** Changing the agreed price of an existing order (financial correction). */
   "orders:edit-price",
   "orders:cancel",
+  /** «حذف الأوردر»: archive an untouched order (never a real delete). */
+  "orders:archive",
   // Payments
   "payments:record",
   /** Voiding a recorded payment (financial correction). */

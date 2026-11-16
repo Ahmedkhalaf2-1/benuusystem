@@ -5,7 +5,7 @@ import { VoidRecordForm } from "@/components/finance/void-record-form";
 import { GaugeSwatch, ProductionTrack } from "@/components/ds/production-track";
 import { formatDateAr } from "@/lib/dates";
 import { formatNumber } from "@/lib/numbers";
-import { OPERATION_LABELS, UNIT_LABELS } from "@/lib/orders/labels";
+import { OPERATION_LABELS, placementsText, UNIT_LABELS } from "@/lib/orders/labels";
 import { cn } from "@/lib/utils";
 import type { GroupProgress, OrderProduction } from "@/server/services/production-service";
 
@@ -110,7 +110,7 @@ function StepBar({ label, done, total, tone }: { label: string; done: number; to
 /** How far each required step has come, then how many pieces finished all of them. */
 export function StagesCard({ production: p }: { production: OrderProduction }) {
   const multi = p.groups.length > 1;
-  if (!p.groups.some((g) => g.operations.length > 0)) return null;
+  if (!p.groups.some((g) => g.operations.length > 0 || g.designs.length > 0)) return null;
   return (
     <section aria-labelledby="stages-heading" className="rounded-2xl bg-surface p-4 border border-line">
       <h2 id="stages-heading" className="mb-3 flex items-center gap-2.5 font-display text-[1.02rem] font-semibold">
@@ -122,15 +122,24 @@ export function StagesCard({ production: p }: { production: OrderProduction }) {
       <div className="space-y-4">
         {p.groups.map((g) => (
           <div key={g.id} className={cn(multi && "rounded-2xl bg-well p-3")}>
-            {multi && (
+            {(multi || g.designs.length > 0) && (
               <p className="mb-2.5 text-sm font-semibold">
-                <span className="text-violet">مجموعة {formatNumber(g.position)}</span> · {g.description}
+                <span className="text-brand">{g.label}</span> · {formatNumber(g.quantity)} قطعة
               </p>
             )}
             <div className="space-y-3">
-              {g.operations.map((op) => (
-                <StepBar key={op} label={OPERATION_LABELS[op]} done={g.stage[op] ?? 0} total={g.quantity} tone="blue" />
-              ))}
+              {/* Items with designs: each design on its own (they're on the same pieces). */}
+              {g.designs.length > 0
+                ? g.designs.map((d) => (
+                    <StepBar
+                      key={d.id}
+                      label={`${d.label} — ${OPERATION_LABELS[d.operation]}${placementsText(d.placements, d.customPlacements) ? ` (${placementsText(d.placements, d.customPlacements)})` : ""}`}
+                      done={g.design[d.id] ?? 0}
+                      total={d.quantity}
+                      tone="blue"
+                    />
+                  ))
+                : g.operations.map((op) => <StepBar key={op} label={OPERATION_LABELS[op]} done={g.stage[op] ?? 0} total={g.quantity} tone="blue" />)}
               <StepBar label="جاهز للتسليم (خلص كل الشغل)" done={g.ready} total={g.quantity} tone="teal" />
             </div>
           </div>
@@ -159,10 +168,16 @@ function SizeTiles({ group, unit }: { group: GroupProgress; unit: string }) {
             <p className="mt-2 text-xs text-graphite">
               جاهز <b className="tabular text-teal-ink">{formatNumber(s.ready)}</b> · اتسلم <b className="tabular text-violet">{formatNumber(s.delivered)}</b>
             </p>
-            {group.operations.length > 1 && (
+            {group.designs.length > 0 ? (
               <p className="mt-0.5 truncate text-[0.7rem] text-graphite">
-                {group.operations.map((op) => `${OPERATION_LABELS[op]} ${formatNumber(s.stage[op] ?? 0)}`).join(" · ")}
+                {group.designs.map((d) => `${d.label} ${formatNumber(s.design[d.id] ?? 0)}`).join(" · ")}
               </p>
+            ) : (
+              group.operations.length > 1 && (
+                <p className="mt-0.5 truncate text-[0.7rem] text-graphite">
+                  {group.operations.map((op) => `${OPERATION_LABELS[op]} ${formatNumber(s.stage[op] ?? 0)}`).join(" · ")}
+                </p>
+              )
             )}
           </li>
         );
@@ -178,11 +193,11 @@ export function ProductionBreakdown({ production: p, canCorrect }: { production:
   const sized = p.groups.some((g) => g.sizes.length > 0);
   const history = [
     ...p.stageHistory.map((s) => ({ ...s, kind: "stage" as const })),
-    ...p.readyHistory.map((r) => ({ ...r, kind: "ready" as const, operation: null, fromWorker: null })),
-    ...p.deliveryHistory.map((d) => ({ ...d, kind: "delivery" as const, operation: null, fromWorker: null })),
+    ...p.readyHistory.map((r) => ({ ...r, kind: "ready" as const, operation: null, fromWorker: null, designLabel: null })),
+    ...p.deliveryHistory.map((d) => ({ ...d, kind: "delivery" as const, operation: null, fromWorker: null, designLabel: null })),
   ].sort((a, b) => (a.date === b.date ? b.createdAt.getTime() - a.createdAt.getTime() : a.date < b.date ? 1 : -1));
-  const where = (h: { groupPosition: number; sizeLabel: string | null }) =>
-    [multi && `مجموعة ${h.groupPosition}`, h.sizeLabel && `مقاس ${h.sizeLabel}`].filter(Boolean).join("، ");
+  const where = (h: { groupLabel: string; sizeLabel: string | null; designLabel?: string | null }) =>
+    [multi && h.groupLabel, h.designLabel, h.sizeLabel && `مقاس ${h.sizeLabel}`].filter(Boolean).join("، ");
   const KIND = {
     stage: { icon: Factory, tone: "bg-blue-soft text-blue-ink" },
     ready: { icon: PackageCheck, tone: "bg-teal-soft text-teal-ink" },
@@ -197,7 +212,7 @@ export function ProductionBreakdown({ production: p, canCorrect }: { production:
           title={sized ? "المقاسات والكميات" : "المجموعات"}
           icon={sized ? Ruler : Layers}
           hue="bg-brand-soft text-brand-ink"
-          meta={multi ? `${formatNumber(p.groups.length)} مجموعات` : undefined}
+          meta={multi ? `${formatNumber(p.groups.length)} بنود` : undefined}
           open
         >
           <div className="space-y-4">
@@ -205,8 +220,8 @@ export function ProductionBreakdown({ production: p, canCorrect }: { production:
               <div key={g.id}>
                 <div className="mb-2 flex items-baseline justify-between gap-3">
                   <p className="text-sm font-semibold">
-                    {multi && <span className="text-violet">مجموعة {formatNumber(g.position)}: </span>}
-                    {g.description}
+                    {multi && <span className="text-brand">{g.label}: </span>}
+                    {g.designs.length > 0 ? g.designs.map((d) => d.label).join(" + ") : g.description}
                   </p>
                   <span className="tabular shrink-0 text-xs text-graphite">
                     {formatNumber(g.quantity)} {u}
@@ -283,9 +298,13 @@ export function ProductionBreakdown({ production: p, canCorrect }: { production:
 export function stepsLeft(p: OrderProduction): string | null {
   const multi = p.groups.length > 1;
   const left = p.groups.flatMap((g) =>
-    g.operations
-      .filter((op) => (g.stage[op] ?? 0) < g.quantity)
-      .map((op) => `${OPERATION_LABELS[op]} ${formatNumber(g.quantity - (g.stage[op] ?? 0))}${multi ? ` (مجموعة ${g.position})` : ""}`),
+    g.designs.length > 0
+      ? g.designs
+          .filter((d) => (g.design[d.id] ?? 0) < d.quantity)
+          .map((d) => `${d.label} ${formatNumber(d.quantity - (g.design[d.id] ?? 0))}${multi ? ` (${g.label})` : ""}`)
+      : g.operations
+          .filter((op) => (g.stage[op] ?? 0) < g.quantity)
+          .map((op) => `${OPERATION_LABELS[op]} ${formatNumber(g.quantity - (g.stage[op] ?? 0))}${multi ? ` (${g.label})` : ""}`),
   );
   return left.length > 0 && p.totals.remaining > 0 ? left.join("، ") : null;
 }

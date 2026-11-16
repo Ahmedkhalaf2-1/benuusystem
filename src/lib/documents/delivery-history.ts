@@ -17,6 +17,8 @@ export type DeliveryRow = {
   id: string;
   groupId: string;
   groupPosition: number;
+  /** «اسم البند» or «البند N». */
+  groupLabel: string;
   /** Null for groups without sizes. */
   sizeLabel: string | null;
   sizePosition: number | null;
@@ -28,13 +30,14 @@ export type DeliveryRow = {
   notes: string | null;
 };
 
-export type DeliveryGroupInfo = { id: string; position: number; quantity: number };
+export type DeliveryGroupInfo = { id: string; position: number; quantity: number; label?: string };
 
 export type DeliveryEntry = {
   /** 1, 2, 3 … in chronological order. */
   seq: number;
   date: string;
   groupPosition: number;
+  groupLabel: string;
   quantity: number;
   /** Delivered sizes in this handover (empty for unsized groups). */
   sizes: { label: string; quantity: number }[];
@@ -56,8 +59,8 @@ export type DeliveryHistory = {
   /** complete = every group fully delivered (the same rule that completes the order). */
   status: DeliveryStatus;
   lastDate: string | null;
-  /** Groups whose delivered pieces exceed their quantity (data needing a look). */
-  overDeliveredGroups: number[];
+  /** Items whose delivered pieces exceed their quantity (data needing a look). */
+  overDeliveredGroups: string[];
 };
 
 /** Max gap between size rows saved by one delivery form (they are ms apart). */
@@ -102,7 +105,7 @@ export function buildDeliveryHistory(groups: readonly DeliveryGroupInfo[], valid
       .filter((r) => r.sizeLabel !== null)
       .sort((a, b) => (a.sizePosition ?? 0) - (b.sizePosition ?? 0))
       .map((r) => ({ label: r.sizeLabel!, quantity: r.quantity }));
-    return { seq: i + 1, date: first.deliveredAt, groupPosition: first.groupPosition, quantity, sizes, notes: first.notes, cumulative, remaining: total - cumulative };
+    return { seq: i + 1, date: first.deliveredAt, groupPosition: first.groupPosition, groupLabel: first.groupLabel, quantity, sizes, notes: first.notes, cumulative, remaining: total - cumulative };
   });
 
   const deliveredByGroup = new Map<string, number>();
@@ -117,7 +120,7 @@ export function buildDeliveryHistory(groups: readonly DeliveryGroupInfo[], valid
     remaining: total - delivered,
     status: delivered === 0 ? "none" : complete ? "complete" : "partial",
     lastDate: entries.at(-1)?.date ?? null,
-    overDeliveredGroups: groups.filter((g) => (deliveredByGroup.get(g.id) ?? 0) > g.quantity).map((g) => g.position),
+    overDeliveredGroups: groups.filter((g) => (deliveredByGroup.get(g.id) ?? 0) > g.quantity).map((g) => g.label ?? `البند ${g.position}`),
   };
 }
 

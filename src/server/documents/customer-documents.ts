@@ -5,7 +5,7 @@ import type { DocOrder, Period } from "@/lib/documents/customer-account";
 import { orderBalance } from "@/lib/documents/customer-account";
 import { DELIVERY_STATUS_LABELS, type DeliveryEntry } from "@/lib/documents/delivery-history";
 import { formatAmount, formatMoney, type Cents } from "@/lib/money";
-import { describeOperations, ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS, UNIT_LABELS } from "@/lib/orders/labels";
+import { describeOperations, OPERATION_LABELS, ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS, UNIT_LABELS } from "@/lib/orders/labels";
 import type { getCustomerOrdersSummary, getCustomerStatement, InvoiceData } from "@/server/services/customer-documents-service";
 import { ltr } from "./pdf/arabic-text";
 import { C, PdfDoc } from "./pdf/document";
@@ -60,17 +60,7 @@ export async function renderOrderInvoice(data: InvoiceData): Promise<Buffer> {
     ["الحالة", ORDER_STATUS_LABELS[order.status]],
   ]);
 
-  pdf.sectionTitle("تفاصيل الشغل");
-  pdf.table(
-    [
-      { header: "المجموعة", width: 11, value: (g) => String(g.position) },
-      { header: "الكمية", width: 11, value: (g) => String(g.quantity) },
-      { header: "الخامة", width: 20, value: (g) => g.material },
-      { header: "الشغل", width: 24, value: (g) => describeOperations(g.operations) },
-      { header: "المقاسات", width: 34, value: (g) => (g.sizes.length ? g.sizes.map((s) => `${s.label}: ${s.quantity}`).join("  ·  ") : "—") },
-    ],
-    data.groups,
-  );
+  renderItems(pdf, data);
 
   renderDeliveries(pdf, data);
 
@@ -102,10 +92,58 @@ export async function renderOrderInvoice(data: InvoiceData): Promise<Buffer> {
   if (b.paidOnCancelled > 0n)
     pdf.callout(`اتدفع ${formatMoney(b.paidOnCancelled)} على الأوردر ده قبل إلغائه. لسه محتاج قرار: يترد للعميل أو يتحسب رصيد ليه. (مفيش رد فلوس متسجل في البرنامج.)`, "warning");
   pdf.paragraph(
-    "السعر هو إجمالي الأوردر المتفق عليه؛ مفيش سعر منفصل لكل قطعة." +
+    (data.pricing === "PER_ITEM" ? "إجمالي الأوردر = مجموع إجماليات البنود." : "السعر هو إجمالي الأوردر المتفق عليه؛ مفيش سعر منفصل لكل قطعة.") +
       (data.voidedPayments > 0 ? ` الدفعات الملغية (${data.voidedPayments}) مش ظاهرة ومش محسوبة.` : ""),
   );
   return pdf.finish();
+}
+
+/**
+ * The order's items. Per-item pricing: name, quantity, unit price, line total,
+ * the work (each design with its operation and placement) and sizes — the
+ * line totals add up to the order total. Older orders priced as one total keep
+ * that single agreed price; no per-item prices are made up for them.
+ * Planned presses are internal and never printed here.
+ */
+function renderItems(pdf: PdfDoc, data: InvoiceData) {
+  const unit = UNIT_LABELS[data.order.unit];
+  const qty = (n: number) => `${new Intl.NumberFormat("en-US").format(n)} ${unit}`;
+  const work = (g: InvoiceData["groups"][number]) =>
+    g.designs.length > 0
+      ? g.designs
+          .map((d) => [d.label, OPERATION_LABELS[d.operation], d.placements, d.quantity < g.quantity ? `${new Intl.NumberFormat("en-US").format(d.quantity)} قطعة` : ""].filter(Boolean).join(" — "))
+          .join("\n")
+      : describeOperations(g.operations);
+  const sizes = (g: InvoiceData["groups"][number]) => (g.sizes.length ? g.sizes.map((s) => `${s.label}: ${s.quantity}`).join("  ·  ") : "—");
+  const anySizes = data.groups.some((g) => g.sizes.length > 0);
+
+  if (data.pricing === "PER_ITEM") {
+    pdf.sectionTitle(`البنود (${data.groups.length})`);
+    pdf.table(
+      [
+        // Sizes sit under the item (they describe its pieces), leaving room for the designs.
+        { header: "البند", width: 24, font: "semibold", value: (g) => [g.label, g.material, g.sizes.length ? sizes(g) : ""].filter(Boolean).join("\n") },
+        { header: "الكمية", width: 11, value: (g) => qty(g.quantity) },
+        { header: "سعر الوحدة", width: 10, align: "left", value: (g) => (g.unitPrice === null ? "—" : amount(g.unitPrice)) },
+        { header: "الإجمالي (ج.م)", width: 12, align: "left", font: "semibold", value: (g) => (g.lineTotal === null ? "—" : amount(g.lineTotal)) },
+        { header: "الشغل والرسومات", width: 43, value: work },
+      ],
+      data.groups,
+    );
+  } else {
+    pdf.sectionTitle("تفاصيل الشغل");
+    pdf.table(
+      [
+        { header: "البند", width: 20, value: (g) => g.label },
+        { header: "الكمية", width: 11, value: (g) => qty(g.quantity) },
+        { header: "الخامة", width: 18, value: (g) => g.material },
+        { header: "الشغل", width: anySizes ? 25 : 51, value: work },
+        ...(anySizes ? [{ header: "المقاسات", width: 26, value: sizes }] : []),
+      ],
+      data.groups,
+    );
+    pdf.paragraph("الأوردر ده متسعّر بسعر إجمالي واحد متفق عليه، من غير سعر منفصل لكل بند.");
+  }
 }
 
 /**
@@ -128,7 +166,7 @@ function renderDeliveries(pdf: PdfDoc, data: InvoiceData) {
     const cols: Parameters<typeof pdf.table<DeliveryEntry>>[0] = [
       { header: "#", width: 6, value: (e) => String(e.seq) },
       { header: "التاريخ", width: 16, value: (e) => formatDateAr(e.date) },
-      ...(multiGroup ? [{ header: "المجموعة", width: 9, value: (e: DeliveryEntry) => String(e.groupPosition) }] : []),
+      ...(multiGroup ? [{ header: "البند", width: 13, value: (e: DeliveryEntry) => e.groupLabel }] : []),
       { header: "الكمية", width: 11, font: "semibold" as const, value: (e) => qty(e.quantity) },
       ...(anySizes
         ? [{ header: "المقاسات", width: anyNotes ? 20 : 30, value: (e: DeliveryEntry) => (e.sizes.length ? e.sizes.map((x) => `${x.label}: ${x.quantity}`).join("  ·  ") : "—") }]
@@ -156,7 +194,7 @@ function renderDeliveries(pdf: PdfDoc, data: InvoiceData) {
     pdf.callout("كل الكمية متسلمة حسب سجلات التسليم، لكن حالة الأوردر لسه مش «مكتمل».", "warning");
   if (status === "CANCELLED" && h.delivered > 0) pdf.callout(`الأوردر ملغي، واتسجل تسليم ${qty(h.delivered)} قبل الإلغاء.`, "info");
   if (h.overDeliveredGroups.length > 0)
-    pdf.callout(`المسلَّم في المجموعة ${h.overDeliveredGroups.join("، ")} أكتر من كميتها — محتاج مراجعة.`, "warning");
+    pdf.callout(`المسلَّم في ${h.overDeliveredGroups.join("، ")} أكتر من الكمية — محتاج مراجعة.`, "warning");
   if (data.voidedDeliveries > 0) pdf.paragraph(`التسليمات الملغية (${data.voidedDeliveries}) مش محسوبة.`);
 }
 

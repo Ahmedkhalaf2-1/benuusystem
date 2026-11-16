@@ -63,7 +63,7 @@ export function WorkLogForm({
       return;
     }
     if (needsGroupChoice && !groupId) {
-      setErrors({ orderGroupId: "اختار المجموعة اللي اشتغل فيها" });
+      setErrors({ orderGroupId: "اختار البند اللي اشتغل فيه" });
       return;
     }
     const payload = {
@@ -106,10 +106,10 @@ export function WorkLogForm({
       </Field>
       {needsGroupChoice && (
         <ChoiceCards
-          label="المجموعة"
+          label="البند"
           options={groups.map((g) => ({
             value: g.id,
-            label: `مجموعة ${g.position}: ${g.quantity} ${order && order !== "none" ? UNIT_LABELS[order.unit] : ""} — ${g.description}`,
+            label: `${g.label}: ${g.quantity} ${order && order !== "none" ? UNIT_LABELS[order.unit] : ""} — ${g.description}`,
           }))}
           value={groupId}
           onChange={setGroupId}

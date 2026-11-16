@@ -30,6 +30,7 @@ export default async function EditOrderPage(props: PageProps<"/orders/[id]/edit"
           version={order.updatedAt}
           initial={draftFromOrder(order)}
           paid={order.paid}
+          originalTotal={order.totalPrice}
           canEditPrice={hasPermission(user, "orders:edit-price")}
           canCancel={hasPermission(user, "orders:cancel")}
           materialSuggestions={await recentMaterials(prisma, user)}

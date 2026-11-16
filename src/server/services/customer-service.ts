@@ -154,7 +154,7 @@ export async function listCustomers(
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     skip: (page - 1) * CUSTOMERS_PAGE_SIZE,
     take: CUSTOMERS_PAGE_SIZE,
-    select: { id: true, name: true, phone: true, createdAt: true, _count: { select: { orders: true } } },
+    select: { id: true, name: true, phone: true, createdAt: true, _count: { select: { orders: { where: { archivedAt: null } } } } },
   });
 
   return {
@@ -187,6 +187,8 @@ export async function getCustomerDetails(
       createdAt: true,
       createdBy: { select: { name: true } },
       orders: {
+        // Removed («محذوف») orders don't count for the customer.
+        where: { archivedAt: null },
         orderBy: [{ createdAt: "desc" }],
         select: ORDER_SUMMARY_SELECT,
       },

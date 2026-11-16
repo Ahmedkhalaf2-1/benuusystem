@@ -35,7 +35,7 @@ export const sizeLinesSchema = z
 
 const base = {
   orderId: z.uuid(),
-  orderGroupId: z.uuid({ error: "اختار المجموعة" }),
+  orderGroupId: z.uuid({ error: "اختار البند" }),
   idempotencyKey: z.uuid(),
   notes: optionalText(500),
   /** Sized groups: quantities per size instead of `quantity`. */
@@ -59,6 +59,8 @@ const optionalPieces = (message: string) =>
 /** "تسجيل إنتاج" for one required step (DTF, embroidery, …). */
 export const recordStageSchema = z.object({
   ...base,
+  /** Items with designs: which design this work was for (its operation must match). */
+  designId: z.uuid().optional(),
   operation: z
     .enum(PRINT_OPERATIONS as [string, ...string[]], { error: "اختار مرحلة الشغل" })
     .transform((o) => o as (typeof PRINT_OPERATIONS)[number]),

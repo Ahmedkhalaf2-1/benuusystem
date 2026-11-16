@@ -6,7 +6,7 @@ import type { DbClient, DbTransaction } from "@/lib/db/prisma";
 import { dateFromString, dateToString, monthRange, todayDateString } from "@/lib/dates";
 import { AppError } from "@/lib/errors";
 import { formatNumber } from "@/lib/numbers";
-import { describeOperations, OPERATION_LABELS, PRINT_OPERATIONS, UNIT_LABELS } from "@/lib/orders/labels";
+import { describeOperations, designLabel, itemLabel, OPERATION_LABELS, PRINT_OPERATIONS, UNIT_LABELS } from "@/lib/orders/labels";
 import { voidRecordSchema } from "@/lib/validations/finance";
 import {
   recordDeliverySchema,
@@ -39,6 +39,8 @@ function invalid(error: Parameters<typeof toFieldErrors>[0]): never {
 type Counters = {
   quantity: number;
   stage: Partial<Record<PrintOperation, number>>;
+  /** Pieces done per design (items with designs). */
+  design: Record<string, number>;
   ready: number;
   delivered: number;
   /** Upper bound for "ready": the least-finished required step (or quantity). */
@@ -47,17 +49,58 @@ type Counters = {
 
 export type SizeProgress = Counters & { id: string; label: string };
 
+export type DesignInfo = {
+  id: string;
+  position: number;
+  name: string | null;
+  label: string;
+  operation: PrintOperation;
+  placements: string[];
+  customPlacements: string[];
+  /** Pieces of the item that need this design (≤ item quantity). */
+  quantity: number;
+  pressesPerUnit: number | null;
+};
+
 export type GroupProgress = Counters & {
   id: string;
   position: number;
+  name: string | null;
+  /** «اسم البند» or «البند N». */
+  label: string;
   operations: PrintOperation[];
   description: string;
+  /** Empty for items without designs (older items: progress per operation). */
+  designs: DesignInfo[];
   /** Empty for groups without a size breakdown. */
   sizes: SizeProgress[];
+  /**
+   * Physical pieces already worked on: the most advanced single step, design,
+   * ready or delivered count — never a sum of steps or designs (they are on
+   * the same pieces).
+   */
+  worked: number;
 };
 
-function maxReadyOf(c: { quantity: number; stage: Counters["stage"] }, operations: PrintOperation[]) {
-  return operations.length === 0 ? c.quantity : Math.min(c.quantity, ...operations.map((op) => c.stage[op] ?? 0));
+/**
+ * Most pieces that can be "ready" now.
+ * - Item-level steps (older items): every required operation must be done.
+ * - Designs: a design on every piece caps ready at its done count; a design on
+ *   only part of the item caps the ITEM total at done + pieces that don't need
+ *   it. Per size, only designs on every piece are known per size, so partial
+ *   designs are enforced on the item total (checked separately) and the
+ *   recorder must confirm the same pieces finished all their designs.
+ */
+function maxReadyOf(c: Pick<Counters, "quantity" | "stage" | "design">, g: { quantity: number; operations: PrintOperation[]; designs: DesignInfo[] }, isSize: boolean) {
+  if (g.designs.length > 0) {
+    const bounds = g.designs.map((d) => {
+      const done = c.design[d.id] ?? 0;
+      if (d.quantity >= g.quantity) return done;
+      return isSize ? c.quantity : done + (c.quantity - d.quantity);
+    });
+    return Math.max(0, Math.min(c.quantity, ...bounds));
+  }
+  return g.operations.length === 0 ? c.quantity : Math.min(c.quantity, ...g.operations.map((op) => c.stage[op] ?? 0));
 }
 
 /** Valid progress of every group (and size) of an order. Pass a transaction to read under the lock. */
@@ -70,36 +113,55 @@ export async function loadGroupProgress(db: DbClient, orderId: string): Promise<
         id: true,
         position: true,
         quantity: true,
+        name: true,
         operations: { select: { operation: true } },
         sizes: { orderBy: { position: "asc" }, select: { id: true, label: true, quantity: true } },
+        designs: {
+          orderBy: { position: "asc" },
+          select: { id: true, position: true, name: true, operation: true, placements: true, customPlacements: true, quantity: true, pressesPerUnit: true },
+        },
       },
     }),
-    db.productionStageProgress.groupBy({ by: ["orderGroupId", "orderGroupSizeId", "operation"], where: { orderId, voidedAt: null }, _sum: { quantity: true } }),
+    db.productionStageProgress.groupBy({ by: ["orderGroupId", "orderGroupSizeId", "operation", "designId"], where: { orderId, voidedAt: null }, _sum: { quantity: true } }),
     db.productionReady.groupBy({ by: ["orderGroupId", "orderGroupSizeId"], where: { orderId, voidedAt: null }, _sum: { quantity: true } }),
     db.delivery.groupBy({ by: ["orderGroupId", "orderGroupSizeId"], where: { orderId, voidedAt: null }, _sum: { quantity: true } }),
   ]);
   return groups.map((g) => {
     const operations = PRINT_OPERATIONS.filter((op) => g.operations.some((o) => o.operation === op));
-    const counters = (quantity: number, match: (row: { orderGroupId: string; orderGroupSizeId: string | null }) => boolean): Counters => {
+    const designs: DesignInfo[] = g.designs.map((d) => ({ ...d, label: designLabel(d.position, d.name) }));
+    const shape = { quantity: g.quantity, operations, designs };
+    const counters = (quantity: number, isSize: boolean, match: (row: { orderGroupId: string; orderGroupSizeId: string | null }) => boolean): Counters => {
       const stage: Counters["stage"] = {};
+      const design: Counters["design"] = {};
       for (const op of operations) stage[op] = 0;
-      for (const s of stages) if (match(s)) stage[s.operation] = (stage[s.operation] ?? 0) + (s._sum.quantity ?? 0);
+      for (const d of designs) design[d.id] = 0;
+      for (const s of stages) {
+        if (!match(s)) continue;
+        stage[s.operation] = (stage[s.operation] ?? 0) + (s._sum.quantity ?? 0);
+        if (s.designId) design[s.designId] = (design[s.designId] ?? 0) + (s._sum.quantity ?? 0);
+      }
       const r = ready.filter(match).reduce((sum, x) => sum + (x._sum.quantity ?? 0), 0);
       const d = delivered.filter(match).reduce((sum, x) => sum + (x._sum.quantity ?? 0), 0);
-      const c = { quantity, stage, ready: r, delivered: d, maxReady: 0 };
-      c.maxReady = maxReadyOf(c, operations);
+      const c = { quantity, stage, design, ready: r, delivered: d, maxReady: 0 };
+      c.maxReady = maxReadyOf(c, shape, isSize);
       return c;
     };
+    const whole = counters(g.quantity, false, (row) => row.orderGroupId === g.id);
+    const steps = designs.length > 0 ? Object.values(whole.design) : Object.values(whole.stage).map((v) => v ?? 0);
     return {
       id: g.id,
       position: g.position,
+      name: g.name,
+      label: itemLabel(g.position, g.name),
       operations,
       description: describeOperations(operations),
-      ...counters(g.quantity, (row) => row.orderGroupId === g.id),
+      designs,
+      ...whole,
+      worked: Math.max(whole.ready, whole.delivered, 0, ...steps),
       sizes: g.sizes.map((size) => ({
         id: size.id,
         label: size.label,
-        ...counters(size.quantity, (row) => row.orderGroupId === g.id && row.orderGroupSizeId === size.id),
+        ...counters(size.quantity, true, (row) => row.orderGroupId === g.id && row.orderGroupSizeId === size.id),
       })),
     };
   });
@@ -154,7 +216,7 @@ async function openOrderForWrite(tx: DbTransaction, orderId: string) {
 
 function findGroup(groups: GroupProgress[], groupId: string) {
   const g = groups.find((x) => x.id === groupId);
-  if (!g) throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { orderGroupId: ["المجموعة دي مش تبع الأوردر ده"] } });
+  if (!g) throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { orderGroupId: ["البند ده مش تبع الأوردر ده"] } });
   return g;
 }
 
@@ -172,7 +234,7 @@ type Line = { sizeId?: string; quantity: number };
 function linesFor(g: GroupProgress, input: { quantity?: number; sizes?: { sizeId: string; quantity: number }[] }, quantityField = "quantity"): Line[] {
   if (g.sizes.length === 0) {
     if (input.sizes && input.sizes.length > 0) {
-      throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { [quantityField]: ["المجموعة دي من غير مقاسات — اكتب العدد بس"] } });
+      throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { [quantityField]: ["البند ده من غير مقاسات — اكتب العدد بس"] } });
     }
     if (input.quantity === undefined) {
       throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { [quantityField]: ["اكتب العدد"] } });
@@ -186,7 +248,7 @@ function linesFor(g: GroupProgress, input: { quantity?: number; sizes?: { sizeId
   const seen = new Set<string>();
   for (const l of lines) {
     if (!g.sizes.some((s) => s.id === l.sizeId) || seen.has(l.sizeId)) {
-      throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { sizes: ["في مقاس مش تبع المجموعة دي — افتح الصفحة من جديد"] } });
+      throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { sizes: ["في مقاس مش تبع البند ده — افتح الصفحة من جديد"] } });
     }
     seen.add(l.sizeId);
   }
@@ -195,7 +257,8 @@ function linesFor(g: GroupProgress, input: { quantity?: number; sizes?: { sizeId
 
 /** The counters a line is checked against: its size, or the whole (unsized) group. */
 function targetOf(g: GroupProgress, sizeId?: string): Counters & { label?: string } {
-  return sizeId ? g.sizes.find((s) => s.id === sizeId)! : g;
+  // `label` here means the SIZE label (for messages); the whole item has none.
+  return sizeId ? g.sizes.find((s) => s.id === sizeId)! : { ...g, label: undefined };
 }
 
 /**
@@ -212,11 +275,11 @@ const firstRowKey = (input: { idempotencyKey: string; sizes?: { sizeId: string }
 
 function bump(g: GroupProgress, sizeId: string | undefined, apply: (c: Counters) => void) {
   apply(g);
-  g.maxReady = maxReadyOf(g, g.operations);
+  g.maxReady = maxReadyOf(g, g, false);
   if (sizeId) {
     const s = g.sizes.find((x) => x.id === sizeId)!;
     apply(s);
-    s.maxReady = maxReadyOf(s, g.operations);
+    s.maxReady = maxReadyOf(s, g, true);
   }
 }
 
@@ -228,17 +291,47 @@ export async function insertStageProgress(
   tx: DbTransaction,
   actor: Actor,
   ctx: { unit: QuantityUnit; groups: GroupProgress[] },
-  input: { orderId: string; orderGroupId: string; orderGroupSizeId?: string; operation: PrintOperation; quantity: number; workDate: string; notes?: string; idempotencyKey: string; workLogId?: string },
+  input: { orderId: string; orderGroupId: string; orderGroupSizeId?: string; designId?: string; operation: PrintOperation; quantity: number; workDate: string; notes?: string; idempotencyKey: string; workLogId?: string },
 ) {
   const g = findGroup(ctx.groups, input.orderGroupId);
   if (!g.operations.includes(input.operation)) {
     throw new AppError("VALIDATION_ERROR", undefined, {
-      fieldErrors: { operation: [`المجموعة دي مش محتاجة ${OPERATION_LABELS[input.operation]}`] },
+      fieldErrors: { operation: [`البند ده مش محتاج ${OPERATION_LABELS[input.operation]}`] },
     });
   }
   const t = targetOf(g, input.orderGroupSizeId);
+
+  // Items with designs: work is recorded per design (two designs may share an
+  // operation, e.g. chest DTF + back DTF on the same pieces).
+  const design = g.designs.length > 0 ? g.designs.find((d) => d.id === input.designId) : undefined;
+  if (g.designs.length > 0 && !design) {
+    throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { designId: ["اختار الرسمة اللي اتعملت"] } });
+  }
+  if (g.designs.length === 0 && input.designId) {
+    throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { designId: ["البند ده من غير رسومات"] } });
+  }
+  if (design && design.operation !== input.operation) {
+    throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { operation: [`${design.label} شغلها ${OPERATION_LABELS[design.operation]}`] } });
+  }
+  if (design) {
+    const who = t.label ? `مقاس ${t.label}: ` : "";
+    const doneHere = t.design[design.id] ?? 0;
+    const doneAll = g.design[design.id] ?? 0;
+    // Per size: no more than the size; overall: no more than the design's pieces.
+    const capHere = input.orderGroupSizeId ? Math.min(t.quantity, design.quantity) : design.quantity;
+    if (doneHere + input.quantity > capHere || doneAll + input.quantity > design.quantity) {
+      const left = Math.max(0, Math.min(capHere - doneHere, design.quantity - doneAll));
+      throw new AppError("VALIDATION_ERROR", undefined, {
+        fieldErrors: {
+          [input.orderGroupSizeId ? sizeField(input.orderGroupSizeId) : "quantity"]: [
+            `${who}${design.label} فاضل فيها ${n(left, ctx.unit)} بس (اتعمل ${n(doneAll, ctx.unit)} من ${n(design.quantity, ctx.unit)})`,
+          ],
+        },
+      });
+    }
+  }
   const done = t.stage[input.operation] ?? 0;
-  if (done + input.quantity > t.quantity) {
+  if (!design && done + input.quantity > t.quantity) {
     const who = t.label ? `مقاس ${t.label}: ` : "";
     throw new AppError("VALIDATION_ERROR", undefined, {
       fieldErrors: {
@@ -254,6 +347,7 @@ export async function insertStageProgress(
       orderGroupId: input.orderGroupId,
       orderGroupSizeId: input.orderGroupSizeId,
       operation: input.operation,
+      designId: design?.id,
       quantity: input.quantity,
       workDate: dateFromString(input.workDate),
       notes: input.notes,
@@ -265,6 +359,7 @@ export async function insertStageProgress(
   });
   bump(g, input.orderGroupSizeId, (c) => {
     c.stage[input.operation] = (c.stage[input.operation] ?? 0) + input.quantity;
+    if (design) c.design[design.id] = (c.design[design.id] ?? 0) + input.quantity;
   });
   await recordAudit(tx, {
     userId: actor.id,
@@ -277,6 +372,7 @@ export async function insertStageProgress(
       orderGroupSizeId: input.orderGroupSizeId ?? null,
       size: t.label ?? null,
       operation: input.operation,
+      designId: design?.id ?? null,
       quantity: input.quantity,
       workLogId: input.workLogId ?? null,
     },
@@ -292,10 +388,18 @@ async function insertReady(
 ) {
   const g = findGroup(ctx.groups, input.orderGroupId);
   const t = targetOf(g, input.orderGroupSizeId);
+  // Designs on only part of a sized item are enforced on the item total.
+  if (input.orderGroupSizeId && g.designs.length > 0 && g.ready + input.quantity > g.maxReady) {
+    throw new AppError("VALIDATION_ERROR", undefined, {
+      fieldErrors: {
+        [sizeField(input.orderGroupSizeId)]: [`أقصى عدد ممكن يبقى جاهز في البند كله دلوقتي ${n(Math.max(0, g.maxReady - g.ready), ctx.unit)} — حسب الرسومات اللي خلصت.`],
+      },
+    });
+  }
   if (t.ready + input.quantity > t.maxReady) {
     const who = t.label ? `مقاس ${t.label}: ` : "";
     const msg =
-      g.operations.length === 0
+      g.operations.length === 0 && g.designs.length === 0
         ? `${who}فاضل ${n(t.quantity - t.ready, ctx.unit)} بس`
         : `${who}أقصى عدد ممكن يبقى جاهز دلوقتي ${n(Math.max(0, t.maxReady - t.ready), ctx.unit)} — لازم القطع تخلص كل الشغل (${g.description}) الأول. اتسجل جاهز قبل كده ${n(t.ready, ctx.unit)}.`;
     throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { [input.orderGroupSizeId ? sizeField(input.orderGroupSizeId) : "quantity"]: [msg] } });
@@ -363,12 +467,25 @@ export async function insertStageFromWorkLog(
 ) {
   assertPermission(actor, "production:record");
   const ctx = await openOrderForWrite(tx, input.orderId);
-  if (findGroup(ctx.groups, input.orderGroupId).sizes.length > 0) {
+  const g = findGroup(ctx.groups, input.orderGroupId);
+  if (g.sizes.length > 0) {
     throw new AppError("VALIDATION_ERROR", undefined, {
-      fieldErrors: { quantity: ["المجموعة دي بمقاسات — سجّل القطع بالمقاسات من صفحة الأوردر («تسجيل إنتاج»)."] },
+      fieldErrors: { quantity: ["البند ده بمقاسات — سجّل القطع بالمقاسات من صفحة الأوردر («تسجيل إنتاج»)."] },
     });
   }
-  const row = await insertStageProgress(tx, actor, ctx, { ...input, idempotencyKey: randomUUID() });
+  // Items with designs: only when exactly one design has this operation is it
+  // clear which design the worker did; otherwise record it from the order page.
+  let designId: string | undefined;
+  if (g.designs.length > 0) {
+    const matching = g.designs.filter((d) => d.operation === input.operation);
+    if (matching.length !== 1) {
+      throw new AppError("VALIDATION_ERROR", undefined, {
+        fieldErrors: { quantity: [`البند ده فيه ${matching.length === 0 ? "مفيش" : "أكتر من"} رسمة ${OPERATION_LABELS[input.operation]} — سجّل الإنتاج لكل رسمة من صفحة الأوردر.`] },
+      });
+    }
+    designId = matching[0]!.id;
+  }
+  const row = await insertStageProgress(tx, actor, ctx, { ...input, designId, idempotencyKey: randomUUID() });
   await refreshOrderStatus(tx, actor, input.orderId);
   return row;
 }
@@ -388,8 +505,9 @@ export async function recordStageProgress(db: PrismaClient, actor: Actor, payloa
         const twin = await tx.productionStageProgress.findUnique({ where: { idempotencyKey: firstRowKey(input) }, select: { id: true } });
         if (twin) return { id: twin.id, replayed: true };
         const g = findGroup(ctx.groups, input.orderGroupId);
-        if (input.alsoReady && g.operations.length !== 1) {
-          throw new AppError("VALIDATION_ERROR", "المجموعة دي فيها أكتر من مرحلة. أكّد الجاهز من «جاهز للتسليم» لما القطع تخلص كل الشغل.");
+        const singleStep = g.designs.length > 0 ? g.designs.length === 1 && g.designs[0]!.quantity >= g.quantity : g.operations.length === 1;
+        if (input.alsoReady && !singleStep) {
+          throw new AppError("VALIDATION_ERROR", "البند ده فيه أكتر من مرحلة أو رسمة. أكّد الجاهز من «جاهز للتسليم» لما القطع تخلص كل الشغل.");
         }
         let first: { id: string } | null = null;
         for (const line of linesFor(g, input)) {
@@ -397,6 +515,7 @@ export async function recordStageProgress(db: PrismaClient, actor: Actor, payloa
             orderId: input.orderId,
             orderGroupId: g.id,
             orderGroupSizeId: line.sizeId,
+            designId: input.designId,
             operation: input.operation,
             quantity: line.quantity,
             workDate: input.workDate,
@@ -438,9 +557,13 @@ export async function recordReady(db: PrismaClient, actor: Actor, payload: Recor
         const twin = await tx.productionReady.findUnique({ where: { idempotencyKey: firstRowKey(input) }, select: { id: true } });
         if (twin) return { id: twin.id, replayed: true };
         const g = findGroup(ctx.groups, input.orderGroupId);
-        if (g.operations.length > 1 && !input.confirmAllOperations) {
+        // Several steps or designs (or a design on only some pieces): the
+        // recorder confirms these exact pieces finished everything they need.
+        const needsConfirm = g.designs.length > 0 ? g.designs.length > 1 || g.designs.some((d) => d.quantity < g.quantity) : g.operations.length > 1;
+        if (needsConfirm && !input.confirmAllOperations) {
+          const what = g.designs.length > 0 ? g.designs.map((d) => d.label).join(" + ") : g.description;
           throw new AppError("VALIDATION_ERROR", undefined, {
-            fieldErrors: { confirmAllOperations: [`أكّد إن نفس القطع خلصت كل الشغل (${g.description})`] },
+            fieldErrors: { confirmAllOperations: [`أكّد إن نفس القطع خلصت كل الشغل المطلوب لها (${what})`] },
           });
         }
         let first: { id: string } | null = null;
@@ -617,6 +740,8 @@ type HistoryBase = {
   id: string;
   date: string;
   groupPosition: number;
+  /** «اسم البند» or «البند N». */
+  groupLabel: string;
   sizeLabel: string | null;
   quantity: number;
   notes: string | null;
@@ -629,7 +754,7 @@ export type OrderProduction = {
   unit: QuantityUnit;
   totals: ReturnType<typeof totalsOf>;
   groups: GroupProgress[];
-  stageHistory: (HistoryBase & { operation: PrintOperation; fromWorker: string | null })[];
+  stageHistory: (HistoryBase & { operation: PrintOperation; fromWorker: string | null; designLabel: string | null })[];
   readyHistory: HistoryBase[];
   deliveryHistory: HistoryBase[];
 };
@@ -641,7 +766,7 @@ export async function getOrderProduction(db: DbClient, actor: Actor, orderId: st
   const by = {
     recordedBy: { select: { name: true } },
     voidedBy: { select: { name: true } },
-    orderGroup: { select: { position: true } },
+    orderGroup: { select: { position: true, name: true } },
     orderGroupSize: { select: { label: true } },
   } as const;
   const [groups, stages, ready, deliveries] = await Promise.all([
@@ -649,7 +774,7 @@ export async function getOrderProduction(db: DbClient, actor: Actor, orderId: st
     db.productionStageProgress.findMany({
       where: { orderId },
       orderBy: [{ workDate: "desc" }, { createdAt: "desc" }],
-      include: { ...by, workLog: { select: { worker: { select: { name: true } } } } },
+      include: { ...by, workLog: { select: { worker: { select: { name: true } } } }, design: { select: { position: true, name: true } } },
     }),
     db.productionReady.findMany({ where: { orderId }, orderBy: [{ readyDate: "desc" }, { createdAt: "desc" }], include: by }),
     db.delivery.findMany({ where: { orderId }, orderBy: [{ deliveredAt: "desc" }, { createdAt: "desc" }], include: by }),
@@ -664,7 +789,7 @@ export async function getOrderProduction(db: DbClient, actor: Actor, orderId: st
       voidReason: string | null;
       recordedBy: { name: string };
       voidedBy: { name: string } | null;
-      orderGroup: { position: number };
+      orderGroup: { position: number; name: string | null };
       orderGroupSize: { label: string } | null;
     },
     date: Date,
@@ -672,6 +797,7 @@ export async function getOrderProduction(db: DbClient, actor: Actor, orderId: st
     id: r.id,
     date: dateToString(date),
     groupPosition: r.orderGroup.position,
+    groupLabel: itemLabel(r.orderGroup.position, r.orderGroup.name),
     sizeLabel: r.orderGroupSize?.label ?? null,
     quantity: r.quantity,
     notes: r.notes,
@@ -683,7 +809,12 @@ export async function getOrderProduction(db: DbClient, actor: Actor, orderId: st
     unit: order.unit,
     totals: totalsOf(groups),
     groups,
-    stageHistory: stages.map((s) => ({ ...common(s, s.workDate), operation: s.operation, fromWorker: s.workLog?.worker.name ?? null })),
+    stageHistory: stages.map((s) => ({
+      ...common(s, s.workDate),
+      operation: s.operation,
+      fromWorker: s.workLog?.worker.name ?? null,
+      designLabel: s.design ? designLabel(s.design.position, s.design.name) : null,
+    })),
     readyHistory: ready.map((r) => common(r, r.readyDate)),
     deliveryHistory: deliveries.map((d) => common(d, d.deliveredAt)),
   };
