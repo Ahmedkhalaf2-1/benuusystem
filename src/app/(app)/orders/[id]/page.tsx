@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Archive, Banknote, CalendarDays, ClipboardList, Eye, Factory, HardHat, Layers, Pencil, Phone, ReceiptText, TrendingUp, Truck, Wallet } from "lucide-react";
+import { Archive, Banknote, CalendarDays, ClipboardList, Eye, Factory, HardHat, History, Layers, Pencil, Phone, ReceiptText, TrendingUp, Truck, Wallet } from "lucide-react";
 import { ArchiveOrderForm, RestoreOrderForm } from "@/components/orders/archive-order";
 import { OrderVisibilityForm } from "@/components/orders/order-visibility-picker";
 import { VISIBILITY_LABELS } from "@/lib/orders/visibility";
@@ -22,7 +22,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { requirePermission } from "@/lib/auth/current-user";
 import { hasPermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db/prisma";
-import { formatDateAr, formatDateTimeAr } from "@/lib/dates";
+import { daysBetween, formatDateAr, formatDateTimeAr, todayDateString } from "@/lib/dates";
 import { formatMoneyString, toCents } from "@/lib/money";
 import { formatNumber } from "@/lib/numbers";
 import { formatOrderNumber, OPERATION_LABELS, PAYMENT_METHOD_LABELS, UNIT_LABELS } from "@/lib/orders/labels";
@@ -372,7 +372,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
                   </Line>
                 )}
                 <Line label="المنتج">{order.productType}</Line>
-                <Line label="الخامة">{order.material}</Line>
+                <Line label="الخامة">{order.material || "—"}</Line>
                 <Line label="الكمية">{`${formatNumber(order.quantity)} ${u}`}</Line>
                 {ops.length > 0 && <Line label="الشغل">{ops.map((op) => OPERATION_LABELS[op]).join(" + ")}</Line>}
                 <Line label="تاريخ الاستلام">{formatDateAr(order.receivedDate)}</Line>
@@ -385,7 +385,7 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
                   g.material !== order.material || g.notes ? (
                     <li key={g.position}>
                       <span className="font-semibold">{g.label}: </span>
-                      {g.material !== order.material && <>الخامة {g.material}. </>}
+                      {g.material !== order.material && g.material && <>الخامة {g.material}. </>}
                       {g.notes}
                     </li>
                   ) : null,
@@ -401,6 +401,13 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
             <p className="mt-3 text-xs text-graphite">
               سجّله {order.createdByName}، {formatDateTimeAr(order.createdAt)}
             </p>
+            {/* Recorded well after it was received: both dates stay visible (the receipt date is the business date). */}
+            {daysBetween(order.receivedDate, todayDateString(order.createdAt)) > 1 && (
+              <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-well px-2.5 py-1 text-xs font-semibold text-graphite" data-testid="late-entry">
+                <History className="size-3.5 text-violet" aria-hidden="true" />
+                اتسجل متأخر: استلامه {formatDateAr(order.receivedDate)}
+              </p>
+            )}
           </Fold>
 
           {access && live && (

@@ -51,6 +51,7 @@ export function OrderCard({ order, hideCustomer, showMoney = true }: { order: Or
       <ProductionTrack className="mt-3.5" required={order.quantity} ready={prod.ready} delivered={prod.delivered} />
       <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
         <span className="text-graphite">
+          <span className="block text-[0.7rem]">استلام {formatDateAr(order.receivedDate)}</span>
           جاهز <b className="tabular text-teal-ink">{formatNumber(prod.ready)}</b> · اتسلم <b className="tabular font-display text-sm text-ink">{formatNumber(prod.delivered)}</b> من{" "}
           {formatNumber(order.quantity)} {UNIT_LABELS[order.unit]}
         </span>

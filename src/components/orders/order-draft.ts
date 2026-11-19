@@ -48,6 +48,11 @@ export type GroupDraft = {
   pressesPerUnit: string;
   /** Item work is described by designs (new items) instead of item-level operations (older items). */
   useDesigns: boolean;
+  /**
+   * «منتج جاهز»: a finished product sold as is — no printing or embroidery,
+   * so no designs (saved as a «بدون» item; no stock is tracked).
+   */
+  readyMade: boolean;
   designs: DesignDraft[];
   quantity: string;
   material: string;
@@ -72,6 +77,8 @@ export type OrderDraft = {
   totalPrice: string;
   advance: string;
   advanceMethod: PaymentMethod;
+  /** Day the advance was actually paid (defaults to today, not the receipt date). */
+  advancePaidAt: string;
   receivedDate: string;
   deliveryDate: string;
   notes: string;
@@ -90,6 +97,7 @@ export function newGroupDraft(partial: Partial<GroupDraft> = {}): GroupDraft {
     unitPrice: "",
     pressesPerUnit: "",
     useDesigns: true,
+    readyMade: false,
     designs: [newDesignDraft()],
     quantity: "",
     material: "",
@@ -115,6 +123,7 @@ export function emptyOrderDraft(customer: OrderDraft["customer"] = null): OrderD
     totalPrice: "",
     advance: "",
     advanceMethod: "CASH",
+    advancePaidAt: todayDateString(),
     receivedDate: todayDateString(),
     deliveryDate: "",
     notes: "",
@@ -136,14 +145,17 @@ export function draftFromOrder(order: OrderDetails): OrderDraft {
     material: order.material,
     quantity: String(order.quantity),
     unit: order.unit,
-    groups: order.groups.map((g) =>
-      newGroupDraft({
+    groups: order.groups.map((g) => {
+      // No designs and no work type = a finished product («بدون»): shown as «منتج جاهز».
+      const readyMade = g.designs.length === 0 && g.operations.length === 0;
+      return newGroupDraft({
         id: g.id,
         name: g.name ?? "",
         // Older items have no price of their own: left empty, never split from the total.
         unitPrice: g.unitPrice == null ? "" : plainAmount(g.unitPrice),
         pressesPerUnit: g.pressesPerUnit === null ? "" : String(g.pressesPerUnit),
-        useDesigns: g.designs.length > 0,
+        useDesigns: g.designs.length > 0 || readyMade,
+        readyMade,
         designs: g.designs.map((d) =>
           newDesignDraft({
             id: d.id,
@@ -163,11 +175,12 @@ export function draftFromOrder(order: OrderDetails): OrderDraft {
         plain: g.operations.length === 0,
         notes: g.notes ?? "",
         sizes: g.sizes.map((x) => ({ label: x.label, quantity: String(x.quantity) })),
-      }),
-    ),
+      });
+    }),
     totalPrice: order.money ? plainAmount(order.money.totalPrice) : "",
     advance: "",
     advanceMethod: "CASH",
+    advancePaidAt: todayDateString(),
     receivedDate: order.receivedDate,
     deliveryDate: order.deliveryDate,
     notes: order.notes ?? "",

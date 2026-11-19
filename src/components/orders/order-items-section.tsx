@@ -21,7 +21,8 @@ export function OrderItemsList({ order, unitLabel }: { order: OrderDetails; unit
             <div className="min-w-0">
               <h3 className="font-display font-semibold break-words">{g.label}</h3>
               <p className="text-sm text-graphite">
-                <span className="tabular">{formatNumber(g.quantity)}</span> {unitLabel} · {g.material}
+                <span className="tabular">{formatNumber(g.quantity)}</span> {unitLabel}
+                {g.material && <> · {g.material}</>}
               </p>
             </div>
             {money && priced && g.unitPrice != null && g.lineTotal != null && (

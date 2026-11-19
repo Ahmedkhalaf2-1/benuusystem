@@ -64,6 +64,11 @@ export function daysUntil(value: string, now: Date = new Date()): number {
   return Math.round((dateFromString(value).getTime() - today) / 86_400_000);
 }
 
+/** Whole days from `from` to `to` (both "YYYY-MM-DD"); negative when `to` is earlier. */
+export function daysBetween(from: string, to: string): number {
+  return Math.round((dateFromString(to).getTime() - dateFromString(from).getTime()) / 86_400_000);
+}
+
 /** First and last day ("YYYY-MM-DD") of the month containing `day`. */
 export function monthRange(day: string): { from: string; to: string } {
   const [y, m] = day.split("-").map(Number) as [number, number];

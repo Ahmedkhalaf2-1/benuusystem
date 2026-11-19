@@ -3,13 +3,14 @@ import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import type { OrderPricing, OrderStatus, PaymentMethod, PrintOperation, QuantityUnit, WorkUnit } from "@/generated/prisma/enums";
 import { assertPermission, hasPermission, isOwner } from "@/lib/auth/permissions";
 import type { DbClient, DbTransaction } from "@/lib/db/prisma";
-import { dateFromString, dateToString, todayDateString } from "@/lib/dates";
+import { dateFromString, dateToString, daysBetween, todayDateString } from "@/lib/dates";
 import { AppError } from "@/lib/errors";
 import { centsToDecimalString, formatMoney, toCents, type Cents } from "@/lib/money";
 import { normalizeDigits } from "@/lib/numbers";
 import { OPEN_ORDER_STATUSES, OPERATION_LABELS, describeOperations, designLabel, itemLabel } from "@/lib/orders/labels";
 import {
   createOrderSchema,
+  RECEIVED_DATE_FUTURE_MESSAGE,
   updateOrderSchema,
   type CreateOrderInput,
   type CreateOrderPayload,
@@ -311,6 +312,11 @@ export async function createOrder(
           quantity: input.quantity,
           totalPrice: centsToDecimalString(input.totalPrice),
           pricing: input.pricing,
+          // Business receipt date vs. the real entry time (this audit row's own createdAt).
+          receivedDate: input.receivedDate,
+          deliveryDate: input.deliveryDate,
+          entryLagDays: Math.max(0, daysBetween(input.receivedDate, todayDateString())),
+          ...(input.advance > 0n ? { advancePaidAt: input.advancePaidAt } : {}),
           groups: input.groups.map((g) => ({
             name: g.name,
             quantity: g.quantity,
@@ -324,12 +330,13 @@ export async function createOrder(
       if (access) await applyOrderAccess(tx, actor, order.id, access, { source: "create" });
 
       if (input.advance > 0n) {
-        const accountId = await accountForNewPayment(tx, input.advanceAccountId, input.receivedDate, "advanceAccountId");
+        // The treasury rule follows the day the money was actually paid, not the receipt date.
+        const accountId = await accountForNewPayment(tx, input.advanceAccountId, input.advancePaidAt, "advanceAccountId");
         const payment = await tx.orderPayment.create({
           data: {
             orderId: order.id,
             amount: centsToDecimalString(input.advance),
-            paidAt: dateFromString(input.receivedDate),
+            paidAt: dateFromString(input.advancePaidAt),
             method: input.advanceMethod,
             accountId,
             isAdvance: true,
@@ -347,6 +354,7 @@ export async function createOrder(
             orderId: order.id,
             amount: centsToDecimalString(input.advance),
             method: input.advanceMethod,
+            paidAt: input.advancePaidAt,
             advance: true,
             accountId,
           },
@@ -618,6 +626,11 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
       throw new AppError("CONFLICT", "الأوردر ده مكتمل ومينفعش يتعدل");
     }
 
+    // A changed receipt date can't move into the future (an unchanged one is left as it was).
+    if (input.receivedDate !== dateToString(before.receivedDate) && input.receivedDate > todayDateString()) {
+      throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { receivedDate: [RECEIVED_DATE_FUTURE_MESSAGE] } });
+    }
+
     // Pricing mode: an itemized order never goes back to a single total; an
     // order-total (older) order is converted only by the owner, and if the
     // item prices change its agreed total that must be confirmed explicitly.
@@ -757,7 +770,7 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
         action: AUDIT_ACTIONS.ORDER_UPDATED,
         entityType: "Order",
         entityId: input.orderId,
-        metadata: { number: before.number, changes } as Prisma.InputJsonValue,
+        metadata: { number: before.number, receivedDate: input.receivedDate, changes } as Prisma.InputJsonValue,
       });
     }
     if (priceChanged) {
@@ -797,7 +810,12 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
 
 /** "archived": owner review of removed orders; every other filter hides them. */
 export type OrderStatusFilter = "all" | "open" | "overdue" | "archived" | OrderStatus;
-export type OrderSort = "newest" | "oldest" | "delivery";
+/**
+ * newest/oldest: by the business receipt date (backdated orders land where
+ * they belong). recorded: by the real entry time. Ties are broken by entry
+ * time, then number, so paging is deterministic.
+ */
+export type OrderSort = "newest" | "oldest" | "delivery" | "recorded";
 export const ORDERS_PAGE_SIZE = 20;
 
 /** `searchPhones`: only viewers allowed to see customer phones may match on them. */
@@ -830,9 +848,10 @@ function orderListWhere(query: string, status: OrderStatusFilter, searchPhones =
 }
 
 const SORTS: Record<OrderSort, Prisma.OrderOrderByWithRelationInput[]> = {
-  newest: [{ createdAt: "desc" }, { number: "desc" }],
-  oldest: [{ createdAt: "asc" }, { number: "asc" }],
+  newest: [{ receivedDate: "desc" }, { createdAt: "desc" }, { number: "desc" }],
+  oldest: [{ receivedDate: "asc" }, { createdAt: "asc" }, { number: "asc" }],
   delivery: [{ deliveryDate: "asc" }, { number: "asc" }],
+  recorded: [{ createdAt: "desc" }, { number: "desc" }],
 };
 
 export async function listOrders(
@@ -1095,7 +1114,8 @@ export async function recentMaterials(db: DbClient, actor: Actor, limit = 15): P
   assertPermission(actor, "orders:view");
   const rows = await db.orderGroup.groupBy({
     by: ["material"],
-    where: { order: orderScope(actor) },
+    // "" = no material given (optional): not a suggestion.
+    where: { order: orderScope(actor), material: { not: "" } },
     _count: { material: true },
     orderBy: { _count: { material: "desc" } },
     take: limit,

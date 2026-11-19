@@ -90,6 +90,8 @@ export const moneySchema = (options: {
 export const dateStringSchema = (required: string) =>
   z.string({ error: required }).trim().refine(isValidDateString, required);
 
+export const RECEIVED_DATE_FUTURE_MESSAGE = "تاريخ الاستلام مينفعش يكون في المستقبل";
+
 const customerChoiceSchema = z.discriminatedUnion(
   "mode",
   [
@@ -193,7 +195,13 @@ const orderCoreShape = {
   customer: customerChoiceSchema,
   title: requiredText(150, "اكتب اسم الأوردر"),
   productType: requiredText(80, "اكتب نوع المنتج"),
-  material: requiredText(80, "اكتب نوع الخامة"),
+  /** Optional: stored as "" (shown as «—») when not given. */
+  material: z
+    .string()
+    .trim()
+    .max(80, "النص طويل جدًا")
+    .optional()
+    .transform((value) => value ?? ""),
   pricing: z.enum(ORDER_PRICING).default("order"),
   /** Optional: when missing it is the sum of the items' quantities. */
   quantity: quantitySchema("اكتب الكمية المطلوبة").optional(),
@@ -515,11 +523,30 @@ export const createOrderSchema = z
     advanceMethod: z
       .enum(PAYMENT_METHODS as [string, ...string[]])
       .default("CASH"),
+    /**
+     * When the advance was actually paid — NOT the receipt date (a backdated
+     * order's advance may have been paid on another day, and the date decides
+     * the treasury rule). Never in the future. Missing (older clients) = today.
+     */
+    advancePaidAt: z
+      .string()
+      .trim()
+      .optional()
+      .transform((value) => (value ? value : undefined))
+      .refine((value) => value === undefined || isValidDateString(value), "اختار تاريخ دفع المقدم")
+      .refine(
+        (value) => value === undefined || !isValidDateString(value) || value <= todayDateString(),
+        "تاريخ دفع المقدم مينفعش يكون في المستقبل",
+      ),
     /** Treasury account the advance went into (optional). */
     advanceAccountId: paymentAccountSchema,
   })
   .superRefine((data, ctx) => {
     checkOrderRules(data, ctx);
+    // A new order is never received in the future (edits check this only when the date changes).
+    if (isValidDateString(data.receivedDate) && data.receivedDate > todayDateString()) {
+      ctx.addIssue({ code: "custom", path: ["receivedDate"], message: RECEIVED_DATE_FUTURE_MESSAGE });
+    }
     const total =
       data.pricing === "items"
         ? computeItemsTotal(data)
@@ -536,6 +563,7 @@ export const createOrderSchema = z
     ...data,
     ...normalizeOrder(data),
     advanceMethod: data.advanceMethod as (typeof PAYMENT_METHODS)[number],
+    advancePaidAt: data.advancePaidAt ?? todayDateString(),
   }));
 
 export type CreateOrderInput = z.output<typeof createOrderSchema>;

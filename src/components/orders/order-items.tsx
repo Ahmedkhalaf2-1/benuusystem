@@ -1,11 +1,11 @@
 "use client";
 
-import { ArrowDown, ArrowUp, ChevronDown, Layers, Plus, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, Layers, PackageCheck, Plus, Trash2 } from "lucide-react";
 import { Field } from "@/components/forms/field";
 import { Input } from "@/components/ui/input";
 import { formatMoney, parseMoney } from "@/lib/money";
 import { formatNumber, parseWholeNumber } from "@/lib/numbers";
-import { MAX_CUSTOM_PLACEMENTS, OPERATION_LABELS, OTHER_PLACEMENT_LABEL, PLACEMENT_LABELS, PLACEMENTS, PRINT_OPERATIONS } from "@/lib/orders/labels";
+import { MAX_CUSTOM_PLACEMENTS, OPERATION_LABELS, OTHER_PLACEMENT_LABEL, PLACEMENT_LABELS, PLACEMENTS, PRINT_OPERATIONS, READY_MADE_PRESETS } from "@/lib/orders/labels";
 import { cn } from "@/lib/utils";
 import { MAX_DESIGNS_PER_ITEM } from "@/lib/validations/order";
 import { newDesignDraft, type DesignDraft, type GroupDraft } from "./order-draft";
@@ -38,6 +38,7 @@ export function ItemCard({
   errors,
   onChange,
   onRemove,
+  onReadyPreset,
 }: {
   index: number;
   count: number;
@@ -52,6 +53,8 @@ export function ItemCard({
   errors: Errors;
   onChange: (patch: Partial<GroupDraft> | ((g: GroupDraft) => Partial<GroupDraft>)) => void;
   onRemove: () => void;
+  /** A ready-made product was picked from the shortcuts (the form may use it as the product type). */
+  onReadyPreset?: (name: string) => void;
 }) {
   const e = (key: string) => errors[`groups.${index}.${key}`];
   const qty = parseWholeNumber(group.quantity);
@@ -84,8 +87,68 @@ export function ItemCard({
         )}
       </div>
 
-      <Field label="اسم البند / الرسمة" htmlFor={`g${index}-name`} error={e("name")} optional={!priced}>
-        <Input id={`g${index}-name`} value={group.name} onChange={(ev) => onChange({ name: ev.target.value })} placeholder="مثال: تيشيرتات AUC" aria-invalid={e("name") ? true : undefined} />
+      {/* Older items saved with a work type only (no designs) keep their own picker below. */}
+      {group.useDesigns && (
+        <div className="grid grid-cols-2 gap-1 rounded-2xl bg-surface p-1 ring-1 ring-line" role="radiogroup" aria-label={`نوع البند ${index + 1}`}>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={!group.readyMade}
+            onClick={() => onChange((g) => (g.readyMade ? { readyMade: false, plain: false, designs: g.designs.length > 0 ? g.designs : [newDesignDraft()] } : {}))}
+            className={cn("flex min-h-11 items-center justify-center gap-1.5 rounded-xl text-sm font-semibold transition-colors", !group.readyMade ? "bg-brand-solid text-white" : "text-graphite hover:text-ink")}
+          >
+            <Layers className="size-4" aria-hidden="true" />
+            طباعة / تطريز
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={group.readyMade}
+            onClick={() => onChange({ readyMade: true, plain: true, designs: [] })}
+            className={cn("flex min-h-11 items-center justify-center gap-1.5 rounded-xl text-sm font-semibold transition-colors", group.readyMade ? "bg-brand-solid text-white" : "text-graphite hover:text-ink")}
+          >
+            <PackageCheck className="size-4" aria-hidden="true" />
+            منتج جاهز
+          </button>
+        </div>
+      )}
+
+      {group.readyMade && (
+        <div className="flex flex-wrap gap-2" role="group" aria-label="منتجات جاهزة">
+          {READY_MADE_PRESETS.map((name) => {
+            const on = group.name.trim() === name;
+            return (
+              <button
+                key={name}
+                type="button"
+                aria-pressed={on}
+                onClick={() => {
+                  onChange({ name });
+                  onReadyPreset?.(name);
+                }}
+                className={cn(chip(on), "min-h-10 px-3 text-sm")}
+              >
+                {name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <Field
+        label={group.readyMade ? "اسم المنتج" : "اسم البند / الرسمة"}
+        htmlFor={`g${index}-name`}
+        error={e("name")}
+        optional={!priced}
+        hint={group.readyMade ? "اختار من فوق أو اكتب أي منتج تاني" : undefined}
+      >
+        <Input
+          id={`g${index}-name`}
+          value={group.name}
+          onChange={(ev) => onChange({ name: ev.target.value })}
+          placeholder={group.readyMade ? "مثال: تيشيرت أسود قطن" : "مثال: تيشيرتات AUC"}
+          aria-invalid={e("name") ? true : undefined}
+        />
       </Field>
 
       <div className={cn("grid gap-3", priced ? "grid-cols-2" : "grid-cols-1")}>
@@ -119,7 +182,11 @@ export function ItemCard({
         <SizeGrid idPrefix={`g${index}`} sizes={group.sizes} target={qty} unitLabel={unitLabel} error={e("sizes")} onChange={(sizes) => onChange({ sizes })} />
       )}
 
-      {group.useDesigns ? (
+      {group.readyMade ? (
+        <p className="rounded-xl bg-surface p-3 text-sm text-graphite ring-1 ring-line">
+          منتج جاهز من غير طباعة أو تطريز — مفيش تفاصيل تصنيع. يتعلّم «جاهز» ويتسلّم على طول.
+        </p>
+      ) : group.useDesigns ? (
         <section aria-label={`رسومات البند ${index + 1}`} className="space-y-2.5">
           <h4 className="flex items-center gap-1.5 text-sm font-semibold">
             <Layers className="size-4 text-brand" aria-hidden="true" />
@@ -164,6 +231,7 @@ export function ItemCard({
       <details className="group/more rounded-xl bg-surface px-3 ring-1 ring-line" open={!!(e("pressesPerUnit") || group.notes || (count > 1 && group.material))}>
         <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-sm font-semibold [&::-webkit-details-marker]:hidden">
           الخامة {group.useDesigns ? "" : "والكبسات "}والملاحظات
+          <span className="text-xs font-normal text-graphite">(اختياري)</span>
           <ChevronDown className="size-4 text-graphite transition-transform group-open/more:rotate-180" aria-hidden="true" />
         </summary>
         <div className="space-y-3 pt-1 pb-3">
@@ -210,6 +278,18 @@ function DesignCard({
   const pieces = parseWholeNumber(design.quantity) ?? itemQuantity;
   const presses = parseWholeNumber(design.pressesPerUnit);
   const planned = pieces !== null && presses !== null && design.pressesPerUnit.trim() !== "" ? pieces * presses : null;
+  // Optional details start folded; they open when something is filled in or needs fixing.
+  const detailsOpen = !!(
+    design.name ||
+    design.placements.length ||
+    design.otherOn ||
+    design.quantity ||
+    design.pressesPerUnit ||
+    design.notes ||
+    e("quantity") ||
+    e("pressesPerUnit") ||
+    errors[`groups.${itemIndex}.designs.${index}.customPlacements`]
+  );
 
   return (
     <div className="space-y-3 rounded-xl bg-surface p-3 ring-1 ring-line" data-design={id}>
@@ -235,10 +315,6 @@ function DesignCard({
         </button>
       </div>
 
-      <Field label="اسم الرسمة" htmlFor={`${id}-name`} optional>
-        <Input id={`${id}-name`} value={design.name} onChange={(ev) => onChange({ name: ev.target.value })} placeholder="مثال: لوجو AUC" />
-      </Field>
-
       <div data-error={e("operation") ? "true" : undefined}>
         <p className="mb-1.5 text-sm font-medium">نوع الشغل</p>
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="نوع الشغل">
@@ -250,6 +326,17 @@ function DesignCard({
         </div>
         {e("operation") && <p className="mt-1 text-sm text-red">{e("operation")}</p>}
       </div>
+
+      <details className="group/spec rounded-xl bg-well px-3" open={detailsOpen}>
+        <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+          تفاصيل الرسمة
+          <span className="text-xs font-normal text-graphite">(اختياري: الاسم، المكان، العدد، الكبسات)</span>
+          <ChevronDown className="ms-auto size-4 shrink-0 text-graphite transition-transform group-open/spec:rotate-180" aria-hidden="true" />
+        </summary>
+        <div className="space-y-3 pt-1 pb-3">
+      <Field label="اسم الرسمة" htmlFor={`${id}-name`} optional>
+        <Input id={`${id}-name`} value={design.name} onChange={(ev) => onChange({ name: ev.target.value })} placeholder="مثال: لوجو AUC" />
+      </Field>
 
       <div>
         <p className="mb-1.5 text-sm font-medium">مكان الرسمة</p>
@@ -306,6 +393,8 @@ function DesignCard({
       <Field label="ملاحظات" htmlFor={`${id}-notes`} optional>
         <Input id={`${id}-notes`} value={design.notes} onChange={(ev) => onChange({ notes: ev.target.value })} placeholder="مثال: الألوان، المقاس…" />
       </Field>
+        </div>
+      </details>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { CalendarDays, Check, ChevronDown, Eye, Layers, Loader2, Package, Plus, Shirt, Smartphone, TriangleAlert, User, Wallet, type LucideIcon } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, Eye, History, Layers, Loader2, Package, Plus, Shirt, Smartphone, TriangleAlert, User, Wallet, type LucideIcon } from "lucide-react";
 import { createOrderAction, updateOrderAction } from "@/app/(app)/orders/actions";
 import { Field, FormMessage, NativeSelect, Textarea } from "@/components/forms/field";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { formatMoney, parseMoney, toCents } from "@/lib/money";
 import { formatNumber, parseWholeNumber } from "@/lib/numbers";
 import { MATERIAL_SUGGESTIONS, ORDER_STATUS_LABELS, PAYMENT_METHOD_LABELS, PAYMENT_METHODS, PRODUCT_SUGGESTIONS, QUANTITY_UNITS, UNIT_LABELS } from "@/lib/orders/labels";
 import { isClothingProduct } from "@/lib/orders/sizes";
-import { dateFromString, dateToString, isValidDateString, todayDateString } from "@/lib/dates";
+import { dateFromString, dateToString, formatDateAr, isValidDateString, todayDateString } from "@/lib/dates";
 import { newRequestId } from "@/lib/request-id";
 import { cn } from "@/lib/utils";
 import { createOrderSchema, MAX_ORDER_GROUPS, updateOrderSchema } from "@/lib/validations/order";
@@ -28,7 +28,15 @@ import type { AssignableStaff, OrderAccessValue } from "@/lib/orders/visibility"
 type AccessProps = { staff: AssignableStaff[]; initial: OrderAccessValue; version?: number };
 
 type Props =
-  | { mode: "create"; initial: OrderDraft; materialSuggestions: string[]; access?: AccessProps; accounts?: AccountOption[] }
+  | {
+      mode: "create";
+      initial: OrderDraft;
+      materialSuggestions: string[];
+      access?: AccessProps;
+      accounts?: AccountOption[];
+      /** Treasury start ("YYYY-MM-DD"): money dated before it is inside the opening balance and takes no account. */
+      treasuryCutover?: string | null;
+    }
   | {
       mode: "edit";
       access?: AccessProps;
@@ -140,6 +148,11 @@ export function OrderForm(props: Props) {
 
   const priced = draft.pricing === "items";
   const itemsCount = draft.groups.length;
+  const today = todayDateString();
+  const backdated = isValidDateString(draft.receivedDate) && draft.receivedDate < today;
+  const cutover = props.mode === "create" ? (props.treasuryCutover ?? null) : null;
+  // An advance paid before the treasury started is already inside the counted opening balance.
+  const advanceBeforeTreasury = cutover !== null && isValidDateString(draft.advancePaidAt) && draft.advancePaidAt < cutover;
   const pieces = draft.groups.reduce((sum, g) => sum + (parseWholeNumber(g.quantity) ?? 0), 0);
   const unitLabel = UNIT_LABELS[draft.unit];
   const legacyTotal = props.mode === "edit" ? toCents(props.originalTotal) : null;
@@ -214,7 +227,14 @@ export function OrderForm(props: Props) {
       notes: draft.notes,
     };
     return props.mode === "create"
-      ? { ...common, idempotencyKey: requestId, advance: draft.advance, advanceMethod: draft.advanceMethod, ...(advanceAccountId ? { advanceAccountId } : {}) }
+      ? {
+          ...common,
+          idempotencyKey: requestId,
+          advance: draft.advance,
+          advanceMethod: draft.advanceMethod,
+          advancePaidAt: draft.advancePaidAt,
+          ...(advanceAccountId && !advanceBeforeTreasury ? { advanceAccountId } : {}),
+        }
       : {
           ...common,
           orderId: props.orderId,
@@ -292,7 +312,8 @@ export function OrderForm(props: Props) {
     { label: "بعد أسبوع", days: 7 },
     { label: "بعد أسبوعين", days: 14 },
   ];
-  const from = draft.receivedDate || todayDateString();
+  // Delivery shortcuts count from today (a backdated receipt date would put them in the past).
+  const from = today;
   // Sizes that don't add up yet: said in the save bar, so nobody is surprised by a refused save.
   const sizeIssue = (() => {
     if (!draft.sizesEnabled) return null;
@@ -390,28 +411,39 @@ export function OrderForm(props: Props) {
           />
           {errors.productType && <p className="mt-1.5 text-sm text-red">{errors.productType}</p>}
         </div>
-        <Field label="الخامة" htmlFor="material" error={errors.material} hint="لكل البنود، إلا لو اتغيرت جوه البند">
-          <Input
-            id="material"
-            list="material-suggestions"
-            value={draft.material}
-            onChange={(e) => set("material", e.target.value)}
-            placeholder="مثال: قطن 100%"
-            aria-invalid={errors.material ? true : undefined}
-          />
-        </Field>
-        <div className="flex items-center justify-between gap-3">
-          <label htmlFor="unit" className="text-sm font-semibold">
-            الوحدة
-          </label>
-          <NativeSelect id="unit" value={draft.unit} onChange={(e) => set("unit", e.target.value as QuantityUnit)} className="h-11 w-36">
-            {QUANTITY_UNITS.map((u) => (
-              <option key={u} value={u}>
-                {UNIT_LABELS[u]}
-              </option>
-            ))}
-          </NativeSelect>
-        </div>
+        <details className="group/spec rounded-2xl bg-well px-3.5" open={!!(errors.material || errors.unit)}>
+          <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 font-semibold [&::-webkit-details-marker]:hidden">
+            الخامة والوحدة
+            <span className="min-w-0 truncate text-xs font-normal text-graphite">
+              (اختياري) · {draft.material.trim() || "من غير خامة"} · {unitLabel}
+            </span>
+            <ChevronDown className="ms-auto size-4 shrink-0 text-graphite transition-transform duration-200 group-open/spec:rotate-180" aria-hidden="true" />
+          </summary>
+          <div className="space-y-4 pt-1 pb-4">
+            <Field label="الخامة" htmlFor="material" error={errors.material} optional hint="لكل البنود، إلا لو اتغيرت جوه البند">
+              <Input
+                id="material"
+                list="material-suggestions"
+                value={draft.material}
+                onChange={(e) => set("material", e.target.value)}
+                placeholder="مثال: قطن 100%"
+                aria-invalid={errors.material ? true : undefined}
+              />
+            </Field>
+            <div className="flex items-center justify-between gap-3">
+              <label htmlFor="unit" className="text-sm font-semibold">
+                الوحدة
+              </label>
+              <NativeSelect id="unit" value={draft.unit} onChange={(e) => set("unit", e.target.value as QuantityUnit)} className="h-11 w-36">
+                {QUANTITY_UNITS.map((u) => (
+                  <option key={u} value={u}>
+                    {UNIT_LABELS[u]}
+                  </option>
+                ))}
+              </NativeSelect>
+            </div>
+          </div>
+        </details>
         <label className="flex min-h-14 cursor-pointer items-center justify-between gap-3 rounded-2xl bg-well px-3.5 py-2">
           <span>
             <span className="block font-semibold">تقسيم بالمقاسات</span>
@@ -438,7 +470,7 @@ export function OrderForm(props: Props) {
         hue="bg-brand-soft text-brand-ink"
         aside={<span className="tabular text-sm text-graphite">{formatNumber(itemsCount)} بند · {formatNumber(pieces)} {unitLabel}</span>}
       >
-        <p className="-mt-2 text-sm text-graphite">كل بند ليه اسمه وكميته وسعره. لو البند عليه أكتر من رسمة (صدر وظهر مثلًا) ضيفها جوه نفس البند.</p>
+        <p className="-mt-2 text-sm text-graphite">كل بند ليه اسمه وكميته وسعره. اختار «منتج جاهز» للحاجات اللي بتتباع زي ما هي، و«طباعة / تطريز» للشغل — وتفاصيل الرسمة اختيارية.</p>
         {draft.groups.map((group, index) => (
           <ItemCard
             key={group.key}
@@ -453,6 +485,10 @@ export function OrderForm(props: Props) {
             errors={errors}
             onChange={(patch) => setGroup(index, patch)}
             onRemove={() => setDraft((d) => ({ ...d, groups: d.groups.filter((_, i) => i !== index) }))}
+            onReadyPreset={(name) => {
+              // Nothing typed as the product yet: the picked product names the order's product too.
+              if (!draft.productType.trim()) setProductType(name);
+            }}
           />
         ))}
         {errors.groups && <p className="text-sm text-red" data-error="true">{errors.groups}</p>}
@@ -552,6 +588,45 @@ export function OrderForm(props: Props) {
           </div>
         )}
         {props.mode === "create" && money.paidNow !== null && money.paidNow > 0n && (
+          <div className="space-y-2">
+            <Field
+              label="تاريخ دفع المقدم"
+              htmlFor="advancePaidAt"
+              error={errors.advancePaidAt}
+              hint="اليوم اللي الفلوس اتدفعت فيه فعلًا — مش لازم يكون يوم استلام الأوردر"
+            >
+              <Input
+                id="advancePaidAt"
+                type="date"
+                value={draft.advancePaidAt}
+                max={today}
+                onChange={(e) => {
+                  set("advancePaidAt", e.target.value);
+                  setErrors((er) => (er.advanceAccountId ? { ...er, advanceAccountId: "" } : er));
+                }}
+                aria-invalid={errors.advancePaidAt ? true : undefined}
+              />
+            </Field>
+            {backdated && (
+              <div className="flex flex-wrap gap-2" role="group" aria-label="تواريخ سريعة للمقدم">
+                {[
+                  { label: "النهارده", value: today },
+                  { label: "يوم الاستلام", value: draft.receivedDate },
+                ].map((c) => (
+                  <button key={c.label} type="button" aria-pressed={draft.advancePaidAt === c.value} onClick={() => set("advancePaidAt", c.value)} className={cn(chip(draft.advancePaidAt === c.value), "min-h-10 px-3 text-sm")}>
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {props.mode === "create" && money.paidNow !== null && money.paidNow > 0n && advanceBeforeTreasury && (
+          <p className="rounded-2xl bg-well p-3 text-sm text-graphite">
+            المقدم ده قبل بداية الخزنة ({formatDateAr(cutover!)}) — يعني هو جوّه الرصيد الافتتاحي، فهيتسجل من غير حساب.
+          </p>
+        )}
+        {props.mode === "create" && money.paidNow !== null && money.paidNow > 0n && !advanceBeforeTreasury && (
           <AccountField
             accounts={accounts}
             value={advanceAccountId}
@@ -582,8 +657,33 @@ export function OrderForm(props: Props) {
         </dl>
       </Question>
 
-      <Question title="هيتسلم إمتى؟" id="q-date" icon={CalendarDays} hue="bg-brand-soft text-brand-ink">
-        <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="مواعيد سريعة">
+      <Question title="التواريخ" id="q-date" icon={CalendarDays} hue="bg-brand-soft text-brand-ink">
+        <Field
+          label="تاريخ استلام الأوردر"
+          htmlFor="receivedDate"
+          error={errors.receivedDate}
+          hint={backdated ? undefined : "النهارده، إلا لو الأوردر اتاخد قبل كده — ممكن تختار أي يوم فات"}
+        >
+          <Input
+            id="receivedDate"
+            type="date"
+            value={draft.receivedDate}
+            max={props.mode === "create" || draft.receivedDate <= today ? today : undefined}
+            onChange={(e) => set("receivedDate", e.target.value)}
+            aria-invalid={errors.receivedDate ? true : undefined}
+          />
+        </Field>
+        {backdated && (
+          <p className="flex items-start gap-2 rounded-2xl bg-well p-3 text-sm text-graphite">
+            <History className="mt-0.5 size-4 shrink-0 text-violet" aria-hidden="true" />
+            <span>
+              أوردر بتاريخ قديم: استلامه {formatDateAr(draft.receivedDate)}. وقت التسجيل الحقيقي بيتحفظ لوحده
+              {props.mode === "create" ? "، والمقدم (لو فيه) بيتسجل بتاريخ دفعه الفعلي." : "."}
+            </span>
+          </p>
+        )}
+        <p className="text-sm font-semibold">هيتسلم إمتى؟</p>
+        <div className="-mt-2 grid grid-cols-4 gap-1.5" role="group" aria-label="مواعيد سريعة">
           {dueChips.map((c) => {
             const value = addDays(from, c.days);
             return (
@@ -593,7 +693,7 @@ export function OrderForm(props: Props) {
             );
           })}
         </div>
-        <Field label="أو اختار اليوم" htmlFor="deliveryDate" error={errors.deliveryDate}>
+        <Field label="موعد التسليم" htmlFor="deliveryDate" error={errors.deliveryDate}>
           <Input
             id="deliveryDate"
             type="date"
@@ -613,17 +713,15 @@ export function OrderForm(props: Props) {
           </Field>
         )}
 
-        <details className="group/more rounded-2xl bg-well px-3.5" open={!!(errors.receivedDate || errors.notes || draft.notes)}>
+        <details className="group/more rounded-2xl bg-well px-3.5" open={!!(errors.notes || draft.notes)}>
           <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 font-semibold [&::-webkit-details-marker]:hidden">
-            ملاحظات وتاريخ الاستلام
+            ملاحظات
+            <span className="text-xs font-normal text-graphite">(اختياري)</span>
             <ChevronDown className="size-4 text-graphite transition-transform duration-200 group-open/more:rotate-180" aria-hidden="true" />
           </summary>
           <div className="space-y-4 pt-1 pb-4">
             <Field label="ملاحظات" htmlFor="notes" optional>
-              <Textarea id="notes" value={draft.notes} onChange={(e) => set("notes", e.target.value)} placeholder="مثال: طباعة أمامية وخلفية، الألوان، مكان اللوجو…" />
-            </Field>
-            <Field label="تاريخ استلام الأوردر" htmlFor="receivedDate" error={errors.receivedDate} hint="النهارده، إلا لو الأوردر اتاخد قبل كده">
-              <Input id="receivedDate" type="date" value={draft.receivedDate} onChange={(e) => set("receivedDate", e.target.value)} aria-invalid={errors.receivedDate ? true : undefined} />
+              <Textarea id="notes" value={draft.notes} onChange={(e) => set("notes", e.target.value)} placeholder="مثال: الألوان، مكان اللوجو، تفاصيل التصنيع…" />
             </Field>
           </div>
         </details>

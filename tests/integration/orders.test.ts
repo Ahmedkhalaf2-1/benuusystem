@@ -415,7 +415,7 @@ describe.skipIf(!hasTestDatabase)("customers & orders (PostgreSQL)", () => {
   // ─── Lists & dashboard ───
 
   it("filters, searches and flags overdue orders; dashboard counts are real", async () => {
-    const late = await createOrder(db, staff, orderPayload({ title: "أوردر متأخر", receivedDate: "2026-01-01", deliveryDate: "2026-01-02", advance: "100" }));
+    const late = await createOrder(db, staff, orderPayload({ title: "أوردر متأخر", receivedDate: "2026-01-01", deliveryDate: "2026-01-02", advance: "100", advancePaidAt: "2026-01-01" }));
     await createOrder(db, staff, orderPayload({ title: "أوردر عادي", customer: { mode: "new", name: "سارة", phone: "01099998888" } }));
 
     const overdue = await listOrders(db, staff, { status: "overdue" });

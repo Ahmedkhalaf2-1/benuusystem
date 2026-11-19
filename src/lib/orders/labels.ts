@@ -70,6 +70,12 @@ export const PRODUCT_SUGGESTIONS: readonly { name: string; unit: QuantityUnit }[
   { name: "قماش", unit: "METER" },
 ];
 
+/**
+ * «منتج جاهز» shortcuts: finished products sold as is (no printing or
+ * embroidery). Names only — no catalog, prices or stock; any name can be typed.
+ */
+export const READY_MADE_PRESETS: readonly string[] = ["تيشيرت", "هودي", "سويت شيرت", "بولو", "كاب", "شنطة"];
+
 export const MATERIAL_SUGGESTIONS: readonly string[] = [
   "قطن 100%",
   "قطن ليكرا",

@@ -6,7 +6,7 @@ import { requirePermission } from "@/lib/auth/current-user";
 import { hasPermission } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db/prisma";
 import { recentMaterials } from "@/server/services/order-service";
-import { listAccountOptions } from "@/server/services/treasury-service";
+import { listAccountOptions, treasuryRequiresAccount } from "@/server/services/treasury-service";
 import { listAssignableStaff } from "@/server/services/order-visibility-service";
 
 export const metadata: Metadata = { title: "أوردر جديد" };
@@ -32,6 +32,7 @@ export default async function NewOrderPage(props: PageProps<"/orders/new">) {
         // Owner picks who sees the order; new orders start private. A staff
         // member's own order is shared with them only (set by the server).
         accounts={await listAccountOptions(prisma, user)}
+        treasuryCutover={(await treasuryRequiresAccount(prisma)).cutover}
         access={hasPermission(user, "orders:manage-access") ? { staff: await listAssignableStaff(prisma, user), initial: { visibility: "PRIVATE", userIds: [] } } : undefined}
       />
     </div>

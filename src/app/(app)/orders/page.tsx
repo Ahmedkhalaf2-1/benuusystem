@@ -32,9 +32,11 @@ const FILTERS: { value: OrderStatusFilter; label: string }[] = [
 ];
 
 const SORTS: { value: OrderSort; label: string }[] = [
-  { value: "newest", label: "الأحدث" },
+  // newest/oldest follow the business receipt date; «آخر تسجيل» the real entry time.
+  { value: "newest", label: "الأحدث استلامًا" },
   { value: "oldest", label: "الأقدم" },
   { value: "delivery", label: "أقرب تسليم" },
+  { value: "recorded", label: "آخر تسجيل" },
 ];
 
 function pick<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
@@ -113,15 +115,15 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
           ))}
         </div>
         <div className="flex items-center gap-2 text-sm">
-          <span className="text-graphite">الترتيب</span>
-          <span className="inline-flex rounded-full bg-surface p-1 border border-line">
+          <span className="shrink-0 text-graphite">الترتيب</span>
+          <span className="inline-flex max-w-full overflow-x-auto rounded-full bg-surface p-1 border border-line [scrollbar-width:none]">
           {SORTS.map((s) => (
             <Link
               key={s.value}
               href={linkWith({ sort: s.value, page: "1" })}
               aria-current={sort === s.value ? "true" : undefined}
               className={cn(
-                "inline-flex h-8 items-center rounded-full px-3 transition-colors",
+                "inline-flex h-8 shrink-0 items-center rounded-full px-3 whitespace-nowrap transition-colors",
                 sort === s.value ? "bg-violet-soft font-semibold text-violet" : "text-graphite hover:text-ink",
               )}
             >
@@ -180,6 +182,7 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
                       <th>المتبقي</th>
                     </>
                   )}
+                  <th>الاستلام</th>
                   <th>التسليم</th>
                   <th>الحالة</th>
                 </tr>
@@ -214,6 +217,7 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
                         <td className="font-semibold text-primary">{o.money && formatMoneyString(o.money.outstanding)}</td>
                       </>
                     )}
+                    <td className="text-graphite">{formatDateAr(o.receivedDate)}</td>
                     <td className={cn(o.overdue && "font-semibold text-destructive")}>{formatDateAr(o.deliveryDate)}</td>
                     <td>
                       <StatusBadge status={o.status} overdue={o.overdue} partlyDelivered={!!o.production && o.production.delivered > 0 && o.status !== "COMPLETED"} />
