@@ -4,6 +4,7 @@ import { hasPermission, isOwner } from "@/lib/auth/permissions";
 import { AppError } from "@/lib/errors";
 import { centsToDecimalString, formatMoney, MAX_CENTS, parseMoney, toCents } from "@/lib/money";
 import { itemLabel } from "@/lib/orders/labels";
+import { itemLineCents } from "@/lib/orders/work-kinds";
 import { lockOrder } from "@/server/repositories/order-repository";
 import type { Actor } from "./actor";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
@@ -38,11 +39,11 @@ export async function setItemValueSplit(db: PrismaClient, actor: Actor, payload:
     if (!(await lockOrder(tx, input.orderId))) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
     const item = await tx.orderGroup.findFirst({
       where: { id: input.orderGroupId, orderId: input.orderId, order: { archivedAt: null } },
-      select: { id: true, position: true, name: true, quantity: true, unitPrice: true, departmentId: true, order: { select: { number: true, pricing: true } }, valueShares: { select: { departmentId: true, amount: true } } },
+      select: { id: true, position: true, name: true, quantity: true, unitPrice: true, pricingBasis: true, billableLengthMm: true, measuredQuantity: true, departmentId: true, order: { select: { number: true, pricing: true } }, valueShares: { select: { departmentId: true, amount: true } } },
     });
     if (!item) throw new AppError("NOT_FOUND", "البند مش موجود");
     if (item.order.pricing !== "PER_ITEM" || item.unitPrice === null) throw new AppError("CONFLICT", "البند ده مالوش سعر خاص بيه (أوردر قديم بسعر إجمالي) — مينفعش يتقسم على الأقسام.");
-    const line = BigInt(item.quantity) * toCents(item.unitPrice);
+    const line = itemLineCents({ quantity: item.quantity, unitPriceCents: toCents(item.unitPrice), pricingBasis: item.pricingBasis, billableLengthMm: item.billableLengthMm, measuredQuantity: item.measuredQuantity })!;
     const shares = input.shares.map((s, i) => {
       const cents = parseMoney(s.amount.trim());
       if (cents === null || cents <= 0n || cents > MAX_CENTS) throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { [`shares.${i}.amount`]: ["اكتب مبلغ أكبر من صفر"] } });

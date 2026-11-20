@@ -17,6 +17,8 @@ import { getMonthlyWorkerSummary, getTodayAttendance } from "@/server/services/l
 import type { OrderSummary } from "@/server/services/order-dto";
 import { getDashboardOverview, getDashboardStats } from "@/server/services/order-service";
 import { getProductionDashboard } from "@/server/services/production-service";
+import { listOverdueReceivables } from "@/server/services/receivables-alert-service";
+import { listCostAlerts } from "@/server/services/cost-review-service";
 
 export const metadata: Metadata = { title: "الرئيسية" };
 
@@ -45,6 +47,12 @@ export default async function DashboardPage() {
   const canSeeOrders = hasPermission(user, "orders:view");
   const showOrderMoney = hasPermission(user, "orders:view-prices");
   const canCreate = hasPermission(user, "orders:create");
+  const [overduePayments, costAlerts] = await Promise.all([
+    // Internal alerts: unpaid ≥ 10 days after full delivery; orders whose costs aren't closed.
+    hasPermission(user, "payments:view") ? listOverdueReceivables(prisma, user) : null,
+    hasPermission(user, "costs:view") ? listCostAlerts(prisma, user) : null,
+  ]);
+  const openCostReviews = costAlerts ? costAlerts.counts.PENDING + costAlerts.counts.IN_PROGRESS + costAlerts.counts.NEEDS_REVIEW + costAlerts.counts.LEGACY : 0;
   const [stats, overview, production, finance, attendance, workersMonth] = await Promise.all([
     getDashboardStats(prisma, user),
     canSeeOrders ? getDashboardOverview(prisma, user) : null,
@@ -115,6 +123,18 @@ export default async function DashboardPage() {
             )}
 
             <div className="mt-4 flex flex-wrap gap-2 text-xs">
+              {overduePayments && overduePayments.length > 0 && (
+                <Link href="/orders/overdue-payments" className="inline-flex h-8 items-center gap-1.5 rounded-full bg-danger-solid px-3 font-semibold text-white" data-testid="overdue-payments-alert">
+                  <HandCoins className="size-3.5" aria-hidden="true" />
+                  {formatNumber(overduePayments.length)} فلوس متأخرة بعد التسليم
+                </Link>
+              )}
+              {openCostReviews > 0 && (
+                <Link href="/costs" className="inline-flex h-8 items-center gap-1.5 rounded-full bg-warning-soft px-3 font-semibold text-warning-ink" data-testid="cost-review-alert">
+                  <ReceiptText className="size-3.5" aria-hidden="true" />
+                  {formatNumber(openCostReviews)} تكاليف مش مقفولة
+                </Link>
+              )}
               {stats.overdueOrders > 0 && (
                 <Link href="/orders?status=overdue" className="inline-flex h-8 items-center gap-1.5 rounded-full bg-danger-solid px-3 font-semibold text-white">
                   <AlarmClock className="size-3.5" aria-hidden="true" />

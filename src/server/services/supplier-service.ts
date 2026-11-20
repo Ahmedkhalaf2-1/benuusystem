@@ -181,6 +181,8 @@ export async function getSupplierDetails(db: DbClient, actor: Actor, supplierId:
       createdAt: true,
       createdBy: { select: { name: true } },
       costs: {
+        // Posted costs only: drafts aren't owed until the order's costs are closed.
+        where: { isDraft: false },
         orderBy: [{ costDate: "desc" }, { createdAt: "desc" }],
         select: {
           id: true,

@@ -1121,3 +1121,276 @@ Other rules:
    Confirm.
 8. **Ready-made sales:** they currently count under «ملابس / منتج كامل».
    Confirm, or add a department for them.
+
+---
+
+## 19. Release of `8c96a68`, then work kinds, costs and overdue alerts (2026-11-20)
+
+### 19.1 Production release (Phases 1–3)
+
+**Pre-deploy checks** (on `root@187.7.76.214`, host key verified in strict mode, server `srv2055897`):
+
+| Check | Result |
+|---|---|
+| Live release before | `9877d5502f8a` |
+| Service | `benuuprint`, port 3040 |
+| Database | `benuuprint` as `benuuprint_app` |
+| `Role` enum owner | `benuuprint_app` = the migrating role; every table also owned |
+| Migration history | 9 applied, Phase 2 and 3 pending, none failed |
+| Data | 1 order, 1 customer, 1 payment (38,000.00 of 42,000.00), 2 users, 3 treasury accounts |
+
+**Backups**
+
+- `benuuprint-20261120T001215Z.dump.cms`: taken before any change; archive
+  verified (27 tables), SHA-256 OK.
+- `benuuprint-20261120T001359Z.dump.cms`: taken by `deploy.sh` just before
+  migrating.
+
+**Rehearsal**
+
+- Production was restored into a temporary database `benuuprint_rehearsal`
+  and migrated with `8c96a68`: 11/11 applied.
+- Counts and money totals were identical before and after; departments,
+  backfill and presets were present; `Role` became {OWNER_ADMIN, STAFF,
+  PARTNER}.
+- The copy and dump were deleted.
+
+**Deploy:** `deploy.sh feature/ui-ux-overhaul`, the established mechanism.
+
+**Independent verification**
+
+| Check | Result |
+|---|---|
+| Live symlink | `releases/8c96a68e53ad` |
+| Service | active |
+| `/api/health` | `{"ok":true,"database":"ok"}` |
+| `system.benuuprint.com` and `/login` | 200 |
+| Public `benuuprint.com` | 200 (untouched) |
+| Migrations | 11 applied, 0 failed |
+| Data | counts and money totals unchanged |
+| `db:check` | all ✓, including migration privileges |
+
+**Open:** the `benuuprint-backup.timer` is **disabled**. Enable it with
+`systemctl enable --now benuuprint-backup.timer`.
+
+### 19.2 Work kinds (`src/lib/orders/work-kinds.ts`)
+
+**One config** drives labels, options, pricing, validation, the form, PDFs
+and reports:
+
+| Kind | Options | Pricing | Notes |
+|---|---|---|---|
+| ورق DTF | نسبة الأبيض: 80% / 100% (multi) | linear meter | |
+| ورق فينيل | عاكس رصاصي / أسود / أبيض / أخرى (typed) | linear meter | |
+| طباعة للغير | فينيل / DTF / سلك سكرين / سبلميشن / أخرى (multi) | unit | |
+| تطريز للغير | خيط بوليستر / خيط قطن | unit | + thread colour |
+| كبس للغير | none | unit | no material asked or required |
+| خامات أو مواد طباعة | none | unit | typed name + sale unit |
+
+**Lines**
+- Each selected material or method is its **own priced line**; nothing is
+  merged.
+- Work-kind lines have no designs, sizes or garment material.
+- Production treats them as plain items: ready, then delivered.
+- The department comes from the config (DTF, vinyl, printing, heat press and
+  raw materials → طباعة; embroidery → تطريز) and can be changed per line.
+
+**Data**
+- New nullable columns on `order_groups`. Existing items keep
+  `pricing_basis = UNIT` and no work kind, so they work exactly as before.
+
+### 19.3 Linear-meter rules
+
+- Lengths are integer mm (cm typed with one decimal); money is integer
+  piasters.
+- `rows = ceil(copies / copiesPerRow)`.
+- `billableLength = rows × fileLength`.
+- `lineTotal = round_half_up(billableLength × pricePerMeter / 1000)`.
+- `copiesPerRow` defaults to 1 and is never applied silently. The form only
+  hints how many would fit.
+- The file must fit: `fileWidth × copiesPerRow ≤ rollWidth`. Nothing is
+  rotated, nested or spaced automatically.
+- **Roll width:**
+  - owner-configured per kind (`work_kind_settings`, «المنتجات الجاهزة وأنواع
+    الشغل»);
+  - no width is assumed: an empty setting means it's typed per line;
+  - stored on each line.
+- **Billable vs. consumed:**
+  - the billed length is stored on the line (`billable_length_mm`);
+  - the actually consumed length (waste, setup) is recorded as a cost entry,
+    never mixed into the billed length.
+- **One rule everywhere:** `itemLineCents()` is used by validation, order
+  details, invoices, department finance and value splits.
+- **Edits:** recompute the line; the existing price and permission rules
+  apply.
+- **Example:** 60 cm roll, 50×70 cm file, 10 copies at 120/m → 7.00 m →
+  840.00.
+
+### 19.4 Costs («التكاليف») — on the existing ledger
+
+**Review status per order** (`orders.cost_status`):
+
+| Status | When |
+|---|---|
+| PENDING | set on every new order |
+| IN_PROGRESS | first entry recorded |
+| CLOSED | owner closes (zero cost must be confirmed explicitly) |
+| NEEDS_REVIEW | items, price or cancellation changed after closing |
+
+- Reopening goes back to IN_PROGRESS.
+- Orders created before this release stay `NULL` and are not alerted.
+
+**Entries** (`order_costs` + usage columns)
+- Fields: line, category, material, variant, used quantity (3 decimals), unit,
+  unit cost, total, existing supplier, consumption date, notes.
+- `total = round_half_up(quantity × unit cost)`, or a typed total when there
+  is no quantity.
+- Entries made in «التكاليف» are **drafts**: not payables. They are excluded
+  from supplier balances, payables, reports and settlements, and can't be
+  paid.
+
+**Close** (owner, version-checked)
+- Every draft needs a supplier (an existing one, or explicitly «من غير مورد»).
+- Drafts are posted once (`is_draft → false`, `posted_at`). The flip only
+  touches `is_draft = true` rows, and an already-closed order returns
+  `changed: false`, so a payable can never be posted twice.
+- Posting is never a payment.
+
+**Amend** (also after closing)
+- The entry changes **in place**, so payments stay attached.
+- Version-checked. Posted or closed entries need the owner and a reason.
+- `order_cost_revisions` keeps the full before/after.
+- The supplier balance moves by exactly the difference.
+- Refused: an amount below what was already paid, and a supplier change once
+  payments exist.
+
+**Order-page costs:** costs recorded from the order page are still posted at
+once, and are refused while the order's costs are closed.
+
+### 19.5 Material consumption («الخامات المستخدمة بفترات»)
+
+- Based on non-voided entries with a used quantity, by **consumption date**.
+- Grouped by material + variant + unit + supplier. Different units are never
+  added together.
+- Shows: totals, draft share, unit costs, first and last date, and the
+  contributing orders with their own quantities and dates.
+- Filters: period, material, supplier, work kind (via the linked line),
+  order.
+- Amended entries count with their current values.
+- **Supplier page:** consumption in a chosen period, alongside the existing
+  payable / paid / outstanding (posted costs only).
+
+### 19.6 Overdue customer payments (internal)
+
+**Rule:**
+- The order is COMPLETED (fully delivered).
+- The full-delivery date = the latest valid delivery date.
+- At least 10 Cairo calendar days have passed since then.
+- `total − valid payments > 0`.
+
+**Behaviour**
+- Computed on every read: no reminder rows, nothing sent outside the app, no
+  due dates or ledgers changed.
+- Partial deliveries never start the countdown.
+- A partial payment still leaves an alert for the rest; full payment clears
+  it.
+- Voided payments or deliveries apply immediately.
+
+**Where it shows**
+- A dashboard chip with the count.
+- `/orders/overdue-payments`: customer, order, full-delivery date, days,
+  total, collected, remaining, and a payment link.
+- A link from the orders list and from «المزيد».
+
+**Access:** needs order prices **and** payment history; partners never.
+
+### 19.7 Integration and permissions
+
+- **Department finance** uses the shared line-total rule, so linear-meter
+  value is counted once. Reconciliation tests still balance.
+- **Partner settlements** exclude drafts.
+- **Partners** hold no cost or payment permissions, so they can't see cost
+  review, material reports or overdue balances.
+- Supplier accounts are never exposed to partners.
+- **Cost close, reopen and posted amendments** are owner only. Entries need
+  `costs:record`; views need `costs:view`.
+
+### 19.8 Migration `20261122090000_work_kinds_costs_review` (additive, not deployed)
+
+- **New enums:** `ItemPricingBasis` and `CostReviewStatus` (created, not
+  altered).
+- **New tables:** `order_cost_revisions` and `work_kind_settings`.
+- **New columns:** on `order_groups`, `orders` and `order_costs` (see above).
+- **CHECK constraints:** a linear-meter line has a complete measurement and
+  fits the roll; usage quantity and unit go together and are positive; a
+  draft is never posted; roll width is positive.
+- **Safety:** no UPDATE, DROP or column changes.
+- **Applied to the test database only.**
+
+### 19.9 Tests
+
+- `tests/integration/costs-work-kinds.test.ts` (12):
+  - every work kind;
+  - DTF 80/100 as separate lines;
+  - vinyl «أخرى»; several printing methods; embroidery threads and colours;
+    heat press without material; raw materials;
+  - linear meters, roll fit, copies per row and rounding;
+  - garment orders unchanged; edits recompute; departments balanced;
+  - roll-width settings;
+  - pending alerts and explicit zero-cost close;
+  - close posts drafts once, with suppliers, never pays, double submit safe;
+  - amendments: reason, owner, paid floor, supplier lock, version conflicts,
+    revisions, no duplicate liability;
+  - needs-review and reopen;
+  - material report: period, units, suppliers, filters, amended values;
+  - the 10-day alert: partial delivery, day 9, partial and full payment, void
+    of payment and delivery;
+  - permission boundaries, including partners.
+- `tests/unit/work-kinds.test.ts` (9): linear math, config, summary, schema
+  totals, usage arithmetic, migration safety.
+- **Totals:** full suite 40 files / **367 tests**; typecheck, lint and
+  production build clean.
+- **Status:** not committed, not pushed, not deployed.
+
+### 19.10 Release fixes (before deploying Part B)
+
+**1. Legacy orders**
+- `cost_status NULL` (created before cost tracking) is shown as «قديم — تكاليفه
+  محتاجة مراجعة». It counts in the open alerts and on the dashboard.
+- Closing it records the review only. Its costs were already booked, so
+  nothing is booked again. With no costs at all, zero must be confirmed
+  explicitly.
+
+**2. One booking path**
+- `openOrderForCost()`: order lock, access check, refused while the order's
+  costs are closed. Used by «التكاليف» drafts and by the order page's
+  immediate bookings.
+- `bookingState()` gives every row an explicit state: a draft, or booked
+  with `posted_at`. A DB check enforces "booked ⇒ posted_at".
+- Migration `20261122100000` fills `posted_at` for costs that were already
+  payables. It is a new column, and no amount, supplier or payment changes.
+- Voiding a cost on a closed order flags it «needs review».
+
+**3. Material report filter** (each entry's work type)
+- Linked to a line: that line's kind (GARMENT for garment lines).
+- Linked to the whole order: the order's kind only if every line shares it.
+- Otherwise «غير مصنّف»: shown, never guessed or dropped.
+
+**4. Production**
+- `PrintOperation` gains `VINYL`, `SUBLIMATION` and `OTHER_PRINT`.
+- «طباعة للغير» lines get their method's step (DTF→DTF, سلك سكرين→SCREEN_PRINT,
+  …); «تطريز للغير» → EMBROIDERY.
+- The step comes from the config, never from the browser.
+- These lines need the production step before «جاهز»; department partners can
+  record them.
+- Paper, heat press and material sales stay plain (straight to ready).
+
+**5. Decimal quantities**
+- Raw materials in a fractional unit (kg, liter, meter, linear meter) are
+  `MEASURED`: a 3-decimal `measured_quantity` × price, rounded half up to the
+  piaster.
+- The line is one lot for delivery. Countable units (piece, roll, sheet, cone,
+  box) stay whole numbers.
+- Cost usage was already 3-decimal.
+
+**Tests:** 373 passing (40 files); typecheck, lint and build clean.

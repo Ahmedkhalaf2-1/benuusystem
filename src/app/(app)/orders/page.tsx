@@ -114,6 +114,11 @@ export default async function OrdersPage(props: PageProps<"/orders">) {
             </Link>
           ))}
         </div>
+        {hasPermission(user, "payments:view") && (
+          <Link href="/orders/overdue-payments" className="inline-flex text-sm font-semibold text-red hover:underline">
+            فلوس متأخرة بعد التسليم (١٠ أيام)
+          </Link>
+        )}
         <div className="flex items-center gap-2 text-sm">
           <span className="shrink-0 text-graphite">الترتيب</span>
           <span className="inline-flex max-w-full overflow-x-auto rounded-full bg-surface p-1 border border-line [scrollbar-width:none]">

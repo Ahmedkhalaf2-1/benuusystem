@@ -5,6 +5,8 @@ import { MAX_CENTS, parseMoney, type Cents } from "@/lib/money";
 import { isValidDateString, todayDateString } from "@/lib/dates";
 import { parseWholeNumber } from "@/lib/numbers";
 import { MAX_SIZES_PER_GROUP, normalizeSizeLabel } from "@/lib/orders/sizes";
+import { checkLinear, cmToMm, isFractionalUnit, isWorkKind, linearLineCents, OTHER_VARIANT, SALE_UNITS, WORK_KIND_CONFIG, type LinearCheck, type WorkKind } from "@/lib/orders/work-kinds";
+import { formatQuantity, parseQuantity, usageTotalCents } from "@/lib/finance/usage";
 import {
   MAX_CUSTOM_PLACEMENTS,
   PAYMENT_METHODS,
@@ -189,6 +191,18 @@ const groupSchema = z.object({
    * department or applies the documented suggestion rule.
    */
   departmentId: z.uuid("اختار القسم").optional(),
+  /** «نوع الشغل» (src/lib/orders/work-kinds.ts); empty = garment / ready-made item. */
+  workKind: z.string().optional().transform((v) => (v ? v : undefined)),
+  /** Material / method of this line (a code from the work kind's options, or OTHER). */
+  variant: z.string().trim().max(40).optional().transform((v) => (v ? v : undefined)),
+  variantText: optionalText(120),
+  threadColor: optionalText(60),
+  saleUnit: z.string().optional().transform((v) => (v ? v : undefined)),
+  /** Linear-meter items: dimensions in cm (one decimal), copies per row, roll width. */
+  fileWidthCm: z.union([z.string(), z.number()]).optional(),
+  fileLengthCm: z.union([z.string(), z.number()]).optional(),
+  copiesPerRow: z.union([z.string(), z.number()]).optional(),
+  rollWidthCm: z.union([z.string(), z.number()]).optional(),
   /** Designs on this item's pieces. When present, the item's operations are theirs. */
   designs: z
     .array(designSchema)
@@ -238,8 +252,44 @@ type CoreParsed = {
   groups: z.infer<typeof groupSchema>[];
 };
 
+type GroupIn = z.infer<typeof groupSchema>;
+
+function kindOf(group: GroupIn): WorkKind | null {
+  return isWorkKind(group.workKind) ? group.workKind : null;
+}
+
+/** Linear-meter measurement of an item (null when the item isn't priced by linear meter). */
+function linearOf(group: GroupIn, copies: number | null): LinearCheck | null {
+  const kind = kindOf(group);
+  if (!kind || WORK_KIND_CONFIG[kind].pricing !== "LINEAR_METER") return null;
+  const perRowRaw = group.copiesPerRow === undefined || String(group.copiesPerRow).trim() === "" ? 1 : parseWholeNumber(group.copiesPerRow);
+  return checkLinear({
+    fileWidthMm: cmToMm(group.fileWidthCm) ?? 0,
+    fileLengthMm: cmToMm(group.fileLengthCm) ?? 0,
+    copies: copies ?? 0,
+    copiesPerRow: perRowRaw ?? 0,
+    rollWidthMm: cmToMm(group.rollWidthCm) ?? 0,
+  });
+}
+
+/**
+ * Raw materials sold in a fractional unit (kg, liter, meter…): the quantity is
+ * a decimal (up to 3 places) and the line is one lot to deliver.
+ * undefined = not a measured line; null = invalid quantity.
+ */
+function measuredOf(group: GroupIn): bigint | null | undefined {
+  if (kindOf(group) !== "RAW_MATERIALS" || !isFractionalUnit(group.saleUnit)) return undefined;
+  const milli = parseQuantity(group.quantity ?? null);
+  return milli !== null && milli > 0n ? milli : null;
+}
+
+const LINEAR_FIELD: Record<string, string> = { fileWidthMm: "fileWidthCm", fileLengthMm: "fileLengthCm", copies: "quantity", copiesPerRow: "copiesPerRow", rollWidthMm: "rollWidthCm" };
+
 /** An item's quantity: its own, or the order's when it is the only item and has none. */
 function groupQuantity(data: CoreParsed, group: CoreParsed["groups"][number]): number | null {
+  // A measured line (e.g. 2.75 kg) is one lot physically; its decimal quantity prices it.
+  const measured = measuredOf(group);
+  if (measured !== undefined) return measured === null ? null : 1;
   // A single item with an order-level quantity takes that quantity (original rule).
   if (data.groups.length === 1 && data.quantity !== undefined) return data.quantity;
   return parseWholeNumber(group.quantity ?? null);
@@ -283,7 +333,10 @@ export function computeItemsTotal(
     const qty = groupQuantity(data as CoreParsed, group);
     const price = unitPriceOf(group.unitPrice);
     if (qty === null || price === null || price === undefined) return null;
-    total += BigInt(qty) * price;
+    const linear = linearOf(group, qty);
+    if (linear && !linear.ok) return null;
+    const measured = measuredOf(group);
+    total += linear ? linearLineCents(linear.billableLengthMm, price) : measured ? usageTotalCents(measured, price) : BigInt(qty) * price;
   }
   return total;
 }
@@ -304,7 +357,13 @@ function checkOrderRules(data: CoreParsed, ctx: z.RefinementCtx) {
   let allQuantities = true;
   data.groups.forEach((group, index) => {
     const qtyForDesigns = groupQuantity(data, group);
-    if (group.designs.length > 0) {
+    const kind = kindOf(group);
+    if (group.workKind && !kind) {
+      ctx.addIssue({ code: "custom", path: ["groups", index, "workKind"], message: "نوع الشغل مش معروف" });
+    }
+    if (kind) {
+      checkWorkKind(kind, group, index, data, ctx);
+    } else if (group.designs.length > 0) {
       if (group.plain)
         ctx.addIssue({
           code: "custom",
@@ -334,6 +393,8 @@ function checkOrderRules(data: CoreParsed, ctx: z.RefinementCtx) {
           });
         }
       });
+    } else if (kind) {
+      // checked by checkWorkKind
     } else if (group.plain && group.operations.length > 0) {
       ctx.addIssue({
         code: "custom",
@@ -350,7 +411,8 @@ function checkOrderRules(data: CoreParsed, ctx: z.RefinementCtx) {
     const qty = groupQuantity(data, group);
     if (qty === null || qty <= 0) {
       allQuantities = false;
-      if (multiple || data.quantity === undefined)
+      // A measured line's own message (decimals) is added by checkWorkKind.
+      if ((multiple || data.quantity === undefined) && measuredOf(group) !== null)
         ctx.addIssue({
           code: "custom",
           path: ["groups", index, "quantity"],
@@ -397,6 +459,7 @@ function checkOrderRules(data: CoreParsed, ctx: z.RefinementCtx) {
 
   if (data.sizesEnabled) {
     data.groups.forEach((group, index) => {
+      if (kindOf(group)) return; // work-kind items have no size breakdown
       const groupQty = groupQuantity(data, group);
       const seen = new Set<string>();
       for (const size of group.sizes) {
@@ -467,6 +530,31 @@ function checkOrderRules(data: CoreParsed, ctx: z.RefinementCtx) {
   }
 }
 
+/** Per-work-kind rules, all from WORK_KIND_CONFIG. */
+function checkWorkKind(kind: WorkKind, group: GroupIn, index: number, data: CoreParsed, ctx: z.RefinementCtx) {
+  const cfg = WORK_KIND_CONFIG[kind];
+  const at = (field: string, message: string) => ctx.addIssue({ code: "custom", path: ["groups", index, field], message });
+  // The production step (if any) comes from the config, never from the browser.
+  if (group.designs.length > 0) at("workKind", `${cfg.label} من غير رسومات`);
+  if (cfg.variants) {
+    const codes = cfg.variants.options.map((o) => o.code);
+    if (!group.variant || !codes.includes(group.variant)) at("variant", `اختار ${cfg.variants.title}`);
+    else if (group.variant === OTHER_VARIANT && !group.variantText) at("variantText", "اكتب النوع");
+  } else if (group.variant) {
+    at("variant", "النوع ده مالوش اختيارات");
+  }
+  if (cfg.materialName) {
+    if (!group.name) at("name", "اكتب اسم الخامة");
+    if (!group.saleUnit || !SALE_UNITS.some((u) => u.code === group.saleUnit)) at("saleUnit", "اختار الوحدة");
+    else if (measuredOf(group) === null) at("quantity", "اكتب الكمية (لحد 3 أرقام عشرية، مثال: 2.75)");
+  }
+  if (cfg.pricing === "LINEAR_METER") {
+    if (data.pricing !== "items") at("unitPrice", "ورق DTF والفينيل بيتسعّروا بالمتر الطولي — لازم تسعير بالبند");
+    const linear = linearOf(group, groupQuantity(data, group));
+    if (linear && !linear.ok) at(LINEAR_FIELD[linear.field] ?? linear.field, linear.message);
+  }
+}
+
 /**
  * Normalizes items (quantities filled in, material defaults to the order's)
  * and computes the authoritative order quantity and total. With item pricing
@@ -488,15 +576,23 @@ function normalizeOrder(data: CoreParsed) {
       pressesPerUnit: pressesOf(design.pressesPerUnit) ?? null,
       notes: design.notes ?? null,
     }));
+    const kind = kindOf(group);
+    const linear = linearOf(group, quantity);
+    const measured = measuredOf(group);
+    const productionOp = kind ? (WORK_KIND_CONFIG[kind].production?.(group.variant ?? null) ?? null) : null;
     // With designs, the item's required operations are exactly its designs' operations.
     const operations =
       designs.length > 0
         ? PRINT_OPERATIONS.filter((op) =>
             designs.some((d) => d.operation === op),
           )
-        : group.plain
-          ? []
-          : group.operations;
+        : kind
+          ? productionOp
+            ? [productionOp]
+            : []
+          : group.plain
+            ? []
+            : group.operations;
     return {
       id: group.id,
       quantity,
@@ -505,7 +601,23 @@ function normalizeOrder(data: CoreParsed) {
       designs,
       notes: group.notes,
       // Sizes switched off → no breakdown is stored, whatever the form still holds.
-      sizes: data.sizesEnabled ? group.sizes : [],
+      sizes: data.sizesEnabled && !kind ? group.sizes : [],
+      workKind: kind,
+      variant: kind ? (group.variant ?? null) : null,
+      variantText: kind ? (group.variantText ?? null) : null,
+      threadColor: kind && WORK_KIND_CONFIG[kind].threadColor ? (group.threadColor ?? null) : null,
+      saleUnit: kind && WORK_KIND_CONFIG[kind].materialName ? (group.saleUnit ?? null) : null,
+      pricingBasis: (linear ? "LINEAR_METER" : measured ? "MEASURED" : "UNIT") as "LINEAR_METER" | "UNIT" | "MEASURED",
+      measuredQuantity: measured ? formatQuantity(measured) : null,
+      linear: linear && linear.ok
+        ? {
+            fileWidthMm: cmToMm(group.fileWidthCm)!,
+            fileLengthMm: cmToMm(group.fileLengthCm)!,
+            copiesPerRow: group.copiesPerRow === undefined || String(group.copiesPerRow).trim() === "" ? 1 : parseWholeNumber(group.copiesPerRow)!,
+            rollWidthMm: cmToMm(group.rollWidthCm)!,
+            billableLengthMm: linear.billableLengthMm,
+          }
+        : null,
       name: group.name ?? null,
       unitPrice: perItem ? (unitPriceOf(group.unitPrice) as Cents) : null,
       /** Resolved (checked / suggested) by the order service. */
@@ -516,7 +628,7 @@ function normalizeOrder(data: CoreParsed) {
   });
   const quantity = groups.reduce((s, g) => s + g.quantity, 0);
   const totalPrice = perItem
-    ? groups.reduce((s, g) => s + BigInt(g.quantity) * g.unitPrice!, 0n)
+    ? groups.reduce((s, g) => s + (g.linear ? linearLineCents(g.linear.billableLengthMm, g.unitPrice!) : g.measuredQuantity ? usageTotalCents(parseQuantity(g.measuredQuantity)!, g.unitPrice!) : BigInt(g.quantity) * g.unitPrice!), 0n)
     : data.totalPrice!;
   return { quantity, totalPrice, groups };
 }

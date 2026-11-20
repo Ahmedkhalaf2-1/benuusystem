@@ -1,4 +1,5 @@
 import type { OrderStatus, PaymentMethod, PrintOperation, QuantityUnit } from "@/generated/prisma/enums";
+import { itemLineCents, itemWorkSummary } from "@/lib/orders/work-kinds";
 import { assertPermission } from "@/lib/auth/permissions";
 import type { DbClient } from "@/lib/db/prisma";
 import { dateToString, isValidDateString } from "@/lib/dates";
@@ -108,6 +109,7 @@ export async function getOrderInvoiceData(db: DbClient, actor: Actor, orderId: s
           quantity: true,
           material: true,
           unitPrice: true,
+          workKind: true, variant: true, variantText: true, threadColor: true, saleUnit: true, pricingBasis: true, fileWidthMm: true, fileLengthMm: true, copiesPerRow: true, rollWidthMm: true, billableLengthMm: true, measuredQuantity: true,
           operations: { select: { operation: true } },
           sizes: { orderBy: { position: "asc" }, select: { label: true, quantity: true } },
           designs: { orderBy: { position: "asc" }, select: { position: true, name: true, operation: true, placements: true, customPlacements: true, quantity: true } },
@@ -152,15 +154,17 @@ export async function getOrderInvoiceData(db: DbClient, actor: Actor, orderId: s
     pricing: o.pricing,
     groups: o.groups.map((g) => {
       const unitPrice = o.pricing === "PER_ITEM" && g.unitPrice !== null ? toCents(g.unitPrice) : null;
+      // Work-kind items describe their material / size / billed meters instead of a fabric.
+      const work = itemWorkSummary({ ...g, measuredQuantity: g.measuredQuantity?.toString() ?? null }, g.quantity);
       return {
         position: g.position,
         label: itemLabel(g.position, g.name),
         quantity: g.quantity,
-        material: g.material,
+        material: work ?? g.material,
         operations: g.operations.map((x) => x.operation),
         sizes: g.sizes,
         unitPrice,
-        lineTotal: unitPrice === null ? null : unitPrice * BigInt(g.quantity),
+        lineTotal: itemLineCents({ quantity: g.quantity, unitPriceCents: unitPrice, pricingBasis: g.pricingBasis, billableLengthMm: g.billableLengthMm, measuredQuantity: g.measuredQuantity }),
         designs: g.designs.map((d) => ({ label: designLabel(d.position, d.name), operation: d.operation, placements: placementsText(d.placements, d.customPlacements), quantity: d.quantity })),
       };
     }),

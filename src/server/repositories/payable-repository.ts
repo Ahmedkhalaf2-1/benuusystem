@@ -7,20 +7,21 @@ import { toCents, type Cents } from "@/lib/money";
  */
 export type PayableKind = "cost" | "expense";
 
-type LockedPayable = { id: string; amount: Cents; voided: boolean };
+/** `draft`: a cost entry not posted yet («التكاليف» before closing) — not a payable. */
+type LockedPayable = { id: string; amount: Cents; voided: boolean; draft: boolean };
 
 /** Locks the cost/expense row until the transaction ends (pay / void). */
 export async function lockPayable(tx: DbTransaction, kind: PayableKind, id: string): Promise<LockedPayable | null> {
   const rows =
     kind === "cost"
-      ? await tx.$queryRaw<{ id: string; amount: string; voided: boolean }[]>`
-          SELECT id, amount::text AS amount, (voided_at IS NOT NULL) AS voided
+      ? await tx.$queryRaw<{ id: string; amount: string; voided: boolean; draft: boolean }[]>`
+          SELECT id, amount::text AS amount, (voided_at IS NOT NULL) AS voided, is_draft AS draft
           FROM order_costs WHERE id = ${id}::uuid FOR UPDATE`
-      : await tx.$queryRaw<{ id: string; amount: string; voided: boolean }[]>`
-          SELECT id, amount::text AS amount, (voided_at IS NOT NULL) AS voided
+      : await tx.$queryRaw<{ id: string; amount: string; voided: boolean; draft: boolean }[]>`
+          SELECT id, amount::text AS amount, (voided_at IS NOT NULL) AS voided, false AS draft
           FROM general_expenses WHERE id = ${id}::uuid FOR UPDATE`;
   const row = rows[0];
-  return row ? { id: row.id, amount: toCents(row.amount), voided: row.voided } : null;
+  return row ? { id: row.id, amount: toCents(row.amount), voided: row.voided, draft: row.draft } : null;
 }
 
 /** Valid (non-voided) money paid toward one cost or expense. */
@@ -72,6 +73,7 @@ export async function supplierBalances(db: DbClient, ids?: string[]): Promise<Ma
       GROUP BY order_cost_id
     ) p ON p.order_cost_id = c.id
     WHERE c.voided_at IS NULL
+      AND c.is_draft = false
       AND c.supplier_id IS NOT NULL
       AND (${ids ?? null}::uuid[] IS NULL OR c.supplier_id = ANY(${ids ?? null}::uuid[]))
     GROUP BY c.supplier_id`;

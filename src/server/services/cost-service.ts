@@ -14,12 +14,12 @@ import {
   type RecordOrderCostPayload,
 } from "@/lib/validations/finance";
 import { toFieldErrors } from "@/lib/validations/utils";
-import { lockOrder } from "@/server/repositories/order-repository";
 import { lockPayable, paidByCostIds, sumPaidFor } from "@/server/repositories/payable-repository";
 import { isUniqueViolation } from "@/server/repositories/prisma-errors";
 import type { Actor } from "./actor";
 import { canAccessOrder, requireOrderAccess } from "./order-access";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
+import { bookingState, markCostsInProgress, markCostsNeedReview, openOrderForCost } from "./cost-review-service";
 import { insertOutgoingPayment } from "./outgoing-payment-service";
 import { insertSupplier } from "./supplier-service";
 
@@ -69,10 +69,8 @@ export async function recordOrderCost(
 
   try {
     return await db.$transaction(async (tx) => {
-      // Order lock: serializes with archiving (an archived order counts as missing).
-      if (!(await lockOrder(tx, input.orderId)) || !(await canAccessOrder(tx, actor, input.orderId))) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
-      const order = await tx.order.findUnique({ where: { id: input.orderId }, select: { id: true, number: true } });
-      if (!order) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
+      // Same entry point as «التكاليف»: order lock, access, refused while the costs are closed.
+      const order = { id: input.orderId, ...(await openOrderForCost(tx, actor, input.orderId)) };
 
       // A department-tagged cost must be work of that department on this order.
       if (input.departmentId) {
@@ -92,6 +90,8 @@ export async function recordOrderCost(
           quantity: input.perPiece?.quantity ?? null,
           unitCost: input.perPiece ? centsToDecimalString(input.perPiece.unitCost) : null,
           notes: input.notes,
+          // Booked at once (a supplier payable now, with its booking time).
+          ...bookingState("book"),
           idempotencyKey: input.idempotencyKey,
           recordedById: actor.id,
         },
@@ -125,6 +125,7 @@ export async function recordOrderCost(
           accountId: input.accountId,
         });
       }
+      await markCostsInProgress(tx, order.id);
       return { costId: cost.id, orderId: order.id, created: true };
     });
   } catch (error) {
@@ -158,6 +159,8 @@ export async function voidOrderCost(db: PrismaClient, actor: Actor, payload: { i
       data: { voidedAt: new Date(), voidedById: actor.id, voidReason: reason },
       select: { orderId: true },
     });
+    // A closed order's costs changed: they need another review.
+    await markCostsNeedReview(tx, actor, updated.orderId, "cost voided");
     await recordAudit(tx, {
       userId: actor.id,
       action: AUDIT_ACTIONS.ORDER_COST_VOIDED,
@@ -203,8 +206,9 @@ export type OrderCostSummary = {
 export async function getOrderCosts(db: DbClient, actor: Actor, orderId: string): Promise<OrderCostSummary> {
   assertPermission(actor, "costs:view");
   await requireOrderAccess(db, actor, orderId, undefined, { includeArchived: true });
+  // Draft entries («التكاليف» before closing) aren't costs or payables yet.
   const costs = await db.orderCost.findMany({
-    where: { orderId },
+    where: { orderId, isDraft: false },
     orderBy: [{ costDate: "desc" }, { createdAt: "desc" }],
     select: {
       id: true,
@@ -283,8 +287,8 @@ export async function getOrderCosts(db: DbClient, actor: Actor, orderId: string)
 export async function getCostForPayment(db: DbClient, actor: Actor, costId: string) {
   assertPermission(actor, "payables:pay");
   assertPermission(actor, "costs:view");
-  const cost = await db.orderCost.findUnique({
-    where: { id: costId },
+  const cost = await db.orderCost.findFirst({
+    where: { id: costId, isDraft: false },
     select: {
       id: true,
       category: true,

@@ -3,6 +3,7 @@ import { toCents, formatAmount } from "@/lib/money";
 import type { OrderDetails } from "@/server/services/order-service";
 import type { PaymentMethod, PrintOperation, QuantityUnit, OrderStatus } from "@/generated/prisma/enums";
 import { PLACEMENTS, type Placement } from "@/lib/orders/labels";
+import { formatCm, isWorkKind, type WorkKind } from "@/lib/orders/work-kinds";
 import type { CustomerChoice } from "./customer-picker";
 
 /** Form state of the order form (strings exactly as typed). Shared by server and client. */
@@ -55,6 +56,17 @@ export type GroupDraft = {
   readyMade: boolean;
   /** «القسم» chosen for the item; "" = not chosen yet (the suggested one is shown and sent). */
   departmentId: string;
+  /** Work-kind line (src/lib/orders/work-kinds.ts): kind, material/method and measurement as typed. */
+  workKind: WorkKind | "";
+  variant: string;
+  variantText: string;
+  threadColor: string;
+  saleUnit: string;
+  /** Linear-meter lines, in cm as typed. */
+  fileWidthCm: string;
+  fileLengthCm: string;
+  copiesPerRow: string;
+  rollWidthCm: string;
   designs: DesignDraft[];
   quantity: string;
   material: string;
@@ -85,6 +97,8 @@ export type OrderDraft = {
   deliveryDate: string;
   notes: string;
   status: OrderStatus;
+  /** «بنعمل إيه؟» work kind for the whole order ("" = garments / ready-made, as before). */
+  workKind: WorkKind | "";
   /** "تقسيم بالمقاسات" switch. */
   sizesEnabled: boolean;
   /** The employee changed the switch themselves: stop suggesting it from the product type. */
@@ -101,6 +115,15 @@ export function newGroupDraft(partial: Partial<GroupDraft> = {}): GroupDraft {
     useDesigns: true,
     readyMade: false,
     departmentId: "",
+    workKind: "",
+    variant: "",
+    variantText: "",
+    threadColor: "",
+    saleUnit: "",
+    fileWidthCm: "",
+    fileLengthCm: "",
+    copiesPerRow: "",
+    rollWidthCm: "",
     designs: [newDesignDraft()],
     quantity: "",
     material: "",
@@ -131,9 +154,17 @@ export function emptyOrderDraft(customer: OrderDraft["customer"] = null): OrderD
     deliveryDate: "",
     notes: "",
     status: "NEW",
+    workKind: "",
     sizesEnabled: false,
     sizesTouched: false,
   };
+}
+
+const cm = (mm: number | null) => (mm == null ? "" : formatCm(mm));
+
+/** A new line of a work-kind order (one per material / method). */
+export function newWorkLine(kind: WorkKind, partial: Partial<GroupDraft> = {}): GroupDraft {
+  return newGroupDraft({ workKind: kind, useDesigns: true, readyMade: false, plain: true, designs: [], copiesPerRow: "1", ...partial });
 }
 
 const plainAmount = (value: string) => formatAmount(toCents(value)).replace(/,/g, "");
@@ -158,8 +189,17 @@ export function draftFromOrder(order: OrderDetails): OrderDraft {
         unitPrice: g.unitPrice == null ? "" : plainAmount(g.unitPrice),
         pressesPerUnit: g.pressesPerUnit === null ? "" : String(g.pressesPerUnit),
         useDesigns: g.designs.length > 0 || readyMade,
-        readyMade,
+        readyMade: readyMade && !g.work.workKind,
         departmentId: g.department?.id ?? "",
+        workKind: isWorkKind(g.work.workKind) ? g.work.workKind : "",
+        variant: g.work.variant ?? "",
+        variantText: g.work.variantText ?? "",
+        threadColor: g.work.threadColor ?? "",
+        saleUnit: g.work.saleUnit ?? "",
+        fileWidthCm: cm(g.work.fileWidthMm),
+        fileLengthCm: cm(g.work.fileLengthMm),
+        copiesPerRow: g.work.copiesPerRow == null ? "" : String(g.work.copiesPerRow),
+        rollWidthCm: cm(g.work.rollWidthMm),
         designs: g.designs.map((d) =>
           newDesignDraft({
             id: d.id,
@@ -173,7 +213,8 @@ export function draftFromOrder(order: OrderDetails): OrderDraft {
             notes: d.notes ?? "",
           }),
         ),
-        quantity: String(g.quantity),
+        // Measured lines (e.g. 2.75 kg) edit their decimal quantity, not the delivery lot.
+        quantity: g.work.measuredQuantity ?? String(g.quantity),
         material: g.material !== order.material ? g.material : "",
         operations: g.operations,
         plain: g.operations.length === 0,
@@ -189,6 +230,8 @@ export function draftFromOrder(order: OrderDetails): OrderDraft {
     deliveryDate: order.deliveryDate,
     notes: order.notes ?? "",
     status: order.status,
+    // One work kind on every item → the order is that kind of work.
+    workKind: order.groups.length > 0 && order.groups.every((g) => g.work.workKind && g.work.workKind === order.groups[0]!.work.workKind) && isWorkKind(order.groups[0]!.work.workKind) ? order.groups[0]!.work.workKind : "",
     sizesEnabled: order.sizesEnabled,
     sizesTouched: true,
   };

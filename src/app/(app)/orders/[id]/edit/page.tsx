@@ -10,7 +10,7 @@ import { formatOrderNumber } from "@/lib/orders/labels";
 import { getOrderForEdit, recentMaterials } from "@/server/services/order-service";
 import { getOrderAccess, listAssignableStaff } from "@/server/services/order-visibility-service";
 import { listDepartmentOptions } from "@/server/services/department-service";
-import { listActivePresetNames } from "@/server/services/product-preset-service";
+import { getRollWidths, listActivePresetNames } from "@/server/services/product-preset-service";
 
 export const metadata: Metadata = { title: "تعديل الأوردر" };
 
@@ -50,6 +50,7 @@ export default async function EditOrderPage(props: PageProps<"/orders/[id]/edit"
           materialSuggestions={await recentMaterials(prisma, user)}
           departments={departments}
           presets={await listActivePresetNames(prisma, user)}
+        rollWidths={await getRollWidths(prisma)}
           access={access ? { staff: await listAssignableStaff(prisma, user), initial: { visibility: access.visibility, userIds: access.userIds }, version: access.version } : undefined}
         />
       )}

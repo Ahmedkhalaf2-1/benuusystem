@@ -1,4 +1,5 @@
 import { Layers } from "lucide-react";
+import { itemWorkSummary } from "@/lib/orders/work-kinds";
 import { formatMoneyString } from "@/lib/money";
 import { formatNumber } from "@/lib/numbers";
 import { OPERATION_LABELS, placementsText } from "@/lib/orders/labels";
@@ -20,6 +21,7 @@ export function OrderItemsList({ order, unitLabel }: { order: OrderDetails; unit
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h3 className="font-display font-semibold break-words">{g.label}</h3>
+              {itemWorkSummary(g.work, g.quantity) && <p className="text-sm text-graphite" data-testid="item-work">{itemWorkSummary(g.work, g.quantity)}</p>}
               <p className="mt-0.5">
                 <span className="inline-flex h-6 items-center rounded-full bg-violet-soft px-2.5 text-xs font-semibold text-violet" data-testid="item-department">
                   {g.department ? `قسم ${g.department.name}` : "من غير قسم"}

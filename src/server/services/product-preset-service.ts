@@ -5,6 +5,7 @@ import type { DbClient } from "@/lib/db/prisma";
 import { AppError } from "@/lib/errors";
 import type { Actor } from "./actor";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
+import { cmToMm, isWorkKind, WORK_KIND_CONFIG, type WorkKind } from "@/lib/orders/work-kinds";
 
 /**
  * «منتجات جاهزة»: the shortcut names offered for ready-made items in the
@@ -88,6 +89,31 @@ export async function updatePreset(db: PrismaClient, actor: Actor, payload: { pr
     }
     if (Object.keys(changes).length === 0) return { changed: false };
     await recordAudit(tx, { userId: actor.id, action: AUDIT_ACTIONS.PRODUCT_PRESET_UPDATED, entityType: "ProductPreset", entityId: before.id, metadata: { changes } as Prisma.InputJsonValue });
+    return { changed: true };
+  });
+}
+
+// ───────────────────────────── Work-kind settings (roll widths) ─────────────────────────────
+
+/** Default roll width (mm) per linear-meter work kind; only what the owner configured. */
+export async function getRollWidths(db: DbClient): Promise<Partial<Record<WorkKind, number>>> {
+  const rows = await db.workKindSetting.findMany({ where: { rollWidthMm: { not: null } }, select: { workKind: true, rollWidthMm: true } });
+  return Object.fromEntries(rows.filter((r) => isWorkKind(r.workKind)).map((r) => [r.workKind, r.rollWidthMm!]));
+}
+
+/** Owner: set (or clear with "") the default roll width of a linear-meter work kind, in cm. Audited. */
+export async function setRollWidth(db: PrismaClient, actor: Actor, payload: { workKind: unknown; rollWidthCm: unknown }) {
+  requireOwner(actor);
+  const kind = payload.workKind;
+  if (!isWorkKind(kind) || WORK_KIND_CONFIG[kind].pricing !== "LINEAR_METER") throw new AppError("VALIDATION_ERROR", "نوع الشغل ده مالوش عرض رول");
+  const text = typeof payload.rollWidthCm === "string" ? payload.rollWidthCm.trim() : "";
+  const mm = text === "" ? null : cmToMm(text);
+  if (text !== "" && (mm === null || mm <= 0 || mm > 10_000)) bad("rollWidthCm", "اكتب عرض الرول بالسم، مثال: 60");
+  return db.$transaction(async (tx) => {
+    const before = await tx.workKindSetting.findUnique({ where: { workKind: kind }, select: { rollWidthMm: true } });
+    if ((before?.rollWidthMm ?? null) === mm) return { changed: false };
+    await tx.workKindSetting.upsert({ where: { workKind: kind }, create: { workKind: kind, rollWidthMm: mm, updatedById: actor.id }, update: { rollWidthMm: mm, updatedById: actor.id } });
+    await recordAudit(tx, { userId: actor.id, action: AUDIT_ACTIONS.WORK_KIND_SETTING_UPDATED, entityType: "WorkKindSetting", entityId: kind, metadata: { rollWidthMm: { from: before?.rollWidthMm ?? null, to: mm } } });
     return { changed: true };
   });
 }

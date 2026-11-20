@@ -8,6 +8,8 @@ import { formatNumber, parseWholeNumber } from "@/lib/numbers";
 import { MAX_CUSTOM_PLACEMENTS, OPERATION_LABELS, OTHER_PLACEMENT_LABEL, PLACEMENT_LABELS, PLACEMENTS, PRINT_OPERATIONS, READY_MADE_PRESETS } from "@/lib/orders/labels";
 import { cn } from "@/lib/utils";
 import { MAX_DESIGNS_PER_ITEM } from "@/lib/validations/order";
+import { checkLinear, cmToMm, isFractionalUnit, linearLineCents, WORK_KIND_CONFIG } from "@/lib/orders/work-kinds";
+import { parseQuantity, usageTotalCents } from "@/lib/finance/usage";
 import { newDesignDraft, type DesignDraft, type GroupDraft } from "./order-draft";
 import { spansDepartments, type DepartmentOption } from "@/lib/departments/suggest";
 import { chip, MoneyInput, OperationPicker } from "./order-form-parts";
@@ -15,11 +17,32 @@ import { SizeGrid } from "./size-grid";
 
 type Errors = Record<string, string>;
 
-/** Line total of one item in piasters, or null while quantity/price are incomplete. */
+/** Linear-meter measurement of a draft line (null for unit-priced lines). Same rules as the server. */
+export function draftLinear(g: GroupDraft) {
+  if (!g.workKind || WORK_KIND_CONFIG[g.workKind].pricing !== "LINEAR_METER") return null;
+  return checkLinear({
+    fileWidthMm: cmToMm(g.fileWidthCm) ?? 0,
+    fileLengthMm: cmToMm(g.fileLengthCm) ?? 0,
+    copies: parseWholeNumber(g.quantity) ?? 0,
+    copiesPerRow: g.copiesPerRow.trim() === "" ? 1 : (parseWholeNumber(g.copiesPerRow) ?? 0),
+    rollWidthMm: cmToMm(g.rollWidthCm) ?? 0,
+  });
+}
+
+/** Line total of one item in piasters, or null while quantity/price/measurement are incomplete. */
 export function itemLineTotal(g: GroupDraft): bigint | null {
+  const p0 = g.unitPrice.trim() === "" ? null : parseMoney(g.unitPrice);
+  // Raw materials in a fractional unit (kg, liter, meter): decimal quantity × price.
+  if (g.workKind === "RAW_MATERIALS" && isFractionalUnit(g.saleUnit)) {
+    const milli = parseQuantity(g.quantity);
+    return milli === null || milli <= 0n || p0 === null ? null : usageTotalCents(milli, p0);
+  }
   const q = parseWholeNumber(g.quantity);
-  const p = g.unitPrice.trim() === "" ? null : parseMoney(g.unitPrice);
-  return q === null || p === null ? null : BigInt(q) * p;
+  const p = p0;
+  if (q === null || p === null) return null;
+  const linear = draftLinear(g);
+  if (linear) return linear.ok ? linearLineCents(linear.billableLengthMm, p) : null;
+  return BigInt(q) * p;
 }
 
 /**

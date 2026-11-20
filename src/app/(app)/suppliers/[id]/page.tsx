@@ -17,6 +17,10 @@ import { formatMoneyString, toCents } from "@/lib/money";
 import { formatOrderNumber, PAYMENT_METHOD_LABELS } from "@/lib/orders/labels";
 import { cn } from "@/lib/utils";
 import { getSupplierDetails } from "@/server/services/supplier-service";
+import { getMaterialConsumption } from "@/server/services/material-report-service";
+import { Input } from "@/components/ui/input";
+import { isValidDateString, monthRange, todayDateString } from "@/lib/dates";
+import { SALE_UNIT_LABELS } from "@/lib/orders/work-kinds";
 
 export const metadata: Metadata = { title: "المورد" };
 
@@ -30,9 +34,15 @@ const FLASH: Record<string, string> = {
 export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) {
   const user = await requirePermission("suppliers:view-balances");
   const { id } = await props.params;
-  const { saved } = await props.searchParams;
+  const sp = await props.searchParams;
+  const { saved } = sp;
   const supplier = /^[0-9a-f-]{36}$/i.test(id) ? await getSupplierDetails(prisma, user, id) : null;
   if (!supplier) notFound();
+  // Material consumption from this supplier in a period (cost entries with a used quantity).
+  const month = monthRange(todayDateString());
+  const from = typeof sp.from === "string" && isValidDateString(sp.from) ? sp.from : month.from;
+  const to = typeof sp.to === "string" && isValidDateString(sp.to) ? sp.to : month.to;
+  const consumption = hasPermission(user, "costs:view") && from <= to ? await getMaterialConsumption(prisma, user, { from, to, supplierId: supplier.id }) : null;
 
   const canPay = hasPermission(user, "payables:pay");
   const canVoid = hasPermission(user, "finance:void");
@@ -110,6 +120,52 @@ export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) 
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {consumption && (
+        <section className="rounded-2xl border border-line bg-surface p-4" id="consumption" aria-labelledby="consumption-heading">
+          <h2 id="consumption-heading" className="mb-2 font-display text-[1.05rem] font-semibold">الخامات المستخدمة من المورد ده</h2>
+          <form method="get" className="mb-3 flex flex-wrap items-end gap-2 text-sm">
+            <label>
+              من
+              <Input type="date" name="from" defaultValue={from} className="mt-1" />
+            </label>
+            <label>
+              لحد
+              <Input type="date" name="to" defaultValue={to} className="mt-1" />
+            </label>
+            <button type="submit" className="h-11 rounded-xl border border-line px-4 font-semibold">
+              عرض
+            </button>
+          </form>
+          {consumption.rows.length === 0 ? (
+            <p className="rounded-xl bg-well p-3 text-sm text-graphite">مفيش استهلاك متسجل من المورد ده في الفترة دي.</p>
+          ) : (
+            <ul className="divide-y divide-hairline text-sm">
+              {consumption.rows.map((r) => (
+                <li key={r.key} className="py-2.5">
+                  <p className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="font-semibold">
+                      {r.materialName}
+                      {r.materialVariant && <span className="font-normal text-graphite"> — {r.materialVariant}</span>}
+                    </span>
+                    <span className="tabular">
+                      {r.quantity} {SALE_UNIT_LABELS[r.unit] ?? r.unit} · {formatMoneyString(r.total)}
+                    </span>
+                  </p>
+                  <p className="text-xs text-graphite">
+                    {r.orders.map((o) => (
+                      <Link key={o.id} href={`/costs/orders/${o.id}`} className="me-2 hover:text-violet">
+                        {formatOrderNumber(o.number)} ({o.quantity})
+                      </Link>
+                    ))}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-2 text-xs text-graphite">إجمالي تكلفة الاستهلاك في الفترة: <b className="tabular">{formatMoneyString(consumption.totals.total)}</b>. المستحق والمدفوع والباقي فوق بيشمل التكاليف المقفولة بس.</p>
         </section>
       )}
 

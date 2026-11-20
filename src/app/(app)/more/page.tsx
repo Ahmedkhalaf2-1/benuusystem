@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChevronLeft, HardHat, Landmark, Package, Receipt, ShieldCheck, Truck, UsersRound } from "lucide-react";
+import { AlarmClock, Calculator, ChevronLeft, HardHat, Landmark, Package, Receipt, ShieldCheck, Truck, UsersRound } from "lucide-react";
 import { HueIcon, type Hue } from "@/components/ds/primitives";
 import { SoonBadge } from "@/components/coming-soon";
 import { LogoutButton } from "@/components/layout/logout-button";
@@ -14,6 +14,8 @@ export const metadata: Metadata = { title: "المزيد" };
 const SECTIONS: { key: string; label: string; description: string; icon: typeof HardHat; href?: string; permission: Permission; hue: Hue }[] = [
   { key: "customers", label: "العملاء", description: "بيانات العملاء ومدفوعاتهم", icon: UsersRound, href: "/customers", permission: "customers:view", hue: "violet" },
   { key: "suppliers", label: "الموردين", description: "اللي اشترينا منهم واللي لسه ليهم", icon: Truck, href: "/suppliers", permission: "suppliers:view-balances", hue: "blue" },
+  { key: "costs", label: "التكاليف", description: "تكاليف الأوردرات والخامات المستخدمة", icon: Calculator, href: "/costs", permission: "costs:view", hue: "amber" },
+  { key: "overdue", label: "فلوس متأخرة", description: "اتسلم كله ولسه عليه فلوس", icon: AlarmClock, href: "/orders/overdue-payments", permission: "payments:view", hue: "red" },
   { key: "expenses", label: "المصاريف", description: "إيجار، كهرباء، مستلزمات…", icon: Receipt, href: "/expenses", permission: "expenses:view", hue: "amber" },
   { key: "workers", label: "العمال", description: "اليومية والشغل والحساب", icon: HardHat, href: "/workers", permission: "workers:view", hue: "rose" },
   { key: "treasury", label: "الخزنة والحسابات", description: "الفلوس اللي معانا فعلًا في كل حساب", icon: Landmark, href: "/treasury", permission: "treasury:manage", hue: "blue" },

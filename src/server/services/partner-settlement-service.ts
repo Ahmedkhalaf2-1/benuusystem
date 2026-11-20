@@ -53,7 +53,7 @@ export type PartnerSettlement =
 
 async function settlementOf(db: DbClient, where: { supplierId?: string; departmentId?: string | null }, maskHidden: boolean): Promise<{ totals: SettlementTotals; jobs: SettlementJob[]; payments: SettlementPayment[] }> {
   const costs = await db.orderCost.findMany({
-    where: { ...where, voidedAt: null, order: { archivedAt: null } },
+    where: { ...where, voidedAt: null, isDraft: false, order: { archivedAt: null } },
     orderBy: [{ costDate: "desc" }, { createdAt: "desc" }],
     select: {
       id: true,
@@ -110,7 +110,7 @@ export async function getDepartmentSettlements(db: DbClient, actor: Actor, depar
   if (!isOwner(actor)) throw new AppError("FORBIDDEN");
   await requireDepartment(db, actor, departmentId, "settlements");
   const costs = await db.orderCost.findMany({
-    where: { departmentId, voidedAt: null, order: { archivedAt: null } },
+    where: { departmentId, voidedAt: null, isDraft: false, order: { archivedAt: null } },
     select: { amount: true, supplierId: true, supplier: { select: { name: true, partner: { select: { name: true } } } }, payments: { where: { voidedAt: null }, select: { amount: true } } },
   });
   const map = new Map<string, { supplierId: string | null; supplierName: string; partnerName: string | null; payable: bigint; paid: bigint; jobs: number }>();

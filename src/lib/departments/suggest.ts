@@ -1,5 +1,6 @@
 import type { PrintOperation } from "@/generated/prisma/enums";
 import { PRINT_OPERATIONS } from "@/lib/orders/labels";
+import { isWorkKind, WORK_KIND_CONFIG } from "@/lib/orders/work-kinds";
 
 /**
  * Codes of the seeded departments. Departments live in a table (the owner can
@@ -28,20 +29,23 @@ export function suggestDepartmentKey(item: {
   productType?: string | null;
   designs?: readonly { operation: PrintOperation | string | null }[];
   operations?: readonly PrintOperation[];
+  /** «نوع الشغل»: its configured department wins (src/lib/orders/work-kinds.ts). */
+  workKind?: string | null;
 }): DepartmentKey {
+  if (isWorkKind(item.workKind)) return WORK_KIND_CONFIG[item.workKind].department;
   const label = item.name?.trim() || item.productType?.trim() || "";
   if (COVERS_WORDS.test(label)) return "COVERS";
   const fromDesign = item.designs?.find((d) => d.operation)?.operation as PrintOperation | undefined;
   const primary = fromDesign ?? PRINT_OPERATIONS.find((op) => item.operations?.includes(op));
   if (primary === "EMBROIDERY") return "EMBROIDERY";
-  if (primary === "DTF" || primary === "SCREEN_PRINT") return "PRINTING";
+  if (primary === "DTF" || primary === "SCREEN_PRINT" || primary === "VINYL" || primary === "SUBLIMATION" || primary === "OTHER_PRINT") return "PRINTING";
   return "GARMENTS";
 }
 
 /** True when an item's work spans more than one department (shown as a hint to split it). */
 export function spansDepartments(item: { designs?: readonly { operation: PrintOperation | string | null }[]; operations?: readonly PrintOperation[] }): boolean {
   const ops = new Set<string>([...(item.designs ?? []).map((d) => d.operation ?? ""), ...(item.operations ?? [])].filter(Boolean));
-  const depts = new Set([...ops].map((op) => (op === "EMBROIDERY" ? "E" : op === "DTF" || op === "SCREEN_PRINT" ? "P" : "G")));
+  const depts = new Set([...ops].map((op) => (op === "EMBROIDERY" ? "E" : op === "MANUFACTURING" ? "G" : "P")));
   return depts.size > 1;
 }
 

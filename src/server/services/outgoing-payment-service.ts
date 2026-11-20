@@ -101,6 +101,8 @@ export async function payPayable(
       const target = await lockPayable(tx, kind, input.targetId);
       if (!target) throw new AppError("NOT_FOUND", kind === "cost" ? "التكلفة مش موجودة" : "المصروف مش موجود");
       if (target.voided) throw new AppError("CONFLICT", "ده ملغي ومينفعش يتدفع عليه");
+      // A draft cost isn't owed yet: it becomes a payable when the order's costs are closed.
+      if (target.draft) throw new AppError("CONFLICT", "التكلفة دي لسه مسودة — اقفل تكاليف الأوردر الأول عشان تبقى مستحقة للمورد");
 
       const paid = await sumPaidFor(tx, kind, input.targetId);
       const remaining = target.amount - paid;

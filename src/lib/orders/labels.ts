@@ -27,13 +27,16 @@ export const UNIT_LABELS: Record<QuantityUnit, string> = {
 };
 
 /** Required steps a group can have (printing/embroidery, plus optional garment making). */
-export const PRINT_OPERATIONS: readonly PrintOperation[] = ["MANUFACTURING", "DTF", "SCREEN_PRINT", "EMBROIDERY"];
+export const PRINT_OPERATIONS: readonly PrintOperation[] = ["MANUFACTURING", "DTF", "SCREEN_PRINT", "EMBROIDERY", "VINYL", "SUBLIMATION", "OTHER_PRINT"];
 
 export const OPERATION_LABELS: Record<PrintOperation, string> = {
   MANUFACTURING: "تصنيع",
   DTF: "DTF",
   SCREEN_PRINT: "سلك سكرين",
   EMBROIDERY: "تطريز",
+  VINYL: "فينيل",
+  SUBLIMATION: "سبلميشن",
+  OTHER_PRINT: "طباعة أخرى",
 };
 
 export const NO_OPERATION_LABEL = "بدون طباعة أو تطريز";

@@ -4,6 +4,7 @@ import type { DbClient } from "@/lib/db/prisma";
 import { dateToString } from "@/lib/dates";
 import { allocateAmount, attributeItem, orderBasis, shareStatus, UNALLOCATED, type BasisItem, type ShareStatus } from "@/lib/finance/allocation";
 import { centsToDecimalString, toCents } from "@/lib/money";
+import { itemLineCents } from "@/lib/orders/work-kinds";
 
 /**
  * Department money, derived from the existing orders and customer payments.
@@ -29,7 +30,7 @@ const FINANCE_ORDER_SELECT = {
   customer: { select: { name: true } },
   groups: {
     orderBy: { position: "asc" },
-    select: { id: true, position: true, name: true, quantity: true, unitPrice: true, departmentId: true, valueShares: { select: { departmentId: true, amount: true } } },
+    select: { id: true, position: true, name: true, quantity: true, unitPrice: true, pricingBasis: true, billableLengthMm: true, measuredQuantity: true, departmentId: true, valueShares: { select: { departmentId: true, amount: true } } },
   },
   payments: { where: { voidedAt: null }, orderBy: [{ paidAt: "asc" }, { createdAt: "asc" }], select: { id: true, amount: true, paidAt: true, isAdvance: true } },
 } as const satisfies Prisma.OrderSelect;
@@ -70,7 +71,7 @@ export async function departmentSortOrder(db: DbClient): Promise<(id: string) =>
 function basisItems(order: FinanceOrder): BasisItem[] {
   return order.groups.map((g) => ({
     id: g.id,
-    lineValue: order.pricing === "PER_ITEM" && g.unitPrice !== null ? BigInt(g.quantity) * toCents(g.unitPrice) : null,
+    lineValue: order.pricing === "PER_ITEM" ? itemLineCents({ quantity: g.quantity, unitPriceCents: g.unitPrice === null ? null : toCents(g.unitPrice), pricingBasis: g.pricingBasis, billableLengthMm: g.billableLengthMm, measuredQuantity: g.measuredQuantity }) : null,
     departmentId: g.departmentId,
     shares: g.valueShares.map((s) => ({ departmentId: s.departmentId, amount: toCents(s.amount) })),
   }));

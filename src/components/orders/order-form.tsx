@@ -16,14 +16,16 @@ import { newRequestId } from "@/lib/request-id";
 import { cn } from "@/lib/utils";
 import { createOrderSchema, MAX_ORDER_GROUPS, updateOrderSchema } from "@/lib/validations/order";
 import { CustomerPicker } from "./customer-picker";
-import { customPlacementsOf, newGroupDraft, type GroupDraft, type OrderDraft } from "./order-draft";
+import { customPlacementsOf, newGroupDraft, newWorkLine, type GroupDraft, type OrderDraft } from "./order-draft";
 import { chip, MoneyInput } from "./order-form-parts";
-import { ItemCard, itemLineTotal } from "./order-items";
+import { draftLinear, ItemCard, itemLineTotal } from "./order-items";
 import { OrderVisibilityPicker } from "./order-visibility-picker";
 import { AccountField, defaultAccountId } from "@/components/treasury/account-field";
 import type { AccountOption } from "@/lib/treasury/labels";
 import type { AssignableStaff, OrderAccessValue } from "@/lib/orders/visibility";
 import { suggestDepartmentId, type DepartmentOption } from "@/lib/departments/suggest";
+import { formatCm, formatMeters, OTHER_VARIANT, variantLabel, WORK_KIND_CONFIG, WORK_KINDS, type WorkKind } from "@/lib/orders/work-kinds";
+import { WorkKindItems } from "./work-kind-items";
 
 /** Owner only: «ظهور الأوردر للعمال» inside the form. `version` is the order's accessVersion (edit). */
 type AccessProps = { staff: AssignableStaff[]; initial: OrderAccessValue; version?: number };
@@ -40,6 +42,8 @@ type Props =
       departments?: DepartmentOption[];
       /** «منتج جاهز» shortcuts (owner-managed). */
       presets?: string[];
+      /** Owner-configured default roll width per work kind (mm); missing = typed per line. */
+      rollWidths?: Partial<Record<WorkKind, number>>;
     }
   | {
       mode: "edit";
@@ -59,6 +63,8 @@ type Props =
       departments?: DepartmentOption[];
       /** «منتج جاهز» shortcuts (owner-managed). */
       presets?: string[];
+      /** Owner-configured default roll width per work kind (mm); missing = typed per line. */
+      rollWidths?: Partial<Record<WorkKind, number>>;
     };
 
 /** Product shortcuts shown as tiles (the input still accepts anything). */
@@ -165,8 +171,32 @@ export function OrderForm(props: Props) {
       productType: draft.productType,
       designs: g.useDesigns ? g.designs : [],
       operations: g.useDesigns ? [] : g.operations,
+      workKind: g.workKind || null,
     }) ||
     "";
+  const kindCfg = draft.workKind ? WORK_KIND_CONFIG[draft.workKind] : null;
+  const rollCm = (k: WorkKind) => (props.rollWidths?.[k] ? formatCm(props.rollWidths[k]!) : "");
+
+  /** «بنعمل إيه؟» work kind: the order's lines follow its config; garment tiles clear it. */
+  function setWorkKind(kind: WorkKind | "") {
+    setDraft((d) => {
+      if (d.workKind === kind) return d;
+      const cfg = kind ? WORK_KIND_CONFIG[kind] : null;
+      const startLine = kind && !cfg!.variants ? [newWorkLine(kind, { rollWidthCm: rollCm(kind) })] : kind ? [] : [newGroupDraft()];
+      // Keep what was typed only when staying in the same family of items.
+      const keep = d.groups.filter((g) => (kind ? g.workKind === kind : !g.workKind));
+      return {
+        ...d,
+        workKind: kind,
+        productType: cfg ? cfg.label : d.workKind ? "" : d.productType,
+        unit: cfg ? "PIECE" : d.unit,
+        sizesEnabled: cfg ? false : d.sizesEnabled,
+        pricing: cfg ? "items" : d.pricing,
+        groups: keep.length > 0 ? keep : startLine,
+      };
+    });
+    setErrors({});
+  }
   const backdated = isValidDateString(draft.receivedDate) && draft.receivedDate < today;
   const cutover = props.mode === "create" ? (props.treasuryCutover ?? null) : null;
   // An advance paid before the treasury started is already inside the counted opening balance.
@@ -201,6 +231,32 @@ export function OrderForm(props: Props) {
   const converting = props.mode === "edit" && props.initial.pricing === "order" && priced;
   const conversionChangesPrice = converting && money.total !== null && legacyTotal !== null && money.total !== legacyTotal;
 
+  /** A work-kind line as the server expects it (config-driven fields only; no designs). */
+  function workLinePayload(g: GroupDraft) {
+    const kind = g.workKind as WorkKind;
+    const cfg = WORK_KIND_CONFIG[kind];
+    const linear = cfg.pricing === "LINEAR_METER";
+    return {
+      ...(props.mode === "edit" && g.id ? { id: g.id } : {}),
+      // Unnamed lines are named after their kind and material, e.g. «ورق DTF — أبيض 80%».
+      name: g.name.trim() || [cfg.label, variantLabel(kind, g.variant, g.variantText)].filter(Boolean).join(" — "),
+      quantity: g.quantity,
+      material: "",
+      ...(departmentOf(g) ? { departmentId: departmentOf(g) } : {}),
+      unitPrice: g.unitPrice,
+      workKind: kind,
+      ...(cfg.variants ? { variant: g.variant, variantText: g.variant === OTHER_VARIANT ? g.variantText : undefined } : {}),
+      ...(cfg.threadColor ? { threadColor: g.threadColor } : {}),
+      ...(cfg.materialName ? { saleUnit: g.saleUnit } : {}),
+      ...(linear ? { fileWidthCm: g.fileWidthCm, fileLengthCm: g.fileLengthCm, copiesPerRow: g.copiesPerRow, rollWidthCm: g.rollWidthCm } : {}),
+      operations: [],
+      plain: true,
+      designs: [],
+      notes: g.notes,
+      sizes: [],
+    };
+  }
+
   function buildPayload() {
     const customer = draft.customer
       ? draft.customer.mode === "existing"
@@ -215,7 +271,7 @@ export function OrderForm(props: Props) {
       material: draft.material,
       unit: draft.unit,
       sizesEnabled: draft.sizesEnabled,
-      groups: draft.groups.map((g) => ({
+      groups: draft.groups.map((g) => (g.workKind ? workLinePayload(g) : {
         ...(props.mode === "edit" && g.id ? { id: g.id } : {}),
         name: g.name,
         quantity: g.quantity,
@@ -403,7 +459,10 @@ export function OrderForm(props: Props) {
                   key={name}
                   type="button"
                   aria-pressed={selected}
-                  onClick={() => setProductType(name)}
+                  onClick={() => {
+                    if (draft.workKind) setWorkKind("");
+                    setProductType(name);
+                  }}
                   className={cn(chip(selected), "relative h-[5.25rem] flex-col gap-1.5 px-1 text-[0.8rem] leading-tight")}
                 >
                   {selected && (
@@ -417,7 +476,18 @@ export function OrderForm(props: Props) {
               );
             })}
           </div>
-          <Input
+          <p className="mt-4 mb-1.5 text-sm font-semibold">شغل للغير وخامات</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="group" aria-label="شغل للغير وخامات">
+            {WORK_KINDS.map((k) => {
+              const on = draft.workKind === k;
+              return (
+                <button key={k} type="button" aria-pressed={on} onClick={() => setWorkKind(on ? "" : k)} className={cn(chip(on), "min-h-12 px-2 text-[0.85rem] leading-tight")} data-work-kind={k}>
+                  {WORK_KIND_CONFIG[k].label}
+                </button>
+              );
+            })}
+          </div>
+          {!draft.workKind && <Input
             ref={productInputRef}
             id="productType"
             list="product-suggestions"
@@ -427,9 +497,10 @@ export function OrderForm(props: Props) {
             aria-label="نوع المنتج"
             className="mt-3"
             aria-invalid={errors.productType ? true : undefined}
-          />
+          />}
           {errors.productType && <p className="mt-1.5 text-sm text-red">{errors.productType}</p>}
         </div>
+        {!kindCfg && (<>
         <details className="group/spec rounded-2xl bg-well px-3.5" open={!!(errors.material || errors.unit)}>
           <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 font-semibold [&::-webkit-details-marker]:hidden">
             الخامة والوحدة
@@ -480,6 +551,7 @@ export function OrderForm(props: Props) {
             <span className="absolute top-1 start-1 size-5 rounded-full bg-on-panel transition-transform duration-200 ease-[var(--ease-out-expo)] peer-checked:-translate-x-5" />
           </span>
         </label>
+        </>)}
       </Question>
 
       <Question
@@ -490,7 +562,22 @@ export function OrderForm(props: Props) {
         aside={<span className="tabular text-sm text-graphite">{formatNumber(itemsCount)} بند · {formatNumber(pieces)} {unitLabel}</span>}
       >
         <p className="-mt-2 text-sm text-graphite">كل بند ليه اسمه وكميته وسعره. اختار «منتج جاهز» للحاجات اللي بتتباع زي ما هي، و«طباعة / تطريز» للشغل — وتفاصيل الرسمة اختيارية.</p>
-        {draft.groups.map((group, index) => (
+        {draft.workKind ? (
+          <WorkKindItems
+            kind={draft.workKind}
+            groups={draft.groups}
+            errors={errors}
+            priceLocked={props.mode === "edit" && !props.canEditPrice}
+            departments={departments}
+            departmentOf={departmentOf}
+            defaultRollWidthCm={rollCm(draft.workKind)}
+            onChange={(index, patch) => setGroup(index, patch)}
+            onGroups={(update) => {
+              setDraft((d) => ({ ...d, groups: update(d.groups) }));
+              setErrors((e) => ({ ...e, groups: "" }));
+            }}
+          />
+        ) : draft.groups.map((group, index) => (
           <ItemCard
             key={group.key}
             index={index}
@@ -514,7 +601,7 @@ export function OrderForm(props: Props) {
           />
         ))}
         {errors.groups && <p className="text-sm text-red" data-error="true">{errors.groups}</p>}
-        {draft.groups.length < MAX_ORDER_GROUPS && (
+        {!draft.workKind && draft.groups.length < MAX_ORDER_GROUPS && (
           <button
             type="button"
             className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-line-strong text-[0.95rem] font-semibold text-brand transition-colors hover:bg-brand-soft/40"
@@ -535,7 +622,13 @@ export function OrderForm(props: Props) {
                 return (
                   <li key={g.key} className="flex items-baseline justify-between gap-3 py-2">
                     <span className="min-w-0 truncate">
-                      {g.name.trim() || `البند ${i + 1}`} <span className="tabular text-graphite">{g.quantity || "0"} × {g.unitPrice || "0"}</span>
+                      {g.name.trim() || `البند ${i + 1}`}{" "}
+                      <span className="tabular text-graphite">
+                        {(() => {
+                          const lin = draftLinear(g);
+                          return lin?.ok ? `${formatMeters(lin.billableLengthMm)} م طولي × ${g.unitPrice || "0"}` : `${g.quantity || "0"} × ${g.unitPrice || "0"}`;
+                        })()}
+                      </span>
                     </span>
                     <span className="tabular shrink-0 font-semibold">{line !== null ? formatMoney(line) : "—"}</span>
                   </li>

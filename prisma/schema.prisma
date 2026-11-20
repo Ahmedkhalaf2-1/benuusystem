@@ -82,6 +82,8 @@ model User {
   departmentsCreated        Department[]             @relation("DepartmentCreatedBy")
   partnerSupplier           Supplier?                @relation("PartnerSupplier", fields: [supplierId], references: [id], onDelete: Restrict)
   valueSharesSet            OrderGroupValueShare[]   @relation("ValueShareSetBy")
+  costRevisions             OrderCostRevision[]      @relation("CostRevisionBy")
+  workKindSettings          WorkKindSetting[]        @relation("WorkKindSettingBy")
   presetsCreated            ProductPreset[]          @relation("PresetCreatedBy")
 
   @@map("users")
@@ -188,6 +190,10 @@ enum PrintOperation {
   EMBROIDERY
   /// Garment making (optional required step for garment orders). Phase 5.
   MANUFACTURING
+  /// «طباعة للغير» methods without an older operation (production steps like any other).
+  VINYL
+  SUBLIMATION
+  OTHER_PRINT
 }
 
 enum OrderPricing {
@@ -213,44 +219,50 @@ enum OrderVisibility {
 }
 
 model Order {
-  id                    String          @id @default(uuid(7)) @db.Uuid
+  id                    String            @id @default(uuid(7)) @db.Uuid
   /// Human order number (#0001), gapless, from the "order_number" counter.
-  number                Int             @unique
-  customerId            String          @map("customer_id") @db.Uuid
-  title                 String          @db.VarChar(150)
-  productType           String          @map("product_type") @db.VarChar(80)
-  material              String          @db.VarChar(80)
+  number                Int               @unique
+  customerId            String            @map("customer_id") @db.Uuid
+  title                 String            @db.VarChar(150)
+  productType           String            @map("product_type") @db.VarChar(80)
+  material              String            @db.VarChar(80)
   quantity              Int
-  unit                  QuantityUnit    @default(PIECE)
+  unit                  QuantityUnit      @default(PIECE)
   /// Agreed selling price for the whole order. Outstanding is always derived
   /// (totalPrice − sum of valid payments) and never stored.
-  totalPrice            Decimal         @map("total_price") @db.Decimal(12, 2)
-  receivedDate          DateTime        @map("received_date") @db.Date
-  deliveryDate          DateTime        @map("delivery_date") @db.Date
-  notes                 String?         @db.VarChar(2000)
-  status                OrderStatus     @default(NEW)
+  totalPrice            Decimal           @map("total_price") @db.Decimal(12, 2)
+  receivedDate          DateTime          @map("received_date") @db.Date
+  deliveryDate          DateTime          @map("delivery_date") @db.Date
+  notes                 String?           @db.VarChar(2000)
+  status                OrderStatus       @default(NEW)
   /// When the last piece was delivered (set/cleared by production automation).
-  completedAt           DateTime?       @map("completed_at") @db.Timestamptz(3)
+  completedAt           DateTime?         @map("completed_at") @db.Timestamptz(3)
   /// ORDER_TOTAL: one agreed price for the whole order (all orders before
   /// line-item pricing). PER_ITEM: totalPrice = Σ group quantity × unitPrice,
   /// computed by the server.
-  pricing               OrderPricing    @default(ORDER_TOTAL)
+  pricing               OrderPricing      @default(ORDER_TOTAL)
   /// Owner removed an untouched order from active views (never deleted).
-  archivedAt            DateTime?       @map("archived_at") @db.Timestamptz(3)
-  archivedById          String?         @map("archived_by_id") @db.Uuid
-  archiveReason         String?         @map("archive_reason") @db.VarChar(300)
+  archivedAt            DateTime?         @map("archived_at") @db.Timestamptz(3)
+  archivedById          String?           @map("archived_by_id") @db.Uuid
+  archiveReason         String?           @map("archive_reason") @db.VarChar(300)
   /// Client-generated key: a retried/double-clicked submit returns the same order.
-  idempotencyKey        String?         @unique @map("idempotency_key") @db.Uuid
+  idempotencyKey        String?           @unique @map("idempotency_key") @db.Uuid
   /// Staff visibility. Owners always see every order.
-  visibility            OrderVisibility @default(PRIVATE)
+  visibility            OrderVisibility   @default(PRIVATE)
   /// Bumped on every visibility/assignment change (optimistic concurrency).
-  accessVersion         Int             @default(0) @map("access_version")
+  accessVersion         Int               @default(0) @map("access_version")
   /// Owner: keep this order out of every department view for non-owners
   /// (partners and department members) — work, values and collections.
-  hiddenFromDepartments Boolean         @default(false) @map("hidden_from_departments")
-  createdById           String          @map("created_by_id") @db.Uuid
-  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt             DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  hiddenFromDepartments Boolean           @default(false) @map("hidden_from_departments")
+  /// Cost review («التكاليف»): new orders start PENDING (set by the app); null = created before cost tracking.
+  costStatus            CostReviewStatus? @map("cost_status")
+  costReviewedAt        DateTime?         @map("cost_reviewed_at") @db.Timestamptz(3)
+  costReviewedById      String?           @map("cost_reviewed_by_id") @db.Uuid
+  /// Bumped on every close / reopen / status change (optimistic concurrency).
+  costVersion           Int               @default(0) @map("cost_version")
+  createdById           String            @map("created_by_id") @db.Uuid
+  createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   customer      Customer                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
   createdBy     User                      @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
@@ -275,30 +287,50 @@ model Order {
 /// A slice of an order with the same work (e.g. "50 pieces: DTF + embroidery").
 /// Quantities of all groups add up to the order quantity.
 model OrderGroup {
-  id             String             @id @default(uuid(7)) @db.Uuid
-  orderId        String             @map("order_id") @db.Uuid
-  position       Int
-  quantity       Int
-  material       String             @db.VarChar(80)
-  notes          String?            @db.VarChar(500)
+  id               String             @id @default(uuid(7)) @db.Uuid
+  orderId          String             @map("order_id") @db.Uuid
+  position         Int
+  quantity         Int
+  material         String             @db.VarChar(80)
+  notes            String?            @db.VarChar(500)
   /// «اسم البند / الرسمة». Null on orders created before named items.
-  name           String?            @db.VarChar(120)
+  name             String?            @db.VarChar(120)
   /// Selling price per unit (PER_ITEM orders). Never back-filled for old orders.
-  unitPrice      Decimal?           @map("unit_price") @db.Decimal(12, 2)
+  unitPrice        Decimal?           @map("unit_price") @db.Decimal(12, 2)
   /// Planned press operations per piece for items WITHOUT designs (capacity
   /// planning only; items with designs plan presses per design).
-  pressesPerUnit Int?               @map("presses_per_unit")
+  pressesPerUnit   Int?               @map("presses_per_unit")
   /// Designs / print placements on this item's pieces (empty for older items,
   /// which keep their item-level operations).
-  designs        OrderGroupDesign[]
+  designs          OrderGroupDesign[]
   /// The ONE department that does this item («القسم»). An item's value
   /// (quantity × unitPrice) belongs to its department only — never split or
   /// counted twice. Set on every new/edited item; null only if no department
   /// existed (shown as «غير محدد»).
-  departmentId   String?            @map("department_id") @db.Uuid
+  departmentId     String?            @map("department_id") @db.Uuid
+  /// «نوع الشغل» (src/lib/orders/work-kinds.ts): DTF_PAPER, VINYL_PAPER… Null = garment / ready-made item (as before).
+  workKind         String?            @map("work_kind") @db.VarChar(40)
+  /// The material / method of this line (WHITE_80, BLACK, SUBLIMATION, POLYESTER, OTHER…).
+  variant          String?            @db.VarChar(40)
+  /// Typed text when the variant is «أخرى», or a raw material's name.
+  variantText      String?            @map("variant_text") @db.VarChar(120)
+  threadColor      String?            @map("thread_color") @db.VarChar(60)
+  /// Raw materials: the unit sold (PIECE, KG, ROLL…).
+  saleUnit         String?            @map("sale_unit") @db.VarChar(20)
+  /// UNIT: quantity × unitPrice. LINEAR_METER: billableLengthMm × unitPrice (per linear meter) / 1000.
+  pricingBasis     ItemPricingBasis   @default(UNIT) @map("pricing_basis")
+  fileWidthMm      Int?               @map("file_width_mm")
+  fileLengthMm     Int?               @map("file_length_mm")
+  copiesPerRow     Int?               @map("copies_per_row")
+  rollWidthMm      Int?               @map("roll_width_mm")
+  /// Billed (quoted) length — never the consumed length (that is a cost entry).
+  billableLengthMm Int?               @map("billable_length_mm")
+  /// MEASURED items: the sold quantity with up to 3 decimals (e.g. 2.75 kg). `quantity` is then 1 (one lot to deliver).
+  measuredQuantity Decimal?           @map("measured_quantity") @db.Decimal(14, 3)
 
   order         Order                     @relation(fields: [orderId], references: [id], onDelete: Cascade)
   department    Department?               @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  costs         OrderCost[]
   /// Owner's explicit split of THIS item's value across departments (work
   /// shared between departments). Empty = the whole value is its department's.
   valueShares   OrderGroupValueShare[]
@@ -453,38 +485,55 @@ enum CostCategory {
 
 /// A direct cost of one order (fabric, printing, outside workshop…).
 model OrderCost {
-  id             String       @id @default(uuid(7)) @db.Uuid
-  orderId        String       @map("order_id") @db.Uuid
-  category       CostCategory
-  description    String?      @db.VarChar(200)
+  id              String       @id @default(uuid(7)) @db.Uuid
+  orderId         String       @map("order_id") @db.Uuid
+  category        CostCategory
+  description     String?      @db.VarChar(200)
   /// Full cost, counted when recorded — paid or not.
-  amount         Decimal      @db.Decimal(12, 2)
-  costDate       DateTime     @map("cost_date") @db.Date
-  supplierId     String?      @map("supplier_id") @db.Uuid
+  amount          Decimal      @db.Decimal(12, 2)
+  costDate        DateTime     @map("cost_date") @db.Date
+  supplierId      String?      @map("supplier_id") @db.Uuid
   /// The department the work belongs to (partner settlements). Optional.
-  departmentId   String?      @map("department_id") @db.Uuid
+  departmentId    String?      @map("department_id") @db.Uuid
   /// «بالقطعة»: pieces × agreed cost per piece = amount (both or neither).
-  quantity       Int?
-  unitCost       Decimal?     @map("unit_cost") @db.Decimal(12, 2)
-  notes          String?      @db.VarChar(500)
-  idempotencyKey String       @unique @map("idempotency_key") @db.Uuid
-  recordedById   String       @map("recorded_by_id") @db.Uuid
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
-  voidedAt       DateTime?    @map("voided_at") @db.Timestamptz(3)
-  voidedById     String?      @map("voided_by_id") @db.Uuid
-  voidReason     String?      @map("void_reason") @db.VarChar(300)
+  quantity        Int?
+  unitCost        Decimal?     @map("unit_cost") @db.Decimal(12, 2)
+  /// Draft entry from «التكاليف»: NOT a payable until the order's costs are closed (then posted).
+  isDraft         Boolean      @default(false) @map("is_draft")
+  postedAt        DateTime?    @map("posted_at") @db.Timestamptz(3)
+  /// The order item / work line this cost belongs to (optional).
+  orderGroupId    String?      @map("order_group_id") @db.Uuid
+  /// Material consumption: what was used, how much, in which unit, at what unit cost.
+  materialName    String?      @map("material_name") @db.VarChar(120)
+  materialVariant String?      @map("material_variant") @db.VarChar(80)
+  usageQuantity   Decimal?     @map("usage_quantity") @db.Decimal(14, 3)
+  usageUnit       String?      @map("usage_unit") @db.VarChar(20)
+  usageUnitCost   Decimal?     @map("usage_unit_cost") @db.Decimal(12, 2)
+  /// Bumped on every amendment (optimistic concurrency).
+  version         Int          @default(0)
+  notes           String?      @db.VarChar(500)
+  idempotencyKey  String       @unique @map("idempotency_key") @db.Uuid
+  recordedById    String       @map("recorded_by_id") @db.Uuid
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  voidedAt        DateTime?    @map("voided_at") @db.Timestamptz(3)
+  voidedById      String?      @map("voided_by_id") @db.Uuid
+  voidReason      String?      @map("void_reason") @db.VarChar(300)
 
-  order      Order             @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  supplier   Supplier?         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
-  department Department?       @relation(fields: [departmentId], references: [id], onDelete: Restrict)
-  recordedBy User              @relation("OrderCostRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
-  voidedBy   User?             @relation("OrderCostVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  order      Order               @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  supplier   Supplier?           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  department Department?         @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  orderGroup OrderGroup?         @relation(fields: [orderGroupId], references: [id], onDelete: Restrict)
+  revisions  OrderCostRevision[]
+  recordedBy User                @relation("OrderCostRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
+  voidedBy   User?               @relation("OrderCostVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
   payments   OutgoingPayment[]
 
   @@index([orderId])
   @@index([supplierId])
   @@index([departmentId])
   @@index([costDate])
+  @@index([orderGroupId])
+  @@index([materialName, costDate])
   @@map("order_costs")
 }
 
@@ -1030,4 +1079,50 @@ model ProductPreset {
   createdBy User? @relation("PresetCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
 
   @@map("product_presets")
+}
+
+enum ItemPricingBasis {
+  UNIT
+  LINEAR_METER
+  /// Raw materials sold by weight / length / volume: measuredQuantity (3 decimals) × unitPrice.
+  MEASURED
+}
+
+enum CostReviewStatus {
+  PENDING
+  IN_PROGRESS
+  CLOSED
+  NEEDS_REVIEW
+}
+
+/// Audit trail of an amended cost entry: the full before/after and the reason.
+model OrderCostRevision {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  orderCostId String   @map("order_cost_id") @db.Uuid
+  /// The cost's version AFTER this change.
+  version     Int
+  before      Json
+  after       Json
+  reason      String   @db.VarChar(300)
+  changedById String   @map("changed_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  orderCost OrderCost @relation(fields: [orderCostId], references: [id], onDelete: Restrict)
+  changedBy User      @relation("CostRevisionBy", fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@unique([orderCostId, version])
+  @@map("order_cost_revisions")
+}
+
+/// Owner settings per work kind (e.g. the default roll width of DTF / vinyl).
+/// No value is assumed: an empty setting means the width is typed per item.
+model WorkKindSetting {
+  workKind    String   @id @map("work_kind") @db.VarChar(40)
+  rollWidthMm Int?     @map("roll_width_mm")
+  updatedById String   @map("updated_by_id") @db.Uuid
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  updatedBy User @relation("WorkKindSettingBy", fields: [updatedById], references: [id], onDelete: Restrict)
+
+  @@map("work_kind_settings")
 }

@@ -1,5 +1,6 @@
 import type { Permission } from "@/lib/auth/permissions";
 import {
+  Calculator,
   CalendarRange,
   ClipboardList,
   HardHat,
@@ -61,6 +62,7 @@ export const SIDEBAR_EXTRA_NAV: readonly (NavItem & { permission: Permission | n
   { key: "customers", label: "العملاء", href: "/customers", icon: UsersRound, permission: "customers:view" },
   { key: "workers", label: "العمال", href: "/workers", icon: HardHat, permission: "workers:view" },
   { key: "suppliers", label: "الموردين", href: "/suppliers", icon: Truck, permission: "suppliers:view-balances" },
+  { key: "costs", label: "التكاليف", href: "/costs", icon: Calculator, permission: "costs:view" },
   { key: "expenses", label: "المصاريف", href: "/expenses", icon: Receipt, permission: "expenses:view" },
   { key: "treasury", label: "الخزنة والحسابات", href: "/treasury", icon: Landmark, permission: "treasury:manage" },
   { key: "users", label: "المستخدمين والصلاحيات", href: "/users", icon: ShieldCheck, permission: "users:manage" },

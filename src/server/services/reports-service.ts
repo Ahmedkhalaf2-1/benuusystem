@@ -311,7 +311,7 @@ export async function getPayables(db: DbClient, actor: Actor, opts: { q?: string
     db.supplier.findMany({ select: { id: true, name: true, phone: true } }),
     supplierBalances(db),
     db.orderCost.findMany({
-      where: { voidedAt: null, supplierId: null },
+      where: { voidedAt: null, isDraft: false, supplierId: null },
       select: { id: true, amount: true, category: true, description: true, costDate: true, order: { select: { id: true, number: true, title: true } } },
     }),
     db.generalExpense.findMany({
@@ -470,7 +470,7 @@ export async function getOrderContributions(
   const ids = orders.map((o) => o.id);
   if (ids.length === 0) return [];
   const [costs, payments, labor, logCounts] = await Promise.all([
-    db.orderCost.groupBy({ by: ["orderId", "category"], where: { orderId: { in: ids }, voidedAt: null }, _sum: { amount: true } }),
+    db.orderCost.groupBy({ by: ["orderId", "category"], where: { orderId: { in: ids }, voidedAt: null, isDraft: false }, _sum: { amount: true } }),
     db.orderPayment.groupBy({ by: ["orderId"], where: { orderId: { in: ids }, voidedAt: null }, _sum: { amount: true } }),
     laborByOrders(db, actor, ids),
     db.workerWorkLog.groupBy({ by: ["orderId"], where: { orderId: { in: ids }, voidedAt: null }, _count: { _all: true } }),

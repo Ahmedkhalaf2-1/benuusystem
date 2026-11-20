@@ -34,7 +34,10 @@ import { ORDER_SUMMARY_SELECT, isOverdue, toOrderSummary, type OrderSummary } fr
 import { canSeeOrderPrices, orderScope, orderScopeSql, requireOrderAccess } from "./order-access";
 import { applyOrderAccess, parseOrderAccess } from "./order-visibility-service";
 import { suggestDepartmentId } from "@/lib/departments/suggest";
+import { itemLineCents } from "@/lib/orders/work-kinds";
+import { formatQuantity, parseQuantity } from "@/lib/finance/usage";
 import { allocationSnapshot } from "./department-finance";
+import { markCostsNeedReview } from "./cost-review-service";
 
 // ───────────────────────────── Create ─────────────────────────────
 
@@ -78,12 +81,25 @@ async function resolveCustomerId(
 }
 
 /** The new per-item columns, as stored. */
-function itemFields(group: { name: string | null; unitPrice: Cents | null; pressesPerUnit: number | null; departmentId: string | null }) {
+function itemFields(group: CreateOrderInput["groups"][number]) {
   return {
     name: group.name,
     unitPrice: group.unitPrice === null ? null : centsToDecimalString(group.unitPrice),
     pressesPerUnit: group.pressesPerUnit,
     departmentId: group.departmentId,
+    // Work kind & linear-meter measurement (null for garment / ready-made items).
+    workKind: group.workKind,
+    variant: group.variant,
+    variantText: group.variantText,
+    threadColor: group.threadColor,
+    saleUnit: group.saleUnit,
+    pricingBasis: group.pricingBasis,
+    fileWidthMm: group.linear?.fileWidthMm ?? null,
+    fileLengthMm: group.linear?.fileLengthMm ?? null,
+    copiesPerRow: group.linear?.copiesPerRow ?? null,
+    rollWidthMm: group.linear?.rollWidthMm ?? null,
+    billableLengthMm: group.linear?.billableLengthMm ?? null,
+    measuredQuantity: group.measuredQuantity,
   };
 }
 
@@ -98,7 +114,7 @@ function itemFields(group: { name: string | null; unitPrice: Cents | null; press
 async function resolveItemDepartments(
   tx: DbTransaction,
   productType: string,
-  groups: { id?: string; name: string | null; operations: PrintOperation[]; designs: { operation: PrintOperation }[]; departmentId: string | null }[],
+  groups: { id?: string; name: string | null; operations: PrintOperation[]; designs: { operation: PrintOperation }[]; departmentId: string | null; workKind?: string | null }[],
   current: Map<string, string | null> = new Map(),
 ) {
   const departments = await tx.department.findMany({ select: { id: true, key: true, isActive: true } });
@@ -113,7 +129,7 @@ async function resolveItemDepartments(
       }
       return;
     }
-    g.departmentId = before ?? suggestDepartmentId(active, { name: g.name, productType, designs: g.designs, operations: g.operations });
+    g.departmentId = before ?? suggestDepartmentId(active, { name: g.name, productType, designs: g.designs, operations: g.operations, workKind: g.workKind });
   });
 }
 
@@ -326,6 +342,8 @@ export async function createOrder(
           notes: input.notes,
           idempotencyKey: input.idempotencyKey,
           createdById: actor.id,
+          // Every new order is tracked until its costs are reviewed and closed («التكاليف»).
+          costStatus: "PENDING",
           groups: { create: groupsCreateData(input.groups) },
           ...(ownedByStaff
             ? { visibility: "SELECTED_STAFF" as const, access: { create: { userId: actor.id, grantedById: actor.id } } }
@@ -432,6 +450,8 @@ type GroupSnapshot = {
   unitPrice: string | null;
   pressesPerUnit: number | null;
   departmentId: string | null;
+  /** Work kind, variant and linear-meter measurement, as one comparable string. */
+  work: string;
   designs: string[];
 };
 
@@ -447,6 +467,14 @@ function snapshotGroups(
     unitPrice?: Cents | null;
     pressesPerUnit?: number | null;
     departmentId?: string | null;
+    workKind?: string | null;
+    variant?: string | null;
+    variantText?: string | null;
+    threadColor?: string | null;
+    saleUnit?: string | null;
+    pricingBasis?: string | null;
+    linear?: { fileWidthMm: number; fileLengthMm: number; copiesPerRow: number; rollWidthMm: number; billableLengthMm: number } | null;
+    measuredQuantity?: string | null;
     designs?: { id?: string | null; name: string | null; operation: PrintOperation; placements: string[]; customPlacements: string[]; quantity: number; pressesPerUnit: number | null; notes: string | null }[];
   }[],
 ): GroupSnapshot[] {
@@ -461,6 +489,7 @@ function snapshotGroups(
     unitPrice: g.unitPrice === undefined || g.unitPrice === null ? null : centsToDecimalString(g.unitPrice),
     pressesPerUnit: g.pressesPerUnit ?? null,
     departmentId: g.departmentId ?? null,
+    work: [g.workKind ?? "", g.variant ?? "", g.variantText ?? "", g.threadColor ?? "", g.saleUnit ?? "", g.pricingBasis ?? "UNIT", g.linear ? `${g.linear.fileWidthMm}x${g.linear.fileLengthMm}/${g.linear.copiesPerRow}@${g.linear.rollWidthMm}=${g.linear.billableLengthMm}` : "", g.measuredQuantity ?? ""].join("|"),
     designs: (g.designs ?? []).map((d) =>
       [d.id ?? "new", d.name ?? "", d.operation, [...d.placements].sort().join("+"), d.customPlacements.join("+"), d.quantity, d.pressesPerUnit ?? "", d.notes ?? ""].join("|"),
     ),
@@ -646,6 +675,18 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
             unitPrice: true,
             pressesPerUnit: true,
             departmentId: true,
+            workKind: true,
+            variant: true,
+            variantText: true,
+            threadColor: true,
+            saleUnit: true,
+            pricingBasis: true,
+            fileWidthMm: true,
+            fileLengthMm: true,
+            copiesPerRow: true,
+            rollWidthMm: true,
+            billableLengthMm: true,
+            measuredQuantity: true,
             designs: {
               orderBy: { position: "asc" },
               select: { id: true, name: true, operation: true, placements: true, customPlacements: true, quantity: true, pressesPerUnit: true, notes: true },
@@ -736,6 +777,11 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
         ...g,
         operations: g.operations.map((o) => o.operation),
         unitPrice: g.unitPrice === null ? null : toCents(g.unitPrice),
+        linear:
+          g.pricingBasis === "LINEAR_METER"
+            ? { fileWidthMm: g.fileWidthMm!, fileLengthMm: g.fileLengthMm!, copiesPerRow: g.copiesPerRow!, rollWidthMm: g.rollWidthMm!, billableLengthMm: g.billableLengthMm! }
+            : null,
+        measuredQuantity: g.measuredQuantity === null ? null : formatQuantity(parseQuantity(g.measuredQuantity.toString())!),
       })),
     );
     const afterGroups = snapshotGroups(input.groups);
@@ -841,6 +887,11 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
 
     const accessChanged = access ? (await applyOrderAccess(tx, actor, input.orderId, access, { source: "edit" })).changed : false;
 
+    // Closed costs no longer match a changed order (items, quantities, prices, cancellation).
+    if (groupsChanged || priceChanged || (statusChanged && input.status === "CANCELLED")) {
+      await markCostsNeedReview(tx, actor, input.orderId, groupsChanged ? "items" : priceChanged ? "price" : "cancelled");
+    }
+
     // Quantities may have changed: completion follows the real delivery records.
     await refreshOrderStatus(tx, actor, input.orderId);
     return { orderId: input.orderId, changed: Object.keys(changes).length > 0 || priceChanged || statusChanged || accessChanged };
@@ -945,6 +996,22 @@ export type OrderPaymentView = {
   voided: null | { at: Date; byName: string; reason: string };
 };
 
+export type ItemWork = {
+  workKind: string | null;
+  variant: string | null;
+  variantText: string | null;
+  threadColor: string | null;
+  saleUnit: string | null;
+  pricingBasis: "UNIT" | "LINEAR_METER" | "MEASURED";
+  fileWidthMm: number | null;
+  fileLengthMm: number | null;
+  copiesPerRow: number | null;
+  rollWidthMm: number | null;
+  billableLengthMm: number | null;
+  /** MEASURED items: the sold decimal quantity (e.g. "2.75"). */
+  measuredQuantity: string | null;
+};
+
 export type OrderDesignView = {
   id: string;
   position: number;
@@ -985,6 +1052,8 @@ export type OrderDetails = OrderSummary & {
     lineTotal?: string | null;
     /** The item's department («القسم»); null only for items created before departments existed with none left. */
     department: { id: string; name: string } | null;
+    /** Work kind, material/method and linear-meter measurement (all null for garment items). */
+    work: ItemWork;
     designs: OrderDesignView[];
     pressesPerUnit: number | null;
     /** Planned presses for the item (Σ designs, or quantity × item presses); null if not planned. */
@@ -1033,6 +1102,7 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
             name: true,
             unitPrice: prices,
             pressesPerUnit: true,
+            workKind: true, variant: true, variantText: true, threadColor: true, saleUnit: true, pricingBasis: true, fileWidthMm: true, fileLengthMm: true, copiesPerRow: true, rollWidthMm: true, billableLengthMm: true, measuredQuantity: true,
             department: { select: { id: true, name: true } },
             designs: {
               orderBy: { position: "asc" },
@@ -1099,6 +1169,20 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
       quantity: g.quantity,
       material: g.material,
       department: g.department,
+      work: {
+        workKind: g.workKind,
+        variant: g.variant,
+        variantText: g.variantText,
+        threadColor: g.threadColor,
+        saleUnit: g.saleUnit,
+        pricingBasis: g.pricingBasis,
+        fileWidthMm: g.fileWidthMm,
+        fileLengthMm: g.fileLengthMm,
+        copiesPerRow: g.copiesPerRow,
+        rollWidthMm: g.rollWidthMm,
+        billableLengthMm: g.billableLengthMm,
+        measuredQuantity: g.measuredQuantity === null ? null : formatQuantity(parseQuantity(g.measuredQuantity.toString())!),
+      },
       notes: g.notes,
       operations,
       description: describeOperations(operations),
@@ -1106,7 +1190,10 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
       ...(prices
         ? {
             unitPrice: unitPrice === null ? null : centsToDecimalString(unitPrice),
-            lineTotal: unitPrice === null ? null : centsToDecimalString(unitPrice * BigInt(g.quantity)),
+            lineTotal: (() => {
+              const line = itemLineCents({ quantity: g.quantity, unitPriceCents: unitPrice, pricingBasis: g.pricingBasis, billableLengthMm: g.billableLengthMm, measuredQuantity: g.measuredQuantity });
+              return line === null ? null : centsToDecimalString(line);
+            })(),
           }
         : {}),
       designs,

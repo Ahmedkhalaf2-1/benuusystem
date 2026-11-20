@@ -73,6 +73,14 @@ export const AUDIT_ACTIONS = {
   PARTNER_SUPPLIER_LINKED: "PARTNER_SUPPLIER_LINKED",
   PRODUCT_PRESET_CREATED: "PRODUCT_PRESET_CREATED",
   PRODUCT_PRESET_UPDATED: "PRODUCT_PRESET_UPDATED",
+  WORK_KIND_SETTING_UPDATED: "WORK_KIND_SETTING_UPDATED",
+  /** «التكاليف»: an order's costs were closed (drafts posted as supplier payables). */
+  COST_REVIEW_CLOSED: "COST_REVIEW_CLOSED",
+  COST_REVIEW_REOPENED: "COST_REVIEW_REOPENED",
+  /** A closed order changed in a way that affects its costs. */
+  COST_REVIEW_NEEDS_REVIEW: "COST_REVIEW_NEEDS_REVIEW",
+  /** A cost entry was corrected (before/after and reason in order_cost_revisions). */
+  ORDER_COST_AMENDED: "ORDER_COST_AMENDED",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
