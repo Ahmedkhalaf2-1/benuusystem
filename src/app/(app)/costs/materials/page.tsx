@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { requirePermission } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
 import { formatDateAr, isValidDateString, monthRange, todayDateString } from "@/lib/dates";
-import { formatMoneyString } from "@/lib/money";
+import { centsToDecimalString, formatMoneyString, toCents } from "@/lib/money";
 import { formatNumber } from "@/lib/numbers";
 import { formatOrderNumber } from "@/lib/orders/labels";
 import { SALE_UNIT_LABELS, WORK_KINDS } from "@/lib/orders/work-kinds";
@@ -98,10 +98,13 @@ export default async function MaterialsReportPage(props: PageProps<"/costs/mater
                 <p className="mt-1 text-sm text-graphite">
                   {r.supplier ? <Link href={`/suppliers/${r.supplier.id}`} className="text-violet hover:underline">{r.supplier.name}</Link> : "من غير مورد"}
                   {" · "}التكلفة <b className="tabular text-ink">{formatMoneyString(r.total)}</b>
-                  {r.draftTotal !== "0.00" && ` (منها ${formatMoneyString(r.draftTotal)} مسودة)`}
                   {r.unitCosts.length > 0 && ` · تكلفة الوحدة ${r.unitCosts.map(formatMoneyString).join(" / ")}`}
                   {" · "}
                   {r.firstDate === r.lastDate ? formatDateAr(r.firstDate) : `${formatDateAr(r.firstDate)} — ${formatDateAr(r.lastDate)}`}
+                </p>
+                <p className="mt-1 flex flex-wrap gap-1.5 text-xs" data-testid="material-booking">
+                  <span className="rounded-full bg-success-soft px-2 py-0.5 font-semibold text-success-ink">متسجل على الموردين {formatMoneyString(centsToDecimalString(toCents(r.total) - toCents(r.draftTotal)))}</span>
+                  {r.draftTotal !== "0.00" && <span className="rounded-full bg-warning-soft px-2 py-0.5 font-semibold text-warning-ink">مسودة (لسه متقفلتش) {formatMoneyString(r.draftTotal)}</span>}
                 </p>
                 <p className="mt-1 text-xs text-graphite">نوع الشغل: {r.workKinds.map((k) => REPORT_KIND_LABELS[k] ?? k).join("، ")}</p>
                 <details className="mt-2">
@@ -116,6 +119,7 @@ export default async function MaterialsReportPage(props: PageProps<"/costs/mater
                           </span>
                           <span className="tabular">
                             {o.quantity} {SALE_UNIT_LABELS[r.unit] ?? r.unit} · {formatMoneyString(o.total)}
+                            {o.draftTotal !== "0.00" && <span className="ms-1 rounded-full bg-warning-soft px-1.5 text-xs text-warning-ink">{o.draftTotal === o.total ? "مسودة" : `منها ${formatMoneyString(o.draftTotal)} مسودة`}</span>}
                           </span>
                         </Link>
                       </li>
@@ -127,7 +131,7 @@ export default async function MaterialsReportPage(props: PageProps<"/costs/mater
           </ul>
           <p className="flex items-start gap-2 text-xs text-graphite">
             <Info className="mt-0.5 size-3.5 shrink-0 text-violet" aria-hidden="true" />
-            الكميات بتتجمع لنفس الخامة والنوع والوحدة والمورد بس — وحدات مختلفة مش بتتجمع مع بعض. التاريخ هو تاريخ الاستهلاك المتسجل، والتعديلات بتظهر بقيمتها الأخيرة.
+            «مسودة» = بند متسجل لسه تكاليف أوردره متقفلتش: مش محسوب على المورد ولا في ربحية الأوردر لحد القفل. الكميات بتتجمع لنفس الخامة والنوع والوحدة والمورد بس — وحدات مختلفة مش بتتجمع مع بعض. التاريخ هو تاريخ الاستهلاك المتسجل، والتعديلات بتظهر بقيمتها الأخيرة.
           </p>
         </>
       )}

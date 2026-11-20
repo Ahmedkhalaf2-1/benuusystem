@@ -152,6 +152,7 @@ export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) 
                     </span>
                     <span className="tabular">
                       {r.quantity} {SALE_UNIT_LABELS[r.unit] ?? r.unit} · {formatMoneyString(r.total)}
+                      {r.draftTotal !== "0.00" && <span className="ms-1 rounded-full bg-warning-soft px-1.5 text-xs text-warning-ink">منها {formatMoneyString(r.draftTotal)} مسودة</span>}
                     </span>
                   </p>
                   <p className="text-xs text-graphite">
@@ -165,7 +166,7 @@ export default async function SupplierPage(props: PageProps<"/suppliers/[id]">) 
               ))}
             </ul>
           )}
-          <p className="mt-2 text-xs text-graphite">إجمالي تكلفة الاستهلاك في الفترة: <b className="tabular">{formatMoneyString(consumption.totals.total)}</b>. المستحق والمدفوع والباقي فوق بيشمل التكاليف المقفولة بس.</p>
+          <p className="mt-2 text-xs text-graphite">إجمالي تكلفة الاستهلاك في الفترة: <b className="tabular">{formatMoneyString(consumption.totals.total)}</b>. المستحق والمدفوع والباقي فوق بيشمل التكاليف المتسجلة (المقفولة) بس — المسودات مش مستحقة لسه.</p>
         </section>
       )}
 

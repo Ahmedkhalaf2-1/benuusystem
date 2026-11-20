@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { History, Lock, PlusCircle, ReceiptText } from "lucide-react";
-import { AmendEntryForm, CloseCostsForm, CostEntryForm, ReopenCostsForm } from "@/components/costs/cost-forms";
+import { AmendEntryForm, CloseCostsForm, ReopenCostsForm } from "@/components/costs/cost-forms";
+import { CostRowsEditor, RemoveDraftButton } from "@/components/costs/cost-rows-editor";
+import { centsToDecimalString, toCents } from "@/lib/money";
 import { FlowCard, FlowHeader } from "@/components/ds/primitives";
 import { Flash } from "@/components/flash";
 import { requirePermission } from "@/lib/auth/current-user";
@@ -19,7 +21,7 @@ import { COST_STATUS_LABELS } from "@/lib/finance/cost-review-labels";
 
 export const metadata: Metadata = { title: "تكاليف الأوردر" };
 
-const FLASH: Record<string, string> = { entry: "اتسجلت التكلفة (مسودة) ✓", closed: "التكاليف اتقفلت واتسجلت على الموردين ✓", reopened: "التكاليف اتفتحت ✓", amended: "التعديل اتحفظ ✓" };
+const FLASH: Record<string, string> = { entries: "اتسجلت بنود التكلفة (مسودات) ✓", removed: "اتشالت المسودة ✓", entry: "اتسجلت التكلفة (مسودة) ✓", closed: "التكاليف اتقفلت واتسجلت على الموردين ✓", reopened: "التكاليف اتفتحت ✓", amended: "التعديل اتحفظ ✓" };
 
 /** One order's costs: entries (drafts until closed), close / reopen, amendments with history. */
 export default async function OrderCostsPage(props: PageProps<"/costs/orders/[id]">) {
@@ -61,6 +63,12 @@ export default async function OrderCostsPage(props: PageProps<"/costs/orders/[id
         </Link>
       </div>
 
+      <p className="flex items-baseline justify-between rounded-2xl bg-panel px-4 py-3 text-on-panel">
+        <span className="text-sm text-on-panel-muted">إجمالي تكاليف الأوردر ({live.length} بند)</span>
+        <span className="tabular font-display text-2xl font-semibold" data-testid="order-costs-total">
+          {formatMoneyString(centsToDecimalString(toCents(ws.totals.posted) + toCents(ws.totals.draft)))}
+        </span>
+      </p>
       <dl className="grid grid-cols-3 gap-1 rounded-2xl border border-line bg-surface py-3 text-center">
         <div>
           <dt className="text-xs text-graphite">متسجل على الموردين</dt>
@@ -115,7 +123,8 @@ export default async function OrderCostsPage(props: PageProps<"/costs/orders/[id
                   </details>
                 )}
                 {!e.voided && canRecord && (owner || (e.draft && !closed)) && (
-                  <div className="mt-2">
+                  <div className="mt-2 flex flex-wrap items-start gap-2">
+                    {e.draft && !closed && <RemoveDraftButton costId={e.id} />}
                     <AmendEntryForm
                       orderId={ws.order.id}
                       today={today}
@@ -132,8 +141,9 @@ export default async function OrderCostsPage(props: PageProps<"/costs/orders/[id
       </FlowCard>
 
       {canRecord && !closed && (
-        <FlowCard title="تسجيل استهلاك خامة أو تكلفة" icon={PlusCircle}>
-          <CostEntryForm orderId={ws.order.id} today={today} suppliers={suppliers} items={ws.items.map((i) => ({ id: i.id, label: i.label, work: i.work }))} />
+        <FlowCard title="إضافة بنود تكلفة" icon={PlusCircle}>
+          {/* Remounted after every save (key = number of rows), so new rows always get new keys. */}
+          <CostRowsEditor key={ws.entries.length} orderId={ws.order.id} today={today} suppliers={suppliers} items={ws.items.map((i) => ({ id: i.id, label: i.work ? `${i.label} — ${i.work}` : i.label }))} />
         </FlowCard>
       )}
 

@@ -8,7 +8,8 @@ import type { Actor } from "@/server/services/actor";
 import { recordOrderCost, voidOrderCost } from "@/server/services/cost-service";
 import { recordDepartmentStage, setDepartmentMembership } from "@/server/services/department-service";
 import { recordStageProgress } from "@/server/services/production-service";
-import { amendCostEntry, closeOrderCosts, getCostWorkspace, listCostAlerts, recordCostEntry, reopenOrderCosts } from "@/server/services/cost-review-service";
+import { amendCostEntry, closeOrderCosts, getCostWorkspace, listCostAlerts, recordCostEntries, recordCostEntry, removeDraftCost, reopenOrderCosts } from "@/server/services/cost-review-service";
+import { getOrderContributions } from "@/server/services/reports-service";
 import { getDepartmentsOverview } from "@/server/services/department-service";
 import { getMaterialConsumption } from "@/server/services/material-report-service";
 import { createOrder, getOrderDetails, updateOrder } from "@/server/services/order-service";
@@ -251,6 +252,9 @@ describe.skipIf(!hasTestDatabase)("work kinds, costs, suppliers & overdue alerts
       ["ورق DTF", "أبيض 80%", "ROLL", "مورد DTF", "1", "2000.00"],
     ]);
     const dtfRow = r.rows.find((x) => x.unit === "LINEAR_METER" && x.materialName === "ورق DTF")!;
+    // Every entry here is still a draft (costs not closed): reported as such, per row and per order.
+    expect(dtfRow.draftTotal).toBe(dtfRow.total);
+    expect(dtfRow.orders.every((o) => o.draftTotal === o.total)).toBe(true);
     expect(dtfRow.orders.map((o) => [o.number, o.quantity])).toEqual([[1, "3"], [2, "2"]]);
     expect(dtfRow.unitCosts).toEqual(["45.00", "50.00"]);
     expect(r.totals).toEqual({ entries: 4, total: "2415.00" });
@@ -421,5 +425,65 @@ describe.skipIf(!hasTestDatabase)("work kinds, costs, suppliers & overdue alerts
     });
     expect((await getOrderDetails(db, owner, orderId))!.groups[0]).toMatchObject({ id: g0.id, lineTotal: "375.00", work: { measuredQuantity: "3.125" } });
     expect((await getDepartmentsOverview(db, owner)).totals).toMatchObject({ valueBalanced: true, collectionsBalanced: true });
+  });
+
+  // ─── Multiple cost rows per order ───
+
+  it("holds many independent cost rows on ONE order (Emma Tourism: 1,200 + 500 + 300 + 150 = 2,150), each with its own supplier", async () => {
+    const dtfSupplier = await createSupplier(db, owner, { name: "مورد DTF" });
+    const embroiderer = await createSupplier(db, owner, { name: "ورشة تطريز" });
+    const driver = await createSupplier(db, owner, { name: "نقل" });
+    const { orderId } = await order([dtf("WHITE_80")], { title: "Emma Tourism" });
+    const row = (extra: Record<string, unknown>) => ({ idempotencyKey: randomUUID(), costDate: TODAY, ...extra });
+    const rows = [
+      row({ category: "MATERIALS", description: "خامات DTF", materialName: "ورق DTF", usageQuantity: "10", usageUnit: "LINEAR_METER", usageUnitCost: "120", supplierId: dtfSupplier.id }),
+      row({ category: "EMBROIDERY", description: "تطريز", amount: "500", supplierId: embroiderer.id }),
+      row({ category: "OUTSOURCED_LABOR", description: "مصنعية", amount: "300" }),
+      row({ category: "TRANSPORT", description: "نقل", amount: "150", supplierId: driver.id }),
+    ];
+    const first = await recordCostEntries(db, staff, { orderId, entries: rows });
+    expect(first.entries.map((e) => e.created)).toEqual([true, true, true, true]);
+    // A repeated submit of the same rows creates nothing new.
+    const again = await recordCostEntries(db, staff, { orderId, entries: rows });
+    expect(again.entries.map((e) => [e.costId, e.created])).toEqual(first.entries.map((e) => [e.costId, false]));
+    expect(await db.orderCost.count({ where: { orderId } })).toBe(4);
+    expect(await db.order.count()).toBe(1); // one order, four rows
+
+    // More rows can be added later, and a draft row removed on its own.
+    const extra = await recordCostEntries(db, staff, { orderId, entries: [row({ category: "OTHER", amount: "99" })] });
+    await removeDraftCost(db, staff, { costId: extra.entries[0]!.costId });
+    let ws = (await getCostWorkspace(db, owner, orderId))!;
+    expect(ws.entries.filter((e) => !e.voided).map((e) => e.amount)).toEqual(["1200.00", "500.00", "300.00", "150.00"]);
+    expect(ws.totals).toEqual({ posted: "0.00", draft: "2150.00", paid: "0.00" });
+
+    // Errors come back per row; nothing is saved when any row is invalid.
+    await expect(recordCostEntries(db, staff, { orderId, entries: [row({ category: "OTHER", amount: "10" }), row({ category: "OTHER", usageQuantity: "2", usageUnit: "KG", usageUnitCost: "5", amount: "11" })] })).rejects.toMatchObject({
+      fieldErrors: { "entries.1.amount": [expect.stringContaining("الكمية × تكلفة الوحدة")] },
+    });
+    expect(await db.orderCost.count({ where: { orderId, voidedAt: null } })).toBe(4);
+
+    // Close: each row booked once to its own supplier (or none) — never paid.
+    const labor = ws.entries.find((e) => e.amount === "300.00")!;
+    await closeOrderCosts(db, owner, { orderId, expectedVersion: ws.order.costVersion, suppliers: { [labor.id]: "none" } });
+    ws = (await getCostWorkspace(db, owner, orderId))!;
+    expect(ws.totals).toEqual({ posted: "2150.00", draft: "0.00", paid: "0.00" });
+    expect((await getSupplierDetails(db, owner, dtfSupplier.id))!.totals).toMatchObject({ purchased: "1200.00", paid: "0.00", outstanding: "1200.00" });
+    expect((await getSupplierDetails(db, owner, embroiderer.id))!.totals).toMatchObject({ purchased: "500.00" });
+    expect((await getSupplierDetails(db, owner, driver.id))!.totals).toMatchObject({ purchased: "150.00" });
+    expect(await db.outgoingPayment.count()).toBe(0);
+    // Profitability sees every booked row exactly once.
+    const [contribution] = await getOrderContributions(db, owner, { orderIds: [orderId] });
+    expect(contribution).toMatchObject({ materials: "1200.00", outside: "800.00", otherCosts: "150.00" });
+    // Material usage shows the material row.
+    expect((await getMaterialConsumption(db, owner, { from: TODAY, to: TODAY })).rows.map((r) => [r.materialName, r.quantity, r.total, r.draftTotal, r.orders[0]!.draftTotal])).toEqual([["ورق DTF", "10", "1200.00", "0.00", "0.00"]]); // booked after closing
+
+    // After closing: drafts can't be added or removed; amendments adjust the right supplier only.
+    await expect(recordCostEntries(db, staff, { orderId, entries: [row({ category: "OTHER", amount: "1" })] })).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(removeDraftCost(db, staff, { costId: labor.id })).rejects.toMatchObject({ code: "CONFLICT" });
+    const embRow = ws.entries.find((e) => e.supplier?.id === embroiderer.id)!;
+    await amendCostEntry(db, owner, { costId: embRow.id, expectedVersion: embRow.version, amount: "450", reason: "خصم من الورشة" });
+    expect((await getSupplierDetails(db, owner, embroiderer.id))!.totals).toMatchObject({ purchased: "450.00" });
+    expect((await getSupplierDetails(db, owner, dtfSupplier.id))!.totals).toMatchObject({ purchased: "1200.00" });
+    expect((await getCostWorkspace(db, owner, orderId))!.totals.posted).toBe("2100.00");
   });
 });

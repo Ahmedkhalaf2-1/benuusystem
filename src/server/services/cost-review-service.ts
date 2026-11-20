@@ -337,64 +337,136 @@ export async function markCostsInProgress(tx: DbTransaction, orderId: string) {
   await tx.order.updateMany({ where: { id: orderId, OR: [{ costStatus: "PENDING" }, { costStatus: null }] }, data: { costStatus: "IN_PROGRESS", costVersion: { increment: 1 } } });
 }
 
+type EntryInput = z.output<typeof entrySchema>;
+
+/** Inserts ONE draft cost row (caller holds the order via openOrderForCost). Shared by single and batch entry. */
+async function insertDraft(tx: DbTransaction, actor: Actor, input: Omit<EntryInput, "orderId">, orderId: string, orderNumber: number, money: ParsedEntry) {
+  await checkRefs(tx, orderId, input.orderGroupId, input.supplierId);
+  const cost = await tx.orderCost.create({
+    data: {
+      orderId,
+      orderGroupId: input.orderGroupId ?? null,
+      category: input.category,
+      description: input.description ?? input.materialName,
+      materialName: input.materialName,
+      materialVariant: input.materialVariant,
+      usageQuantity: money.usage ? formatQuantity(money.usage.quantity) : null,
+      usageUnit: money.usage?.unit ?? null,
+      usageUnitCost: money.usage?.unitCost != null ? centsToDecimalString(money.usage.unitCost) : null,
+      amount: centsToDecimalString(money.amount),
+      costDate: dateFromString(input.costDate),
+      supplierId: input.supplierId ?? null,
+      notes: input.notes,
+      ...bookingState("draft"),
+      idempotencyKey: input.idempotencyKey,
+      recordedById: actor.id,
+    },
+    select: { id: true },
+  });
+  await recordAudit(tx, {
+    userId: actor.id,
+    action: AUDIT_ACTIONS.ORDER_COST_RECORDED,
+    entityType: "OrderCost",
+    entityId: cost.id,
+    metadata: { orderId, orderNumber, draft: true, category: input.category, amount: centsToDecimalString(money.amount), supplierId: input.supplierId ?? null, material: input.materialName ?? null, description: input.description ?? null, usageQuantity: money.usage ? formatQuantity(money.usage.quantity) : null, usageUnit: money.usage?.unit ?? null },
+  });
+  return cost.id;
+}
+
+function validationIssues(error: z.ZodError, prefix = ""): Record<string, string[]> {
+  const fe: Record<string, string[]> = {};
+  for (const i of error.issues) (fe[prefix + (i.path.join(".") || "_form")] ??= []).push(i.message);
+  return fe;
+}
+
 /** A draft cost entry / material usage line (not a payable until the costs are closed). */
 export async function recordCostEntry(db: PrismaClient, actor: Actor, payload: unknown): Promise<{ costId: string; created: boolean }> {
+  const r = await recordCostEntries(db, actor, { orderId: (payload as { orderId?: unknown })?.orderId, entries: [payload] }, { flatErrors: true });
+  return r.entries[0]!;
+}
+
+const batchSchema = z.object({ orderId: z.uuid(), entries: z.array(z.unknown()).min(1, "ضيف بند تكلفة واحد على الأقل").max(50, "أقصى 50 بند في المرة") });
+
+/**
+ * «+ إضافة بند تكلفة»: several independent draft cost rows for ONE order, saved
+ * together (all or none). Each row has its own idempotency key, so a repeated
+ * submit returns the rows already saved instead of duplicating them, and new
+ * rows are always new rows. Errors come back per row (`entries.N.field`).
+ */
+export async function recordCostEntries(db: PrismaClient, actor: Actor, payload: unknown, opts: { flatErrors?: boolean } = {}): Promise<{ entries: { costId: string; created: boolean }[] }> {
   assertPermission(actor, "costs:record");
-  const parsed = entrySchema.safeParse(payload);
-  if (!parsed.success) {
-    const fe: Record<string, string[]> = {};
-    for (const i of parsed.error.issues) (fe[i.path.join(".") || "_form"] ??= []).push(i.message);
-    throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: fe });
-  }
-  const input = parsed.data;
-  const money = parseEntryMoney(input);
-  const previous = await db.orderCost.findUnique({ where: { idempotencyKey: input.idempotencyKey }, select: { id: true, orderId: true } });
-  if (previous) {
-    if (previous.orderId !== input.orderId) throw new AppError("CONFLICT", "الطلب ده اتسجل قبل كده لأوردر تاني");
-    return { costId: previous.id, created: false };
-  }
+  const batch = batchSchema.safeParse(payload);
+  if (!batch.success) throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: validationIssues(batch.error) });
+  const orderId = batch.data.orderId;
+  const rows: { input: Omit<EntryInput, "orderId">; money: ParsedEntry }[] = [];
+  const errors: Record<string, string[]> = {};
+  batch.data.entries.forEach((raw, i) => {
+    const prefix = opts.flatErrors ? "" : `entries.${i}.`;
+    const parsed = entrySchema.safeParse({ ...(raw as object), orderId });
+    if (!parsed.success) return Object.assign(errors, validationIssues(parsed.error, prefix));
+    try {
+      rows.push({ input: parsed.data, money: parseEntryMoney(parsed.data) });
+    } catch (error) {
+      if (error instanceof AppError && error.fieldErrors) for (const [k, v] of Object.entries(error.fieldErrors)) errors[prefix + k] = v;
+      else throw error;
+    }
+  });
+  if (Object.keys(errors).length > 0) throw new AppError("VALIDATION_ERROR", "راجع بنود التكلفة", { fieldErrors: errors });
+  const keys = rows.map((r) => r.input.idempotencyKey);
+  if (new Set(keys).size !== keys.length) throw new AppError("VALIDATION_ERROR", "في بند متكرر — افتح الصفحة تاني");
+
+  const replayed = async () => {
+    const existing = await db.orderCost.findMany({ where: { idempotencyKey: { in: keys } }, select: { id: true, orderId: true, idempotencyKey: true } });
+    if (existing.some((e) => e.orderId !== orderId)) throw new AppError("CONFLICT", "الطلب ده اتسجل قبل كده لأوردر تاني");
+    return new Map(existing.map((e) => [e.idempotencyKey, e.id]));
+  };
   try {
     return await db.$transaction(async (tx) => {
-      const order = await openOrderForCost(tx, actor, input.orderId);
-      await checkRefs(tx, input.orderId, input.orderGroupId, input.supplierId);
-      const cost = await tx.orderCost.create({
-        data: {
-          orderId: input.orderId,
-          orderGroupId: input.orderGroupId ?? null,
-          category: input.category,
-          description: input.description ?? input.materialName,
-          materialName: input.materialName,
-          materialVariant: input.materialVariant,
-          usageQuantity: money.usage ? formatQuantity(money.usage.quantity) : null,
-          usageUnit: money.usage?.unit ?? null,
-          usageUnitCost: money.usage?.unitCost != null ? centsToDecimalString(money.usage.unitCost) : null,
-          amount: centsToDecimalString(money.amount),
-          costDate: dateFromString(input.costDate),
-          supplierId: input.supplierId ?? null,
-          notes: input.notes,
-          ...bookingState("draft"),
-          idempotencyKey: input.idempotencyKey,
-          recordedById: actor.id,
-        },
-        select: { id: true },
-      });
-      await markCostsInProgress(tx, input.orderId);
-      await recordAudit(tx, {
-        userId: actor.id,
-        action: AUDIT_ACTIONS.ORDER_COST_RECORDED,
-        entityType: "OrderCost",
-        entityId: cost.id,
-        metadata: { orderId: input.orderId, orderNumber: order.number, draft: true, category: input.category, amount: centsToDecimalString(money.amount), supplierId: input.supplierId ?? null, material: input.materialName ?? null, usageQuantity: money.usage ? formatQuantity(money.usage.quantity) : null, usageUnit: money.usage?.unit ?? null },
-      });
-      return { costId: cost.id, created: true };
+      const order = await openOrderForCost(tx, actor, orderId);
+      const done = new Map((await tx.orderCost.findMany({ where: { idempotencyKey: { in: keys } }, select: { id: true, orderId: true, idempotencyKey: true } })).map((e) => {
+        if (e.orderId !== orderId) throw new AppError("CONFLICT", "الطلب ده اتسجل قبل كده لأوردر تاني");
+        return [e.idempotencyKey, e.id] as const;
+      }));
+      const out: { costId: string; created: boolean }[] = [];
+      for (const r of rows) {
+        const prior = done.get(r.input.idempotencyKey);
+        if (prior) out.push({ costId: prior, created: false });
+        else out.push({ costId: await insertDraft(tx, actor, r.input, orderId, order.number, r.money), created: true });
+      }
+      if (out.some((o) => o.created)) await markCostsInProgress(tx, orderId);
+      return { entries: out };
     });
   } catch (error) {
+    // Two identical submits raced: the loser returns the winner's rows.
     if (isUniqueViolation(error)) {
-      const winner = await db.orderCost.findUnique({ where: { idempotencyKey: input.idempotencyKey }, select: { id: true } });
-      if (winner) return { costId: winner.id, created: false };
+      const map = await replayed();
+      if (keys.every((k) => map.has(k))) return { entries: keys.map((k) => ({ costId: map.get(k)!, created: false })) };
     }
     throw error;
   }
+}
+
+/**
+ * Removes a DRAFT cost row (never a booked one — those are amended or voided
+ * through the finance flow). Kept in history as voided with the reason; the
+ * order's costs must still be open.
+ */
+export async function removeDraftCost(db: PrismaClient, actor: Actor, payload: { costId: unknown }) {
+  assertPermission(actor, "costs:record");
+  const costId = z.uuid().safeParse(payload.costId);
+  if (!costId.success) throw new AppError("NOT_FOUND", "التكلفة مش موجودة");
+  return db.$transaction(async (tx) => {
+    const head = await tx.orderCost.findUnique({ where: { id: costId.data }, select: { orderId: true } });
+    if (!head) throw new AppError("NOT_FOUND", "التكلفة مش موجودة");
+    const order = await openOrderForCost(tx, actor, head.orderId);
+    const { count } = await tx.orderCost.updateMany({
+      where: { id: costId.data, isDraft: true, voidedAt: null },
+      data: { voidedAt: new Date(), voidedById: actor.id, voidReason: "حذف مسودة قبل قفل التكاليف" },
+    });
+    if (count === 0) throw new AppError("CONFLICT", "البند ده مش مسودة (أو اتشال قبل كده). البنود المتسجلة بتتعدّل أو بتتلغي من التكاليف.");
+    await recordAudit(tx, { userId: actor.id, action: AUDIT_ACTIONS.ORDER_COST_VOIDED, entityType: "OrderCost", entityId: costId.data, metadata: { orderId: head.orderId, orderNumber: order.number, draft: true, reason: "draft removed" } });
+    return { orderId: head.orderId };
+  });
 }
 
 // ───────────────────────────── Close / reopen ─────────────────────────────

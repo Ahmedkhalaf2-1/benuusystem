@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { toActionResult, type ActionResult } from "@/lib/actions";
 import { requireUser } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
-import { amendCostEntry, closeOrderCosts, recordCostEntry, reopenOrderCosts } from "@/server/services/cost-review-service";
+import { amendCostEntry, closeOrderCosts, recordCostEntries, recordCostEntry, removeDraftCost, reopenOrderCosts } from "@/server/services/cost-review-service";
 
 /** «التكاليف» actions. Every rule (owner-only close/amend, versions, suppliers) is re-checked in the service. */
 const back = (orderId: string, saved: string) => `/costs/orders/${orderId}?saved=${saved}`;
@@ -36,4 +36,23 @@ export async function amendCostEntryAction(orderId: string, payload: Record<stri
   const failure = await toActionResult(() => amendCostEntry(prisma, user, payload));
   if (failure) return failure;
   redirect(back(orderId, "amended"));
+}
+
+/** «+ إضافة بند تكلفة»: several draft rows for one order, saved together (each with its own key). */
+export async function recordCostEntriesAction(orderId: string, entries: Record<string, unknown>[]): Promise<ActionResult> {
+  const user = await requireUser();
+  const failure = await toActionResult(() => recordCostEntries(prisma, user, { orderId, entries }));
+  if (failure) return failure;
+  redirect(back(orderId, entries.length > 1 ? "entries" : "entry"));
+}
+
+/** Removes one DRAFT row (kept in history as voided). */
+export async function removeDraftCostAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  let orderId = "";
+  const failure = await toActionResult(async () => {
+    orderId = (await removeDraftCost(prisma, user, { costId: formData.get("costId") })).orderId;
+  });
+  if (failure) return failure;
+  redirect(back(orderId, "removed"));
 }

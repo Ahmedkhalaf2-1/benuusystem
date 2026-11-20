@@ -2,20 +2,16 @@
 
 import { useActionState, useState, useTransition } from "react";
 import { Loader2, Lock, Pencil } from "lucide-react";
-import { amendCostEntryAction, closeOrderCostsAction, recordCostEntryAction, reopenOrderCostsAction } from "@/app/(app)/costs/actions";
-import { Field, FormMessage, NativeSelect, Textarea } from "@/components/forms/field";
+import { amendCostEntryAction, closeOrderCostsAction, reopenOrderCostsAction } from "@/app/(app)/costs/actions";
+import { Field, FormMessage, NativeSelect } from "@/components/forms/field";
 import { MoneyInput } from "@/components/orders/order-form-parts";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { CostCategory } from "@/generated/prisma/enums";
-import { COST_CATEGORIES, COST_CATEGORY_LABELS } from "@/lib/finance/labels";
 import { parseQuantity, usageTotalCents } from "@/lib/finance/usage";
 import { formatMoney, parseMoney } from "@/lib/money";
 import { SALE_UNITS } from "@/lib/orders/work-kinds";
-import { newRequestId } from "@/lib/request-id";
 
 type Option = { id: string; name: string };
-type ItemOption = { id: string; label: string; work: string | null };
 
 function flat(fieldErrors?: Record<string, string[]>) {
   return Object.fromEntries(Object.entries(fieldErrors ?? {}).map(([k, v]) => [k, v[0] ?? ""]));
@@ -28,111 +24,6 @@ function liveTotal(qty: string, unitCost: string, amount: string): string {
   if (q !== null && u !== null) return formatMoney(usageTotalCents(q, u));
   const a = amount.trim() === "" ? null : parseMoney(amount);
   return a === null ? "—" : formatMoney(a);
-}
-
-/** «تسجيل استهلاك / تكلفة» — a draft until the order's costs are closed. */
-export function CostEntryForm({ orderId, items, suppliers, today }: { orderId: string; items: ItemOption[]; suppliers: Option[]; today: string }) {
-  const [key] = useState(newRequestId);
-  const [v, setV] = useState({ orderGroupId: "", category: "MATERIALS", materialName: "", materialVariant: "", usageQuantity: "", usageUnit: "", usageUnitCost: "", amount: "", supplierId: "", costDate: today, notes: "" });
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [message, setMessage] = useState<string>();
-  const [pending, start] = useTransition();
-  const set = (k: keyof typeof v, value: string) => {
-    setV((x) => ({ ...x, [k]: value }));
-    setErrors((e) => ({ ...e, [k]: "" }));
-  };
-  const submit = (ev: React.FormEvent) => {
-    ev.preventDefault();
-    start(async () => {
-      const r = await recordCostEntryAction({ orderId, idempotencyKey: key, ...v });
-      if (r && !r.ok) {
-        setErrors(flat(r.fieldErrors));
-        setMessage(r.fieldErrors ? "راجع الخانات اللي باللون الأحمر." : r.message);
-      }
-    });
-  };
-  return (
-    <form onSubmit={submit} noValidate className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="السطر / الشغل" htmlFor="ce-item" optional error={errors.orderGroupId}>
-          <NativeSelect id="ce-item" value={v.orderGroupId} onChange={(e) => set("orderGroupId", e.target.value)}>
-            <option value="">الأوردر كله</option>
-            {items.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.label}
-                {i.work ? ` — ${i.work}` : ""}
-              </option>
-            ))}
-          </NativeSelect>
-        </Field>
-        <Field label="نوع التكلفة" htmlFor="ce-cat" error={errors.category}>
-          <NativeSelect id="ce-cat" value={v.category} onChange={(e) => set("category", e.target.value)}>
-            {COST_CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {COST_CATEGORY_LABELS[c as CostCategory]}
-              </option>
-            ))}
-          </NativeSelect>
-        </Field>
-        <Field label="الخامة" htmlFor="ce-mat" optional error={errors.materialName}>
-          <Input id="ce-mat" value={v.materialName} onChange={(e) => set("materialName", e.target.value)} placeholder="مثال: ورق DTF، فينيل أسود، حبر" />
-        </Field>
-        <Field label="النوع / المواصفة" htmlFor="ce-var" optional error={errors.materialVariant}>
-          <Input id="ce-var" value={v.materialVariant} onChange={(e) => set("materialVariant", e.target.value)} placeholder="مثال: أبيض 80%" />
-        </Field>
-      </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Field label="الكمية المستخدمة" htmlFor="ce-qty" optional error={errors.usageQuantity}>
-          <Input id="ce-qty" inputMode="decimal" value={v.usageQuantity} onChange={(e) => set("usageQuantity", e.target.value)} className="tabular" aria-invalid={errors.usageQuantity ? true : undefined} />
-        </Field>
-        <Field label="الوحدة" htmlFor="ce-unit" error={errors.usageUnit} optional>
-          <NativeSelect id="ce-unit" value={v.usageUnit} onChange={(e) => set("usageUnit", e.target.value)}>
-            <option value="">—</option>
-            {SALE_UNITS.map((u) => (
-              <option key={u.code} value={u.code}>
-                {u.label}
-              </option>
-            ))}
-          </NativeSelect>
-        </Field>
-        <Field label="تكلفة الوحدة" htmlFor="ce-uc" optional error={errors.usageUnitCost}>
-          <MoneyInput id="ce-uc" value={v.usageUnitCost} onChange={(x) => set("usageUnitCost", x)} invalid={!!errors.usageUnitCost} />
-        </Field>
-        <Field label="أو الإجمالي" htmlFor="ce-amount" optional error={errors.amount} hint="لو مفيش كمية × تكلفة">
-          <MoneyInput id="ce-amount" value={v.amount} onChange={(x) => set("amount", x)} invalid={!!errors.amount} />
-        </Field>
-      </div>
-      <p className="flex items-baseline justify-between rounded-xl bg-well px-3 py-2 text-sm" aria-live="polite">
-        <span className="text-graphite">الإجمالي</span>
-        <span className="tabular font-display text-lg font-semibold" data-testid="cost-entry-total">
-          {liveTotal(v.usageQuantity, v.usageUnitCost, v.amount)}
-        </span>
-      </p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="المورد" htmlFor="ce-sup" optional error={errors.supplierId} hint="من الموردين المتسجلين. ممكن تحدده وقت القفل.">
-          <NativeSelect id="ce-sup" value={v.supplierId} onChange={(e) => set("supplierId", e.target.value)}>
-            <option value="">بعدين</option>
-            {suppliers.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </NativeSelect>
-        </Field>
-        <Field label="تاريخ الاستهلاك" htmlFor="ce-date" error={errors.costDate}>
-          <Input id="ce-date" type="date" value={v.costDate} max={today} onChange={(e) => set("costDate", e.target.value)} />
-        </Field>
-      </div>
-      <Field label="ملاحظات" htmlFor="ce-notes" optional>
-        <Textarea id="ce-notes" value={v.notes} onChange={(e) => set("notes", e.target.value)} className="min-h-16" />
-      </Field>
-      <FormMessage message={message} />
-      <Button type="submit" disabled={pending} className="h-12 w-full rounded-xl">
-        {pending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
-        حفظ (مسودة لحد قفل التكاليف)
-      </Button>
-    </form>
-  );
 }
 
 /** Owner: close the order's costs — a supplier for every draft (or «من غير مورد»), or confirm zero costs. */

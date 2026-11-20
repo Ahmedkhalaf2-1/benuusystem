@@ -60,7 +60,8 @@ export type MaterialRow = {
   workKinds: string[];
   firstDate: string;
   lastDate: string;
-  orders: { id: string; number: number; title: string; quantity: string; total: string; dates: string[] }[];
+  /** Per order: its quantity / cost, and how much of it is still DRAFT (not booked to the supplier yet). */
+  orders: { id: string; number: number; title: string; quantity: string; total: string; draftTotal: string; dates: string[] }[];
 };
 
 export async function getMaterialConsumption(db: DbClient, actor: Actor, filters: MaterialFilters): Promise<{ rows: MaterialRow[]; totals: { entries: number; total: string } }> {
@@ -103,7 +104,7 @@ export async function getMaterialConsumption(db: DbClient, actor: Actor, filters
     draft: bigint;
     unitCosts: Set<string>;
     kinds: Set<string>;
-    orders: Map<string, { id: string; number: number; title: string; qty: bigint; total: bigint; dates: Set<string> }>;
+    orders: Map<string, { id: string; number: number; title: string; qty: bigint; total: bigint; draft: bigint; dates: Set<string> }>;
   };
   const groups = new Map<string, Acc>();
   let grand = 0n;
@@ -127,9 +128,10 @@ export async function getMaterialConsumption(db: DbClient, actor: Actor, filters
     if (e.usageUnitCost !== null) g.unitCosts.add(centsToDecimalString(toCents(e.usageUnitCost)));
     if (date < g.firstDate) g.firstDate = date;
     if (date > g.lastDate) g.lastDate = date;
-    const o = g.orders.get(e.order.id) ?? { id: e.order.id, number: e.order.number, title: e.order.title, qty: 0n, total: 0n, dates: new Set<string>() };
+    const o = g.orders.get(e.order.id) ?? { id: e.order.id, number: e.order.number, title: e.order.title, qty: 0n, total: 0n, draft: 0n, dates: new Set<string>() };
     o.qty += qty;
     o.total += amount;
+    if (e.isDraft) o.draft += amount;
     o.dates.add(date);
     g.orders.set(e.order.id, o);
   }
@@ -148,7 +150,7 @@ export async function getMaterialConsumption(db: DbClient, actor: Actor, filters
       workKinds: [...g.kinds].sort(),
       firstDate: g.firstDate,
       lastDate: g.lastDate,
-      orders: [...g.orders.values()].sort((a, b) => a.number - b.number).map((o) => ({ id: o.id, number: o.number, title: o.title, quantity: formatQuantity(o.qty), total: centsToDecimalString(o.total), dates: [...o.dates].sort() })),
+      orders: [...g.orders.values()].sort((a, b) => a.number - b.number).map((o) => ({ id: o.id, number: o.number, title: o.title, quantity: formatQuantity(o.qty), total: centsToDecimalString(o.total), draftTotal: centsToDecimalString(o.draft), dates: [...o.dates].sort() })),
     }));
   return { rows, totals: { entries: selected.length, total: centsToDecimalString(grand) } };
 }
