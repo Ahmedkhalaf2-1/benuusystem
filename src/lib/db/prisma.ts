@@ -9,9 +9,34 @@ import { getEnv } from "@/lib/env";
  * server components, services, CLI scripts). Client components must never
  * import it — the `pg` driver cannot be bundled for the browser anyway.
  */
+/**
+ * Connection pool. Measured on production (2026-11-20): with pg's default 10 s
+ * idle timeout, every request after a 10 s pause re-opened its connections
+ * (TCP + SCRAM auth) and took ~2× longer (dashboard 71 ms cold vs 30–40 ms
+ * warm). People pause longer than 10 s between clicks, so most requests paid
+ * it. Keeping idle connections for 10 minutes (with TCP keep-alive) removes
+ * that fixed cost; at most `max` connections are held (Postgres allows 100).
+ * A broken idle connection (e.g. a database restart) is dropped and logged by
+ * the adapter's pool error handler — it never crashes the process.
+ */
+export const DB_POOL_DEFAULTS = { max: 10, idleTimeoutMillis: 10 * 60_000 } as const;
+
+function poolNumber(raw: string | undefined, fallback: number): number {
+  const n = raw === undefined ? NaN : Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
 function createPrismaClient(): PrismaClient {
   const { DATABASE_URL, NODE_ENV } = getEnv();
-  const adapter = new PrismaPg({ connectionString: DATABASE_URL });
+  const adapter = new PrismaPg(
+    {
+      connectionString: DATABASE_URL,
+      max: poolNumber(process.env.DB_POOL_MAX, DB_POOL_DEFAULTS.max),
+      idleTimeoutMillis: poolNumber(process.env.DB_POOL_IDLE_MS, DB_POOL_DEFAULTS.idleTimeoutMillis),
+      keepAlive: true,
+    },
+    { onPoolError: (err) => console.warn(`[db] idle connection dropped: ${err.message}`) },
+  );
   return new PrismaClient({
     adapter,
     log: NODE_ENV === "development" ? ["warn", "error"] : ["error"],

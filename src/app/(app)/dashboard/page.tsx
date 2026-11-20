@@ -47,20 +47,19 @@ export default async function DashboardPage() {
   const canSeeOrders = hasPermission(user, "orders:view");
   const showOrderMoney = hasPermission(user, "orders:view-prices");
   const canCreate = hasPermission(user, "orders:create");
-  const [overduePayments, costAlerts] = await Promise.all([
-    // Internal alerts: unpaid ≥ 10 days after full delivery; orders whose costs aren't closed.
-    hasPermission(user, "payments:view") ? listOverdueReceivables(prisma, user) : null,
-    hasPermission(user, "costs:view") ? listCostAlerts(prisma, user) : null,
-  ]);
-  const openCostReviews = costAlerts ? costAlerts.counts.PENDING + costAlerts.counts.IN_PROGRESS + costAlerts.counts.NEEDS_REVIEW + costAlerts.counts.LEGACY : 0;
-  const [stats, overview, production, finance, attendance, workersMonth] = await Promise.all([
+  // One parallel batch (no waterfall): the two alerts load together with everything else.
+  const [stats, overview, production, finance, attendance, workersMonth, overduePayments, costAlerts] = await Promise.all([
     getDashboardStats(prisma, user),
     canSeeOrders ? getDashboardOverview(prisma, user) : null,
     canSeeOrders ? getProductionDashboard(prisma, user) : null,
     canSeeMoney ? getFinanceDashboard(prisma, user) : null,
     hasPermission(user, "workers:view") ? getTodayAttendance(prisma, user) : null,
     hasPermission(user, "workers:view-pay") ? getMonthlyWorkerSummary(prisma, user, todayDateString().slice(0, 7)) : null,
+    // Internal alerts: unpaid ≥ 10 days after full delivery; orders whose costs aren't closed.
+    hasPermission(user, "payments:view") ? listOverdueReceivables(prisma, user) : null,
+    hasPermission(user, "costs:view") ? listCostAlerts(prisma, user) : null,
   ]);
+  const openCostReviews = costAlerts ? costAlerts.counts.PENDING + costAlerts.counts.IN_PROGRESS + costAlerts.counts.NEEDS_REVIEW + costAlerts.counts.LEGACY : 0;
 
   const actions = [
     hasPermission(user, "production:record") && { href: "/orders/pick?action=production", label: "تسجيل إنتاج", icon: Factory },

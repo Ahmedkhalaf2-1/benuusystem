@@ -125,6 +125,47 @@ async function computeWorkStats(db: DbClient, departmentId: string | null, inclu
   };
 }
 
+/**
+ * Work statistics of EVERY department (and of items with no department, key
+ * null) in one batched pass — 4 queries instead of ~6 per department. Same
+ * rules as computeWorkStats (non-archived orders; owner view includes orders
+ * hidden from departments).
+ */
+async function computeAllWorkStats(db: DbClient): Promise<Map<string | null, Omit<DepartmentStats, "money">>> {
+  const items = await db.orderGroup.findMany({ where: { order: { archivedAt: null } }, select: { id: true, quantity: true, departmentId: true, orderId: true, order: { select: { status: true } } } });
+  const counters = await itemCounters(db, items);
+  const out = new Map<string | null, Omit<DepartmentStats, "money"> & { orderStatus: Map<string, OrderStatus> }>();
+  for (const item of items) {
+    let s = out.get(item.departmentId);
+    if (!s) {
+      s = { orders: { total: 0, active: 0, completed: 0, cancelled: 0 }, items: { total: 0, byStatus: { NOT_STARTED: 0, IN_PRODUCTION: 0, READY: 0, DELIVERED: 0, CANCELLED: 0 } }, pendingPieces: 0, readyNotDelivered: 0, orderStatus: new Map() };
+      out.set(item.departmentId, s);
+    }
+    const c = counters.get(item.id)!;
+    s.items.total += 1;
+    s.items.byStatus[workStatus(item.order.status, c)] += 1;
+    if (OPEN_ORDER_STATUSES.includes(item.order.status)) {
+      s.pendingPieces += Math.max(0, c.quantity - c.ready);
+      s.readyNotDelivered += Math.max(0, c.ready - c.delivered);
+    }
+    s.orderStatus.set(item.orderId, item.order.status);
+  }
+  const result = new Map<string | null, Omit<DepartmentStats, "money">>();
+  for (const [key, s] of out) {
+    const statuses = [...s.orderStatus.values()];
+    const count = (st: OrderStatus) => statuses.filter((x) => x === st).length;
+    result.set(key, {
+      orders: { total: statuses.length, active: count("NEW") + count("IN_PROGRESS"), completed: count("COMPLETED"), cancelled: count("CANCELLED") },
+      items: s.items,
+      pendingPieces: s.pendingPieces,
+      readyNotDelivered: s.readyNotDelivered,
+    });
+  }
+  return result;
+}
+
+const EMPTY_WORK: Omit<DepartmentStats, "money"> = { orders: { total: 0, active: 0, completed: 0, cancelled: 0 }, items: { total: 0, byStatus: { NOT_STARTED: 0, IN_PRODUCTION: 0, READY: 0, DELIVERED: 0, CANCELLED: 0 } }, pendingPieces: 0, readyNotDelivered: 0 };
+
 function toMoney(summary: DepartmentFinanceSummary, withCollections: boolean): DepartmentMoney {
   return {
     workValue: centsToDecimalString(summary.workValue),
@@ -520,11 +561,10 @@ export async function getDepartmentsOverview(db: DbClient, actor: Actor): Promis
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     select: { id: true, name: true, isActive: true, _count: { select: { members: true } } },
   });
-  const [finances, work, unassigned] = await Promise.all([
-    loadOrderFinances(db, { archivedAt: null }),
-    Promise.all(departments.map((d) => computeWorkStats(db, d.id, true))),
-    computeWorkStats(db, null, true),
-  ]);
+  // Totals only (no history rows are shown here), so the lean load is enough.
+  const [finances, allWork] = await Promise.all([loadOrderFinances(db, { archivedAt: null }, { lean: true }), computeAllWorkStats(db)]);
+  const work = departments.map((d) => allWork.get(d.id) ?? EMPTY_WORK);
+  const unassigned = allWork.get(null) ?? EMPTY_WORK;
   let depValue = 0n;
   let depCollected = 0n;
   const rows = departments.map((d, i) => {

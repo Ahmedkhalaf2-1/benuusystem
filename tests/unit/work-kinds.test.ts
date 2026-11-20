@@ -112,3 +112,11 @@ describe("production ops / measured / booking migration", () => {
     expect(sql).toMatch(/order_costs_booked_has_posted_at" CHECK \("is_draft" OR "posted_at" IS NOT NULL\)/);
   });
 });
+
+describe("database pool", () => {
+  it("keeps idle connections warm long enough to skip reconnecting between clicks", async () => {
+    const { DB_POOL_DEFAULTS } = await import("@/lib/db/prisma");
+    expect(DB_POOL_DEFAULTS.idleTimeoutMillis).toBeGreaterThanOrEqual(5 * 60_000);
+    expect(DB_POOL_DEFAULTS.max).toBeLessThanOrEqual(20); // well under Postgres max_connections (100), other apps share the server
+  });
+});
