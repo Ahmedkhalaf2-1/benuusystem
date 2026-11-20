@@ -92,3 +92,7 @@ work) but receive 403 / «للمدير بس» for every report.
 4. **Unallocated labour** (days without work logs) is visible but not assigned
    to any order.
 5. Order contribution is shown per order, not recognised as monthly profit.
+
+## Order profitability & monthly closing
+
+See `monthly-closing.md` — recognition basis, formulas, treasury reconciliation and the review workflow. Known limitation 5 above (contribution not recognised as monthly profit) is answered there.

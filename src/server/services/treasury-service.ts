@@ -353,9 +353,9 @@ export type LedgerEntry = {
  * `knownFrom`: the balance is known at the END of this day (= openingDate − 1;
  * the end of one day is the start of the next).
  */
-type AccountRow = { id: string; name: string; type: FinancialAccountType; openingBalance: Cents; openingDate: string; knownFrom: string; countDate: string; basis: OpeningBasis; isActive: boolean };
+export type AccountRow = { id: string; name: string; type: FinancialAccountType; openingBalance: Cents; openingDate: string; knownFrom: string; countDate: string; basis: OpeningBasis; isActive: boolean };
 
-async function loadAccounts(db: DbClient): Promise<AccountRow[]> {
+export async function loadAccounts(db: DbClient): Promise<AccountRow[]> {
   const rows = await db.financialAccount.findMany({ orderBy: [{ type: "asc" }, { name: "asc" }] });
   return rows.map((a) => ({
     id: a.id,
@@ -371,7 +371,7 @@ async function loadAccounts(db: DbClient): Promise<AccountRow[]> {
 }
 
 /** Every valid attributed money movement up to `to` (inclusive), one entry per account side. */
-async function loadEntries(db: DbClient, accounts: AccountRow[], to: string): Promise<LedgerEntry[]> {
+export async function loadEntries(db: DbClient, accounts: AccountRow[], to: string): Promise<LedgerEntry[]> {
   const toDate = dateFromString(to);
   const opening = new Map(accounts.map((a) => [a.id, a.openingDate]));
   const [incoming, outgoing, movements] = await Promise.all([
@@ -452,7 +452,7 @@ async function loadEntries(db: DbClient, accounts: AccountRow[], to: string): Pr
  * Balance of an account at the END of `date`; null before the count (unknown
  * — never shown as zero).
  */
-function balanceAt(account: AccountRow, entries: LedgerEntry[], date: string): Cents | null {
+export function balanceAt(account: AccountRow, entries: LedgerEntry[], date: string): Cents | null {
   if (date < account.knownFrom) return null;
   let b = account.openingBalance;
   for (const e of entries) if (e.accountId === account.id && e.date <= date) b += e.moneyIn - e.moneyOut;

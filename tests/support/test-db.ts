@@ -37,7 +37,7 @@ export async function resetDatabase(db: PrismaClient): Promise<void> {
       '"worker_work_logs", "worker_workdays", "workers", ' +
       '"outgoing_payments", "order_costs", "general_expenses", "suppliers", ' +
       '"order_group_sizes", "order_group_operations", "order_groups", "order_payments", "orders", "customers", ' +
-      '"audit_logs", "sessions", "login_attempts", "department_members", "departments", "product_presets", "users" CASCADE',
+      '"monthly_close_events", "monthly_closes", "recurring_expenses", "audit_logs", "sessions", "login_attempts", "department_members", "departments", "product_presets", "users" CASCADE',
   );
   // The four departments the Phase 2 migration seeds.
   await db.$executeRawUnsafe(

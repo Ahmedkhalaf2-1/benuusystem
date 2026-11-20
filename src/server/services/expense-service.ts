@@ -45,6 +45,7 @@ export async function recordExpense(
           description: input.description,
           amount: centsToDecimalString(input.amount),
           expenseDate: dateFromString(input.expenseDate),
+          isFixed: input.isFixed,
           idempotencyKey: input.idempotencyKey,
           recordedById: actor.id,
         },
@@ -59,6 +60,7 @@ export async function recordExpense(
           category: input.category,
           amount: centsToDecimalString(input.amount),
           expenseDate: input.expenseDate,
+          isFixed: input.isFixed,
           paidNow: centsToDecimalString(input.initialPayment),
         },
       });

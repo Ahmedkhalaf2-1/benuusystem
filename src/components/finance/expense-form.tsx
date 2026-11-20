@@ -27,6 +27,7 @@ export function ExpenseForm({ today, initialCategory, accounts = [] }: { today: 
   const [method, setMethod] = useState<PaymentMethod>("CASH");
   const [accountId, setAccountId] = useState(() => defaultAccountId(accounts));
   const [description, setDescription] = useState("");
+  const [isFixed, setIsFixed] = useState(initialCategory === "RENT" || initialCategory === "SALARIES");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string>();
   const [pending, startTransition] = useTransition();
@@ -51,6 +52,7 @@ export function ExpenseForm({ today, initialCategory, accounts = [] }: { today: 
       method,
       ...(payStatus === "FULL" || payStatus === "PARTIAL" ? { accountId } : {}),
       description,
+      isFixed,
     };
     const check = recordExpenseSchema.safeParse(payload);
     if (!check.success) {
@@ -119,6 +121,13 @@ export function ExpenseForm({ today, initialCategory, accounts = [] }: { today: 
       <Field label="التاريخ" htmlFor="expenseDate" error={errors.expenseDate}>
         <Input id="expenseDate" type="date" value={expenseDate} max={today} onChange={(e) => setExpenseDate(e.target.value)} aria-invalid={errors.expenseDate ? true : undefined} />
       </Field>
+      <label className="flex items-start gap-2 rounded-xl bg-well p-3 text-sm">
+        <input type="checkbox" checked={isFixed} onChange={(e) => setIsFixed(e.target.checked)} className="mt-1 size-4" data-testid="expense-is-fixed" />
+        <span>
+          <span className="font-semibold">مصروف ثابت</span> (إيجار، مرتبات، إنترنت… بيتكرر كل شهر)
+          <span className="block text-xs text-graphite">بيظهر لوحده في تقرير الشهر. يوميات العمال متتسجلش هنا — بتتحسب من صفحة العمال.</span>
+        </span>
+      </label>
       <Field label="وصف أو ملاحظات" htmlFor="description" optional>
         <Textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} className="min-h-20" placeholder="مثال: فاتورة كهرباء شهر نوفمبر" />
       </Field>

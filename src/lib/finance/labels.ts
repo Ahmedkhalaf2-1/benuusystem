@@ -32,6 +32,7 @@ export const EXPENSE_CATEGORIES: readonly ExpenseCategory[] = [
   "CLEANING",
   "SUPPLIES",
   "ADMINISTRATIVE",
+  "SALARIES",
   "OTHER",
 ];
 
@@ -45,6 +46,7 @@ export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategory, string> = {
   CLEANING: "نظافة",
   SUPPLIES: "مستلزمات",
   ADMINISTRATIVE: "مصاريف إدارية",
+  SALARIES: "مرتبات موظفين",
   OTHER: "أخرى",
 };
 

@@ -17,6 +17,8 @@ import { formatOrderNumber } from "@/lib/orders/labels";
 import { SALE_UNIT_LABELS } from "@/lib/orders/work-kinds";
 import { cn } from "@/lib/utils";
 import { getCostWorkspace } from "@/server/services/cost-review-service";
+import { getOrderProfitability } from "@/server/services/profitability-service";
+import { ProfitabilityPanel } from "@/components/finance/profitability-panel";
 import { COST_STATUS_LABELS } from "@/lib/finance/cost-review-labels";
 
 export const metadata: Metadata = { title: "تكاليف الأوردر" };
@@ -37,6 +39,8 @@ export default async function OrderCostsPage(props: PageProps<"/costs/orders/[id
   const suppliers = await prisma.supplier.findMany({ orderBy: { name: "asc" }, take: 500, select: { id: true, name: true } });
   const live = ws.entries.filter((e) => !e.voided);
   const today = todayDateString();
+  // Profit is owner-only (company figures); staff with costs access never see it.
+  const profit = hasPermission(user, "finance:reports") && hasPermission(user, "labor:view") ? await getOrderProfitability(prisma, user, ws.order.id) : null;
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -170,6 +174,8 @@ export default async function OrderCostsPage(props: PageProps<"/costs/orders/[id
           )}
         </FlowCard>
       )}
+
+      {profit && <ProfitabilityPanel p={profit} />}
     </div>
   );
 }

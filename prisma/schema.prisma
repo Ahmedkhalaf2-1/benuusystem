@@ -85,6 +85,9 @@ model User {
   costRevisions             OrderCostRevision[]      @relation("CostRevisionBy")
   workKindSettings          WorkKindSetting[]        @relation("WorkKindSettingBy")
   presetsCreated            ProductPreset[]          @relation("PresetCreatedBy")
+  recurringExpenses         RecurringExpense[]       @relation("RecurringExpenseCreatedBy")
+  monthlyClosesConfirmed    MonthlyClose[]           @relation("MonthlyCloseConfirmedBy")
+  monthlyCloseEvents        MonthlyCloseEvent[]      @relation("MonthlyCloseEventBy")
 
   @@map("users")
 }
@@ -547,6 +550,8 @@ enum ExpenseCategory {
   CLEANING
   SUPPLIES
   ADMINISTRATIVE
+  /// Salaries of staff who are NOT daily-wage workers (worker wages come from the workers system).
+  SALARIES
   OTHER
 }
 
@@ -559,6 +564,11 @@ model GeneralExpense {
   description    String?         @db.VarChar(300)
   amount         Decimal         @db.Decimal(12, 2)
   expenseDate    DateTime        @map("expense_date") @db.Date
+  /// Fixed (recurring) cost of running the business, e.g. rent — shown apart from other operating expenses.
+  isFixed        Boolean         @default(false) @map("is_fixed")
+  /// Created from a recurring template for one month (YYYY-MM): at most one per template per month.
+  recurringId    String?         @map("recurring_id") @db.Uuid
+  recurringMonth String?         @map("recurring_month") @db.Char(7)
   idempotencyKey String          @unique @map("idempotency_key") @db.Uuid
   recordedById   String          @map("recorded_by_id") @db.Uuid
   createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -568,8 +578,10 @@ model GeneralExpense {
 
   recordedBy User              @relation("ExpenseRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
   voidedBy   User?             @relation("ExpenseVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
+  recurring  RecurringExpense? @relation(fields: [recurringId], references: [id], onDelete: Restrict)
   payments   OutgoingPayment[]
 
+  @@unique([recurringId, recurringMonth])
   @@index([expenseDate])
   @@index([category, expenseDate])
   @@map("general_expenses")
@@ -1125,4 +1137,76 @@ model WorkKindSetting {
   updatedBy User @relation("WorkKindSettingBy", fields: [updatedById], references: [id], onDelete: Restrict)
 
   @@map("work_kind_settings")
+}
+
+/// A fixed monthly expense (rent, salaries, internet…). It never creates
+/// money movements by itself: the owner generates the month's expense rows
+/// explicitly (idempotent — one per template per month), then pays them as usual.
+model RecurringExpense {
+  id          String          @id @default(uuid(7)) @db.Uuid
+  category    ExpenseCategory
+  description String          @db.VarChar(300)
+  amount      Decimal         @db.Decimal(12, 2)
+  /// Day of the month the expense is dated (1–28, so every month has it).
+  dayOfMonth  Int             @map("day_of_month")
+  /// First and (optional) last month it applies to, "YYYY-MM".
+  startMonth  String          @map("start_month") @db.Char(7)
+  endMonth    String?         @map("end_month") @db.Char(7)
+  isActive    Boolean         @default(true) @map("is_active")
+  createdById String          @map("created_by_id") @db.Uuid
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy User             @relation("RecurringExpenseCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  expenses  GeneralExpense[]
+
+  @@map("recurring_expenses")
+}
+
+enum MonthlyCloseStatus {
+  CONFIRMED
+  REOPENED
+}
+
+/// The owner's review of one month («قفل الشهر»). It does NOT lock any data
+/// and posts nothing: it stores what the owner confirmed (a snapshot of the
+/// computed figures), so later changes to that month are visible as a
+/// difference. Reopening needs a reason; every step is kept in events.
+model MonthlyClose {
+  id            String             @id @default(uuid(7)) @db.Uuid
+  /// "YYYY-MM"
+  month         String             @unique @db.Char(7)
+  status        MonthlyCloseStatus
+  /// Revenue recognition basis the snapshot was computed with.
+  basis         String             @db.VarChar(20)
+  snapshot      Json
+  notes         String?            @db.VarChar(1000)
+  /// Bumped on every confirm / reopen (optimistic concurrency).
+  version       Int                @default(0)
+  confirmedById String?            @map("confirmed_by_id") @db.Uuid
+  confirmedAt   DateTime?          @map("confirmed_at") @db.Timestamptz(3)
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  confirmedBy User?               @relation("MonthlyCloseConfirmedBy", fields: [confirmedById], references: [id], onDelete: Restrict)
+  events      MonthlyCloseEvent[]
+
+  @@map("monthly_closes")
+}
+
+model MonthlyCloseEvent {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  closeId   String   @map("close_id") @db.Uuid
+  /// CONFIRMED | REOPENED
+  action    String   @db.VarChar(20)
+  reason    String?  @db.VarChar(500)
+  snapshot  Json
+  byId      String   @map("by_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  close MonthlyClose @relation(fields: [closeId], references: [id], onDelete: Restrict)
+  by    User         @relation("MonthlyCloseEventBy", fields: [byId], references: [id], onDelete: Restrict)
+
+  @@index([closeId, createdAt])
+  @@map("monthly_close_events")
 }

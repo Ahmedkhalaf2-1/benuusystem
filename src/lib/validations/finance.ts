@@ -121,10 +121,12 @@ export const recordExpenseSchema = z
     description: optionalText(300),
     amount: moneySchema({ required: "اكتب مبلغ المصروف" }),
     expenseDate: notInFuture("التاريخ"),
+    /** Fixed cost of running the business (rent, salaries…) — reported apart from other operating expenses. */
+    isFixed: z.boolean().optional(),
     ...payNowShape,
   })
   .superRefine(checkPayNow)
-  .transform((data) => ({ ...data, initialPayment: initialPayment(data) }));
+  .transform((data) => ({ ...data, isFixed: data.isFixed === true, initialPayment: initialPayment(data) }));
 
 export type RecordExpenseInput = z.output<typeof recordExpenseSchema>;
 export type RecordExpensePayload = z.input<typeof recordExpenseSchema>;

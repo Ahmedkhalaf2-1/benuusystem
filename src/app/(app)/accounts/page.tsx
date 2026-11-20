@@ -4,6 +4,7 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Banknote,
+  CalendarCheck,
   ChevronLeft,
   ClipboardList,
   HardHat,
@@ -164,6 +165,7 @@ export default async function AccountsPage(props: PageProps<"/accounts">) {
               التقارير
             </h2>
             <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-surface md:grid md:grid-cols-2 md:divide-y-0">
+              <ReportRow href="/accounts/monthly" label="قفل الشهر والربح" note="الإيراد والتكاليف والربح ورصيد الخزنة" icon={CalendarCheck} hue="violet" />
               <ReportRow href={withPeriod("/accounts/cash-flow", period)} label="حركة الفلوس" note="الداخل والخارج بالتفصيل" icon={Wallet} hue="green" />
               <ReportRow href={withPeriod("/accounts/movements", period)} label="كل الحركات" note="كل دفعة دخلت أو خرجت" icon={History} hue="violet" />
               <ReportRow href="/accounts/receivables" label="العملاء اللي عليهم فلوس" note={egp(o.receivables.total)} icon={Banknote} hue="green" />

@@ -444,6 +444,29 @@ export async function laborByOrders(db: DbClient, actor: Actor, orderIds: string
   return result;
 }
 
+/**
+ * Wages earned in a period (by work date), split exactly: the share allocated
+ * to each order (existing rule) and the part not attributable to any order.
+ * earned = Σ byOrder + unallocated, always.
+ */
+export async function laborSharesInRange(db: DbClient, actor: Actor, range: { from: string; to: string }) {
+  assertPermission(actor, "labor:view");
+  const days = await db.workerWorkday.findMany({
+    where: { voidedAt: null, worked: true, workDate: { gte: dateFromString(range.from), lte: dateFromString(range.to) } },
+    select: DAY_WITH_LOGS,
+  });
+  let earned = 0n;
+  let unallocated = 0n;
+  const byOrder = new Map<string, Cents>();
+  for (const d of days) {
+    earned += toCents(d.wage);
+    const a = allocate(d);
+    unallocated += a.unallocated;
+    for (const s of a.shares) if (s.orderId) byOrder.set(s.orderId, (byOrder.get(s.orderId) ?? 0n) + s.cents);
+  }
+  return { earned, unallocated, byOrder };
+}
+
 /** Wages earned in a period, and the part not attributable to any order (no or unsplittable work logs). */
 export async function laborTotals(db: DbClient, actor: Actor, range: { from: string; to: string }) {
   assertPermission(actor, "labor:view");

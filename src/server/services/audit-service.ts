@@ -81,6 +81,13 @@ export const AUDIT_ACTIONS = {
   COST_REVIEW_NEEDS_REVIEW: "COST_REVIEW_NEEDS_REVIEW",
   /** A cost entry was corrected (before/after and reason in order_cost_revisions). */
   ORDER_COST_AMENDED: "ORDER_COST_AMENDED",
+  /** Monthly financial closing reviewed and confirmed / reopened (snapshot in monthly_close_events). */
+  MONTHLY_CLOSE_CONFIRMED: "MONTHLY_CLOSE_CONFIRMED",
+  MONTHLY_CLOSE_REOPENED: "MONTHLY_CLOSE_REOPENED",
+  RECURRING_EXPENSE_CREATED: "RECURRING_EXPENSE_CREATED",
+  RECURRING_EXPENSE_UPDATED: "RECURRING_EXPENSE_UPDATED",
+  /** The month's fixed expenses were generated from the recurring templates. */
+  FIXED_EXPENSES_GENERATED: "FIXED_EXPENSES_GENERATED",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
