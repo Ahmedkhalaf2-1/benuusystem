@@ -23,6 +23,7 @@ import { OrderVisibilityPicker } from "./order-visibility-picker";
 import { AccountField, defaultAccountId } from "@/components/treasury/account-field";
 import type { AccountOption } from "@/lib/treasury/labels";
 import type { AssignableStaff, OrderAccessValue } from "@/lib/orders/visibility";
+import { suggestDepartmentId, type DepartmentOption } from "@/lib/departments/suggest";
 
 /** Owner only: «ظهور الأوردر للعمال» inside the form. `version` is the order's accessVersion (edit). */
 type AccessProps = { staff: AssignableStaff[]; initial: OrderAccessValue; version?: number };
@@ -36,6 +37,9 @@ type Props =
       accounts?: AccountOption[];
       /** Treasury start ("YYYY-MM-DD"): money dated before it is inside the opening balance and takes no account. */
       treasuryCutover?: string | null;
+      departments?: DepartmentOption[];
+      /** «منتج جاهز» shortcuts (owner-managed). */
+      presets?: string[];
     }
   | {
       mode: "edit";
@@ -52,6 +56,9 @@ type Props =
       canEditPrice: boolean;
       canCancel: boolean;
       orderLabel?: string;
+      departments?: DepartmentOption[];
+      /** «منتج جاهز» shortcuts (owner-managed). */
+      presets?: string[];
     };
 
 /** Product shortcuts shown as tiles (the input still accepts anything). */
@@ -149,6 +156,17 @@ export function OrderForm(props: Props) {
   const priced = draft.pricing === "items";
   const itemsCount = draft.groups.length;
   const today = todayDateString();
+  const departments = props.departments ?? [];
+  /** The item's department: the one chosen, else the suggestion from its work (always sent explicitly). */
+  const departmentOf = (g: GroupDraft) =>
+    g.departmentId ||
+    suggestDepartmentId(departments, {
+      name: g.name,
+      productType: draft.productType,
+      designs: g.useDesigns ? g.designs : [],
+      operations: g.useDesigns ? [] : g.operations,
+    }) ||
+    "";
   const backdated = isValidDateString(draft.receivedDate) && draft.receivedDate < today;
   const cutover = props.mode === "create" ? (props.treasuryCutover ?? null) : null;
   // An advance paid before the treasury started is already inside the counted opening balance.
@@ -202,6 +220,7 @@ export function OrderForm(props: Props) {
         name: g.name,
         quantity: g.quantity,
         material: g.material,
+        ...(departmentOf(g) ? { departmentId: departmentOf(g) } : {}),
         ...(priced ? { unitPrice: g.unitPrice } : {}),
         pressesPerUnit: g.useDesigns ? undefined : g.pressesPerUnit,
         operations: g.useDesigns ? [] : g.operations,
@@ -482,6 +501,9 @@ export function OrderForm(props: Props) {
             sizesEnabled={draft.sizesEnabled}
             unitLabel={unitLabel}
             defaultMaterial={draft.material}
+            departments={departments}
+            departmentId={departmentOf(group)}
+            presets={props.presets}
             errors={errors}
             onChange={(patch) => setGroup(index, patch)}
             onRemove={() => setDraft((d) => ({ ...d, groups: d.groups.filter((_, i) => i !== index) }))}

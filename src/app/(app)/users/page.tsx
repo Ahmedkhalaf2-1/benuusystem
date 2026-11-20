@@ -17,12 +17,13 @@ export default async function UsersPage() {
   const accounts = await listAccounts(prisma, user);
   const staff = accounts.filter((a) => a.role === "STAFF");
   const owners = accounts.filter((a) => a.role === "OWNER_ADMIN");
+  const partners = accounts.filter((a) => a.role === "PARTNER");
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
       <header>
         <h1 className="font-display text-[1.75rem] leading-tight font-semibold tracking-[-0.02em]">إدارة المستخدمين والصلاحيات</h1>
-        <p className="mt-1 text-sm text-graphite">حدّد كل موظف يشوف إيه ويعمل إيه. الحساب الجديد بيبدأ من غير أي صلاحيات.</p>
+        <p className="mt-1 text-sm text-graphite">حدّد كل موظف يشوف إيه ويعمل إيه، وكل شريك يشوف أنهي قسم. الحساب الجديد بيبدأ من غير أي صلاحيات.</p>
       </header>
 
       <CreateStaffForm />
@@ -51,6 +52,42 @@ export default async function UsersPage() {
                       {a.permissions.length === 0 ? "من غير صلاحيات" : `${formatNumber(a.permissions.length)} صلاحية`}
                       {" · "}
                       {formatNumber(a.assignedOrders)} أوردر متحدد له
+                      {a.sessions > 0 && <> · داخل على {formatNumber(a.sessions)} جهاز</>}
+                    </p>
+                  </div>
+                  <ChevronLeft className="size-5 shrink-0 text-graphite" aria-hidden="true" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section aria-labelledby="partners-heading">
+        <h2 id="partners-heading" className="mb-2 font-display text-[1.1rem] font-semibold">
+          حسابات الشركاء ({formatNumber(partners.length)})
+        </h2>
+        {partners.length === 0 ? (
+          <p className="rounded-2xl border-2 border-dashed border-line-strong bg-surface p-5 text-center text-sm text-graphite">
+            مفيش شركاء. الشريك (ورشة تطريز مثلًا) بيدخل بحسابه ويشوف بنود القسم بتاعه بس.
+          </p>
+        ) : (
+          <ul className="divide-y divide-hairline overflow-hidden rounded-2xl border border-line bg-surface">
+            {partners.map((a) => (
+              <li key={a.id}>
+                <Link href={`/users/${a.id}`} className="flex min-h-18 items-center gap-3 px-4 py-3 transition-colors hover:bg-well" data-testid="partner-row">
+                  <UserAvatar name={a.name} className={cn("size-11", !a.isActive && "opacity-50")} />
+                  <div className="min-w-0 flex-1">
+                    <p className="flex items-center gap-2 truncate font-semibold">
+                      {a.name}
+                      <span className="rounded-full bg-violet-soft px-2 py-0.5 text-[0.68rem] font-semibold text-violet">شريك</span>
+                      {!a.isActive && <span className="rounded-full bg-danger-soft px-2 py-0.5 text-[0.68rem] font-semibold text-danger-ink">موقوف</span>}
+                    </p>
+                    <p dir="ltr" className="truncate text-end text-xs text-graphite">
+                      {a.email}
+                    </p>
+                    <p className="mt-0.5 text-xs text-graphite">
+                      {a.departments === 0 ? "مالوش أقسام" : `${formatNumber(a.departments)} قسم`}
                       {a.sessions > 0 && <> · داخل على {formatNumber(a.sessions)} جهاز</>}
                     </p>
                   </div>

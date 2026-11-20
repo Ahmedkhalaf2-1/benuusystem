@@ -4,7 +4,9 @@ import { hueSubmit, STICKY_SUBMIT } from "@/components/ds/primitives";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { Loader2 } from "lucide-react";
 import { recordOrderCostAction } from "@/app/(app)/finance/actions";
-import { Field, FormMessage, Textarea } from "@/components/forms/field";
+import { Field, FormMessage, NativeSelect, Textarea } from "@/components/forms/field";
+import { formatAmount, parseMoney } from "@/lib/money";
+import { parseWholeNumber } from "@/lib/numbers";
 import { Input } from "@/components/ui/input";
 import type { CostCategory, PaymentMethod } from "@/generated/prisma/enums";
 import { COST_CATEGORIES, COST_CATEGORY_LABELS, type PayStatus } from "@/lib/finance/labels";
@@ -18,7 +20,16 @@ import type { AccountOption } from "@/lib/treasury/labels";
 import { SupplierPicker, type SupplierChoice } from "./supplier-picker";
 
 /** "إضافة تكلفة" — one short form; the supplier and the paid part are optional. */
-export function CostForm({ orderId, today, accounts = [] }: { orderId: string; today: string; accounts?: AccountOption[] }) {
+/**
+ * `departments`: the order's departments — a cost may be tagged with one (a
+ * partner's job). «بالقطعة»: pieces × the agreed cost per piece (typed by the
+ * owner) fills the amount.
+ */
+export function CostForm({ orderId, today, accounts = [], departments = [] }: { orderId: string; today: string; accounts?: AccountOption[]; departments?: { id: string; name: string }[] }) {
+  const [departmentId, setDepartmentId] = useState("");
+  const [perPiece, setPerPiece] = useState(false);
+  const [quantity, setQuantity] = useState("");
+  const [unitCost, setUnitCost] = useState("");
   const [requestId] = useState(newRequestId);
   const [category, setCategory] = useState<CostCategory | "">("");
   const [description, setDescription] = useState("");
@@ -71,6 +82,8 @@ export function CostForm({ orderId, today, accounts = [] }: { orderId: string; t
       method,
       ...(payStatus === "FULL" || payStatus === "PARTIAL" ? { accountId } : {}),
       notes,
+      ...(departmentId ? { departmentId } : {}),
+      ...(perPiece ? { quantity, unitCost } : {}),
     };
     const check = recordOrderCostSchema.safeParse(payload);
     if (!check.success) {
@@ -103,7 +116,57 @@ export function CostForm({ orderId, today, accounts = [] }: { orderId: string; t
       <Field label="وصف التكلفة" htmlFor="description" optional>
         <Input id="description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="مثال: شراء قماش قطن" />
       </Field>
-      <Field label="المبلغ" htmlFor="amount" error={errors.amount}>
+      {departments.length > 0 && (
+        <Field label="القسم (لو ده شغل شريك أو ورشة لقسم)" htmlFor="departmentId" optional error={errors.departmentId}>
+          <NativeSelect id="departmentId" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+            <option value="">من غير قسم</option>
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </NativeSelect>
+        </Field>
+      )}
+      <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold">
+        <input type="checkbox" checked={perPiece} onChange={(e) => setPerPiece(e.target.checked)} className="size-4" />
+        بالقطعة (عدد القطع × تكلفة القطعة المتفق عليها)
+      </label>
+      {perPiece && (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="عدد القطع" htmlFor="quantity" error={errors.quantity}>
+            <Input
+              id="quantity"
+              inputMode="numeric"
+              value={quantity}
+              onChange={(e) => {
+                setQuantity(e.target.value);
+                const q = parseWholeNumber(e.target.value);
+                const u = parseMoney(unitCost);
+                if (q && u) setAmount(formatAmount(BigInt(q) * u).replace(/,/g, ""));
+                clear("quantity");
+              }}
+              className="tabular"
+              aria-invalid={errors.quantity ? true : undefined}
+            />
+          </Field>
+          <Field label="تكلفة القطعة" htmlFor="unitCost" error={errors.unitCost}>
+            <MoneyField
+              id="unitCost"
+              value={unitCost}
+              onChange={(v) => {
+                setUnitCost(v);
+                const q = parseWholeNumber(quantity);
+                const u = parseMoney(v);
+                if (q && u) setAmount(formatAmount(BigInt(q) * u).replace(/,/g, ""));
+                clear("unitCost");
+              }}
+              invalid={!!errors.unitCost}
+            />
+          </Field>
+        </div>
+      )}
+      <Field label="المبلغ" htmlFor="amount" error={errors.amount} hint={perPiece ? "بيتحسب من العدد × تكلفة القطعة" : undefined}>
         <MoneyField
           id="amount"
           value={amount}

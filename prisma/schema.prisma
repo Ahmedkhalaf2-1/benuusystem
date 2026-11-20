@@ -12,10 +12,13 @@ datasource db {
 
 /// Coarse roles. OWNER_ADMIN has every permission. STAFF has exactly the
 /// permissions in `User.permissions` (deny by default) — see
-/// src/lib/auth/permissions.ts.
+/// src/lib/auth/permissions.ts. PARTNER = an external party (e.g. an
+/// embroidery workshop): no company-wide permission ever applies; it reaches
+/// only the department items it is a member of (`DepartmentMember`).
 enum Role {
   OWNER_ADMIN
   STAFF
+  PARTNER
 }
 
 model User {
@@ -32,6 +35,9 @@ model User {
   permissions        String[] @default([])
   /// Bumped on every permission/activation change (optimistic concurrency).
   permissionsVersion Int      @default(0) @map("permissions_version")
+  /// PARTNER only: the supplier record that holds what Benuuprint owes this
+  /// partner (order costs + outgoing payments). One partner ↔ one supplier.
+  supplierId         String?  @unique @map("supplier_id") @db.Uuid
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
 
@@ -71,6 +77,12 @@ model User {
   reconciliationsRecorded   TreasuryReconciliation[] @relation("ReconciliationRecordedBy")
   orderAccess               OrderAccess[]            @relation("OrderAccessUser")
   orderAccessGranted        OrderAccess[]            @relation("OrderAccessGrantedBy")
+  departmentMemberships     DepartmentMember[]       @relation("DepartmentMemberUser")
+  departmentGrants          DepartmentMember[]       @relation("DepartmentMemberGrantedBy")
+  departmentsCreated        Department[]             @relation("DepartmentCreatedBy")
+  partnerSupplier           Supplier?                @relation("PartnerSupplier", fields: [supplierId], references: [id], onDelete: Restrict)
+  valueSharesSet            OrderGroupValueShare[]   @relation("ValueShareSetBy")
+  presetsCreated            ProductPreset[]          @relation("PresetCreatedBy")
 
   @@map("users")
 }
@@ -201,41 +213,44 @@ enum OrderVisibility {
 }
 
 model Order {
-  id             String          @id @default(uuid(7)) @db.Uuid
+  id                    String          @id @default(uuid(7)) @db.Uuid
   /// Human order number (#0001), gapless, from the "order_number" counter.
-  number         Int             @unique
-  customerId     String          @map("customer_id") @db.Uuid
-  title          String          @db.VarChar(150)
-  productType    String          @map("product_type") @db.VarChar(80)
-  material       String          @db.VarChar(80)
-  quantity       Int
-  unit           QuantityUnit    @default(PIECE)
+  number                Int             @unique
+  customerId            String          @map("customer_id") @db.Uuid
+  title                 String          @db.VarChar(150)
+  productType           String          @map("product_type") @db.VarChar(80)
+  material              String          @db.VarChar(80)
+  quantity              Int
+  unit                  QuantityUnit    @default(PIECE)
   /// Agreed selling price for the whole order. Outstanding is always derived
   /// (totalPrice − sum of valid payments) and never stored.
-  totalPrice     Decimal         @map("total_price") @db.Decimal(12, 2)
-  receivedDate   DateTime        @map("received_date") @db.Date
-  deliveryDate   DateTime        @map("delivery_date") @db.Date
-  notes          String?         @db.VarChar(2000)
-  status         OrderStatus     @default(NEW)
+  totalPrice            Decimal         @map("total_price") @db.Decimal(12, 2)
+  receivedDate          DateTime        @map("received_date") @db.Date
+  deliveryDate          DateTime        @map("delivery_date") @db.Date
+  notes                 String?         @db.VarChar(2000)
+  status                OrderStatus     @default(NEW)
   /// When the last piece was delivered (set/cleared by production automation).
-  completedAt    DateTime?       @map("completed_at") @db.Timestamptz(3)
+  completedAt           DateTime?       @map("completed_at") @db.Timestamptz(3)
   /// ORDER_TOTAL: one agreed price for the whole order (all orders before
   /// line-item pricing). PER_ITEM: totalPrice = Σ group quantity × unitPrice,
   /// computed by the server.
-  pricing        OrderPricing    @default(ORDER_TOTAL)
+  pricing               OrderPricing    @default(ORDER_TOTAL)
   /// Owner removed an untouched order from active views (never deleted).
-  archivedAt     DateTime?       @map("archived_at") @db.Timestamptz(3)
-  archivedById   String?         @map("archived_by_id") @db.Uuid
-  archiveReason  String?         @map("archive_reason") @db.VarChar(300)
+  archivedAt            DateTime?       @map("archived_at") @db.Timestamptz(3)
+  archivedById          String?         @map("archived_by_id") @db.Uuid
+  archiveReason         String?         @map("archive_reason") @db.VarChar(300)
   /// Client-generated key: a retried/double-clicked submit returns the same order.
-  idempotencyKey String?         @unique @map("idempotency_key") @db.Uuid
+  idempotencyKey        String?         @unique @map("idempotency_key") @db.Uuid
   /// Staff visibility. Owners always see every order.
-  visibility     OrderVisibility @default(PRIVATE)
+  visibility            OrderVisibility @default(PRIVATE)
   /// Bumped on every visibility/assignment change (optimistic concurrency).
-  accessVersion  Int             @default(0) @map("access_version")
-  createdById    String          @map("created_by_id") @db.Uuid
-  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  accessVersion         Int             @default(0) @map("access_version")
+  /// Owner: keep this order out of every department view for non-owners
+  /// (partners and department members) — work, values and collections.
+  hiddenFromDepartments Boolean         @default(false) @map("hidden_from_departments")
+  createdById           String          @map("created_by_id") @db.Uuid
+  createdAt             DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   customer      Customer                  @relation(fields: [customerId], references: [id], onDelete: Restrict)
   createdBy     User                      @relation("OrderCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
@@ -276,8 +291,17 @@ model OrderGroup {
   /// Designs / print placements on this item's pieces (empty for older items,
   /// which keep their item-level operations).
   designs        OrderGroupDesign[]
+  /// The ONE department that does this item («القسم»). An item's value
+  /// (quantity × unitPrice) belongs to its department only — never split or
+  /// counted twice. Set on every new/edited item; null only if no department
+  /// existed (shown as «غير محدد»).
+  departmentId   String?            @map("department_id") @db.Uuid
 
   order         Order                     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  department    Department?               @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  /// Owner's explicit split of THIS item's value across departments (work
+  /// shared between departments). Empty = the whole value is its department's.
+  valueShares   OrderGroupValueShare[]
   operations    OrderGroupOperation[]
   /// Optional garment-size breakdown; when present, sizes add up to `quantity`.
   sizes         OrderGroupSize[]
@@ -287,7 +311,60 @@ model OrderGroup {
   deliveries    Delivery[]
 
   @@unique([orderId, position])
+  @@index([departmentId])
   @@map("order_groups")
+}
+
+/// A business line («تطريز»، «كوفرات»، «طباعة»، «ملابس / منتج كامل»). A
+/// table, not an enum: the owner adds departments without a code change.
+/// Never deleted (items point at it); deactivated instead.
+model Department {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  /// Stable code of a seeded department (used only to suggest a department
+  /// from the work type). Null for departments the owner adds.
+  key         String?  @unique @db.VarChar(40)
+  name        String   @unique @db.VarChar(80)
+  isActive    Boolean  @default(true) @map("is_active")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy   User?                  @relation("DepartmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  items       OrderGroup[]
+  members     DepartmentMember[]
+  valueShares OrderGroupValueShare[]
+  costs       OrderCost[]
+
+  @@map("departments")
+}
+
+/// Which non-owner account may reach which department, and how far. Read from
+/// the database on every request, so a revocation applies immediately.
+model DepartmentMember {
+  departmentId        String   @map("department_id") @db.Uuid
+  userId              String   @map("user_id") @db.Uuid
+  /// See the department's items, production and dashboard.
+  canViewWork         Boolean  @default(true) @map("can_view_work")
+  /// See the value of the department's items (never customer payments).
+  canViewMoney        Boolean  @default(false) @map("can_view_money")
+  /// Record production steps / «جاهز» on the department's items.
+  canRecordProduction Boolean  @default(false) @map("can_record_production")
+  /// See customer collections ALLOCATED to the department (derived, pro-rata).
+  canViewCollections  Boolean  @default(false) @map("can_view_collections")
+  /// PARTNER: see their own settlement (jobs owed by Benuuprint, paid, balance) for this department.
+  canViewSettlements  Boolean  @default(false) @map("can_view_settlements")
+  grantedById         String   @map("granted_by_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  user       User       @relation("DepartmentMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy  User       @relation("DepartmentMemberGrantedBy", fields: [grantedById], references: [id], onDelete: Restrict)
+
+  @@id([departmentId, userId])
+  @@index([userId])
+  @@map("department_members")
 }
 
 /// Zero rows for a group = plain (no printing or embroidery).
@@ -356,6 +433,8 @@ model Supplier {
 
   createdBy User        @relation("SupplierCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   costs     OrderCost[]
+  /// The partner account settled through this supplier record, if any.
+  partner   User?       @relation("PartnerSupplier")
 
   @@index([name])
   @@index([phone])
@@ -382,6 +461,11 @@ model OrderCost {
   amount         Decimal      @db.Decimal(12, 2)
   costDate       DateTime     @map("cost_date") @db.Date
   supplierId     String?      @map("supplier_id") @db.Uuid
+  /// The department the work belongs to (partner settlements). Optional.
+  departmentId   String?      @map("department_id") @db.Uuid
+  /// «بالقطعة»: pieces × agreed cost per piece = amount (both or neither).
+  quantity       Int?
+  unitCost       Decimal?     @map("unit_cost") @db.Decimal(12, 2)
   notes          String?      @db.VarChar(500)
   idempotencyKey String       @unique @map("idempotency_key") @db.Uuid
   recordedById   String       @map("recorded_by_id") @db.Uuid
@@ -392,12 +476,14 @@ model OrderCost {
 
   order      Order             @relation(fields: [orderId], references: [id], onDelete: Restrict)
   supplier   Supplier?         @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  department Department?       @relation(fields: [departmentId], references: [id], onDelete: Restrict)
   recordedBy User              @relation("OrderCostRecordedBy", fields: [recordedById], references: [id], onDelete: Restrict)
   voidedBy   User?             @relation("OrderCostVoidedBy", fields: [voidedById], references: [id], onDelete: Restrict)
   payments   OutgoingPayment[]
 
   @@index([orderId])
   @@index([supplierId])
+  @@index([departmentId])
   @@index([costDate])
   @@map("order_costs")
 }
@@ -818,25 +904,25 @@ enum FinancialAccountType {
 /// computed: opening balance (counted by the owner as of `openingDate`) plus
 /// attributed movements dated on or after `openingDate`. Never stored.
 model FinancialAccount {
-  id             String               @id @default(uuid(7)) @db.Uuid
-  name           String               @unique @db.VarChar(80)
-  type           FinancialAccountType
-  currency       String               @default("EGP") @db.Char(3)
+  id               String               @id @default(uuid(7)) @db.Uuid
+  name             String               @unique @db.VarChar(80)
+  type             FinancialAccountType
+  currency         String               @default("EGP") @db.Char(3)
   /// The amount the owner physically counted / confirmed.
-  openingBalance Decimal              @map("opening_balance") @db.Decimal(14, 2)
+  openingBalance   Decimal              @map("opening_balance") @db.Decimal(14, 2)
   /// The day the count was made, and whether it was before any money moved
   /// that day (START_OF_DAY) or after the last movement (END_OF_DAY).
-  openingCountDate DateTime           @map("opening_count_date") @db.Date
-  openingBasis   OpeningBasis         @map("opening_basis")
+  openingCountDate DateTime             @map("opening_count_date") @db.Date
+  openingBasis     OpeningBasis         @map("opening_basis")
   /// First day whose movements count AFTER the opening balance (derived:
   /// the count day for START_OF_DAY, the next day for END_OF_DAY). Money
   /// dated before it is inside the counted balance and is never attributed.
-  openingDate    DateTime             @map("opening_date") @db.Date
-  isActive       Boolean              @default(true) @map("is_active")
-  notes          String?              @db.VarChar(300)
-  createdById    String               @map("created_by_id") @db.Uuid
-  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+  openingDate      DateTime             @map("opening_date") @db.Date
+  isActive         Boolean              @default(true) @map("is_active")
+  notes            String?              @db.VarChar(300)
+  createdById      String               @map("created_by_id") @db.Uuid
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   createdBy        User                     @relation("FinancialAccountCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
   orderPayments    OrderPayment[]           @relation("OrderPaymentAccount")
@@ -909,4 +995,39 @@ model TreasuryReconciliation {
 
   @@index([accountId, countDate])
   @@map("treasury_reconciliations")
+}
+
+/// Owner's explicit split of one item's value across departments. Amounts are
+/// exact piasters and must add up to the item's line total (quantity × unit
+/// price); if the price changes later, the split is flagged as stale and the
+/// item's value is treated as not reliably allocatable until it is re-saved.
+model OrderGroupValueShare {
+  orderGroupId String   @map("order_group_id") @db.Uuid
+  departmentId String   @map("department_id") @db.Uuid
+  amount       Decimal  @db.Decimal(12, 2)
+  setById      String   @map("set_by_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  orderGroup OrderGroup @relation(fields: [orderGroupId], references: [id], onDelete: Cascade)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  setBy      User       @relation("ValueShareSetBy", fields: [setById], references: [id], onDelete: Restrict)
+
+  @@id([orderGroupId, departmentId])
+  @@index([departmentId])
+  @@map("order_group_value_shares")
+}
+
+/// «منتج جاهز» shortcuts in the order form. Names only: no price, no stock.
+model ProductPreset {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  name        String   @unique @db.VarChar(80)
+  isActive    Boolean  @default(true) @map("is_active")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdById String?  @map("created_by_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy User? @relation("PresetCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@map("product_presets")
 }

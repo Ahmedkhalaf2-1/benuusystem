@@ -32,7 +32,17 @@ export default async function NewOrderCostPage(props: PageProps<"/orders/[id]/co
           </>
         }
       />
-      <CostForm orderId={order.id} today={todayDateString()} accounts={await listAccountOptions(prisma, user)} />
+      <CostForm
+        orderId={order.id}
+        today={todayDateString()}
+        accounts={await listAccountOptions(prisma, user)}
+        // The order's departments (its items' and owner-split shares'), for tagging a partner's job.
+        departments={await prisma.department.findMany({
+          where: { OR: [{ items: { some: { orderId: order.id } } }, { valueShares: { some: { orderGroup: { orderId: order.id } } } }] },
+          orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+          select: { id: true, name: true },
+        })}
+      />
     </div>
   );
 }

@@ -78,7 +78,7 @@ describe("order form validation (shared by client and server)", () => {
     const result = createOrderSchema.parse({ ...base, groups: [{ operations: ["DTF", "EMBROIDERY"], plain: false }] });
     expect(result.advance).toBe(0n);
     expect(result.groups).toEqual([
-      { id: undefined, name: null, quantity: 200, material: "قطن", operations: ["DTF", "EMBROIDERY"], designs: [], notes: undefined, sizes: [], unitPrice: null, pressesPerUnit: null },
+      { id: undefined, name: null, quantity: 200, material: "قطن", operations: ["DTF", "EMBROIDERY"], designs: [], notes: undefined, sizes: [], unitPrice: null, departmentId: null, pressesPerUnit: null },
     ]);
     expect(result.quantity).toBe(200);
     expect(result.totalPrice).toBe(4_000_000n);

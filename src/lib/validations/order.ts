@@ -183,6 +183,12 @@ const groupSchema = z.object({
   unitPrice: z.string().optional(),
   /** Planned presses per piece (optional, capacity planning; items without designs). */
   pressesPerUnit: z.union([z.string(), z.number()]).optional(),
+  /**
+   * «القسم» that does this item (one per item). Optional in the contract for
+   * older callers: when missing, the server keeps the item's current
+   * department or applies the documented suggestion rule.
+   */
+  departmentId: z.uuid("اختار القسم").optional(),
   /** Designs on this item's pieces. When present, the item's operations are theirs. */
   designs: z
     .array(designSchema)
@@ -502,6 +508,8 @@ function normalizeOrder(data: CoreParsed) {
       sizes: data.sizesEnabled ? group.sizes : [],
       name: group.name ?? null,
       unitPrice: perItem ? (unitPriceOf(group.unitPrice) as Cents) : null,
+      /** Resolved (checked / suggested) by the order service. */
+      departmentId: group.departmentId ?? null,
       pressesPerUnit:
         designs.length > 0 ? null : (pressesOf(group.pressesPerUnit) ?? null),
     };

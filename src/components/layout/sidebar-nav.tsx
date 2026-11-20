@@ -8,12 +8,12 @@ import { cn } from "@/lib/utils";
 
 /** Desktop sidebar (≥ lg). Sits on the right because the layout is RTL. */
 /** `extraKeys`: which extra links this user may see (decided on the server). */
-export function SidebarNav({ mainKeys, extraKeys }: { mainKeys: string[]; extraKeys: string[] }) {
+export function SidebarNav({ mainKeys, extraKeys, homeHref = "/dashboard" }: { mainKeys: string[]; extraKeys: string[]; homeHref?: string }) {
   const main = MAIN_NAV.filter((i) => mainKeys.includes(i.key));
   const pathname = usePathname();
   return (
     <aside className="fixed inset-y-0 start-0 z-30 hidden w-64 flex-col border-e border-hairline bg-surface lg:flex">
-      <Link href="/dashboard" className="flex h-16 items-center gap-2.5 px-6" aria-label="Benuuprint — الرئيسية">
+      <Link href={homeHref} className="flex h-16 items-center gap-2.5 px-6" aria-label="Benuuprint — الرئيسية">
         <BrandSymbol className="size-9" priority />
         <span dir="ltr" className="font-display text-[1.1rem] font-semibold tracking-[-0.02em] text-ink">
           Benuuprint
@@ -21,7 +21,7 @@ export function SidebarNav({ mainKeys, extraKeys }: { mainKeys: string[]; extraK
       </Link>
       <nav aria-label="التنقل الرئيسي" className="flex-1 px-3 py-4">
         <ul className="space-y-1">
-          {[...main.filter((i) => i.key === "home" || i.key === "orders"), ...SIDEBAR_EXTRA_NAV.filter((i) => extraKeys.includes(i.key)), ...main.filter((i) => i.key !== "home" && i.key !== "orders")].map((item) => {
+          {[...main.filter((i) => i.key === "home" || i.key === "orders" || i.key === "departments"), ...SIDEBAR_EXTRA_NAV.filter((i) => extraKeys.includes(i.key)), ...main.filter((i) => i.key !== "home" && i.key !== "orders" && i.key !== "departments")].map((item) => {
             const active = isNavItemActive(pathname, item.href);
             const Icon = item.icon;
             return (

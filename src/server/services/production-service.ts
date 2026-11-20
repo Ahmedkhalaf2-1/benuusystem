@@ -22,6 +22,7 @@ import { isUniqueViolation } from "@/server/repositories/prisma-errors";
 import type { Actor } from "./actor";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
 import { canAccessOrder, orderScopeSql } from "./order-access";
+import { requireDepartment } from "./department-access";
 
 /**
  * Production & delivery in PHYSICAL units of the order (never worker prints).
@@ -66,6 +67,8 @@ export type DesignInfo = {
 export type GroupProgress = Counters & {
   id: string;
   position: number;
+  /** The item's department («القسم»). */
+  departmentId: string | null;
   name: string | null;
   /** «اسم البند» or «البند N». */
   label: string;
@@ -115,6 +118,7 @@ export async function loadGroupProgress(db: DbClient, orderId: string): Promise<
         position: true,
         quantity: true,
         name: true,
+        departmentId: true,
         operations: { select: { operation: true } },
         sizes: { orderBy: { position: "asc" }, select: { id: true, label: true, quantity: true } },
         designs: {
@@ -152,6 +156,7 @@ export async function loadGroupProgress(db: DbClient, orderId: string): Promise<
     return {
       id: g.id,
       position: g.position,
+      departmentId: g.departmentId,
       name: g.name,
       label: itemLabel(g.position, g.name),
       operations,
@@ -213,7 +218,30 @@ export async function refreshOrderStatus(tx: DbTransaction, actor: Actor, orderI
  * visibility changes take, so a revoked assignment can't race a write. A hidden
  * order is reported exactly like a missing one (nothing about it leaks).
  */
-async function openOrderForWrite(tx: DbTransaction, actor: Actor, orderId: string) {
+/**
+ * A write made from a DEPARTMENT view («شغل القسم»): authorized by department
+ * membership (with «تسجيل إنتاج» switched on) instead of order permissions,
+ * and limited to that department's items.
+ */
+export type DepartmentWriteScope = { departmentId: string };
+
+type WriteCtx = { unit: QuantityUnit; groups: GroupProgress[]; auditMeta?: Record<string, unknown> };
+
+async function openOrderForWrite(tx: DbTransaction, actor: Actor, orderId: string, scope?: DepartmentWriteScope): Promise<WriteCtx> {
+  if (scope) {
+    // Re-checked under the order lock, so a revoked membership can't race a write.
+    if (!(await lockOrder(tx, orderId))) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
+    const grant = await requireDepartment(tx, actor, scope.departmentId, "record");
+    const order = await tx.order.findFirst({
+      where: { id: orderId, archivedAt: null, ...(grant.includeHidden ? {} : { hiddenFromDepartments: false }), groups: { some: { departmentId: scope.departmentId } } },
+      select: { status: true, unit: true },
+    });
+    if (!order) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
+    if (order.status === "CANCELLED") throw new AppError("CONFLICT", "الأوردر ده ملغي ومينفعش يتسجل عليه إنتاج");
+    // Only the department's own items are writable (others look like they don't exist).
+    const groups = (await loadGroupProgress(tx, orderId)).filter((g) => g.departmentId === scope.departmentId);
+    return { unit: order.unit, groups, auditMeta: { departmentId: scope.departmentId, via: "department" } };
+  }
   if (!(await lockOrder(tx, orderId)) || !(await canAccessOrder(tx, actor, orderId))) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
   const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { status: true, unit: true } });
   if (order.status === "CANCELLED") throw new AppError("CONFLICT", "الأوردر ده ملغي ومينفعش يتسجل عليه إنتاج أو تسليم");
@@ -296,7 +324,7 @@ function bump(g: GroupProgress, sizeId: string | undefined, apply: (c: Counters)
 export async function insertStageProgress(
   tx: DbTransaction,
   actor: Actor,
-  ctx: { unit: QuantityUnit; groups: GroupProgress[] },
+  ctx: WriteCtx,
   input: { orderId: string; orderGroupId: string; orderGroupSizeId?: string; designId?: string; operation: PrintOperation; quantity: number; workDate: string; notes?: string; idempotencyKey: string; workLogId?: string },
 ) {
   const g = findGroup(ctx.groups, input.orderGroupId);
@@ -381,6 +409,7 @@ export async function insertStageProgress(
       designId: design?.id ?? null,
       quantity: input.quantity,
       workLogId: input.workLogId ?? null,
+      ...ctx.auditMeta,
     },
   });
   return row;
@@ -389,7 +418,7 @@ export async function insertStageProgress(
 async function insertReady(
   tx: DbTransaction,
   actor: Actor,
-  ctx: { unit: QuantityUnit; groups: GroupProgress[] },
+  ctx: WriteCtx,
   input: { orderId: string; orderGroupId: string; orderGroupSizeId?: string; quantity: number; readyDate: string; notes?: string; idempotencyKey: string; stageProgressId?: string },
 ) {
   const g = findGroup(ctx.groups, input.orderGroupId);
@@ -432,7 +461,7 @@ async function insertReady(
     action: AUDIT_ACTIONS.PRODUCTION_READY_RECORDED,
     entityType: "ProductionReady",
     entityId: row.id,
-    metadata: { orderId: input.orderId, orderGroupId: input.orderGroupId, orderGroupSizeId: input.orderGroupSizeId ?? null, size: t.label ?? null, quantity: input.quantity },
+    metadata: { orderId: input.orderId, orderGroupId: input.orderGroupId, orderGroupSizeId: input.orderGroupSizeId ?? null, size: t.label ?? null, quantity: input.quantity, ...ctx.auditMeta },
   });
   return row;
 }
@@ -496,18 +525,23 @@ export async function insertStageFromWorkLog(
   return row;
 }
 
-/** "تسجيل إنتاج" for one step; single-step groups may mark the same pieces ready. */
-export async function recordStageProgress(db: PrismaClient, actor: Actor, payload: RecordStagePayload): Promise<Created> {
-  assertPermission(actor, "production:record");
+/**
+ * "تسجيل إنتاج" for one step; single-step groups may mark the same pieces ready.
+ * With `scope`, it is a department member's write (membership-authorized,
+ * that department's items only).
+ */
+export async function recordStageProgress(db: PrismaClient, actor: Actor, payload: RecordStagePayload, scope?: DepartmentWriteScope): Promise<Created> {
+  if (scope) await requireDepartment(db, actor, scope.departmentId, "record");
+  else assertPermission(actor, "production:record");
   const parsed = recordStageSchema.safeParse(payload);
   if (!parsed.success) invalid(parsed.error);
   const input = parsed.data;
 
   return idempotent(
-    () => db.productionStageProgress.findUnique({ where: { idempotencyKey: firstRowKey(input) }, select: { id: true } }),
+    () => db.productionStageProgress.findFirst({ where: { idempotencyKey: firstRowKey(input), ...(scope ? { orderGroupId: input.orderGroupId, orderGroup: { departmentId: scope.departmentId } } : {}) }, select: { id: true } }),
     () =>
       db.$transaction(async (tx) => {
-        const ctx = await openOrderForWrite(tx, actor, input.orderId);
+        const ctx = await openOrderForWrite(tx, actor, input.orderId, scope);
         const twin = await tx.productionStageProgress.findUnique({ where: { idempotencyKey: firstRowKey(input) }, select: { id: true } });
         if (twin) return { id: twin.id, replayed: true };
         const g = findGroup(ctx.groups, input.orderGroupId);
@@ -548,18 +582,19 @@ export async function recordStageProgress(db: PrismaClient, actor: Actor, payloa
   );
 }
 
-/** "جاهز للتسليم": pieces that finished every required step of their group (per size when sized). */
-export async function recordReady(db: PrismaClient, actor: Actor, payload: RecordReadyPayload): Promise<Created> {
-  assertPermission(actor, "production:record");
+/** "جاهز للتسليم": pieces that finished every required step of their group (per size when sized). `scope`: see recordStageProgress. */
+export async function recordReady(db: PrismaClient, actor: Actor, payload: RecordReadyPayload, scope?: DepartmentWriteScope): Promise<Created> {
+  if (scope) await requireDepartment(db, actor, scope.departmentId, "record");
+  else assertPermission(actor, "production:record");
   const parsed = recordReadySchema.safeParse(payload);
   if (!parsed.success) invalid(parsed.error);
   const input = parsed.data;
 
   return idempotent(
-    () => db.productionReady.findUnique({ where: { idempotencyKey: firstRowKey(input) }, select: { id: true } }),
+    () => db.productionReady.findFirst({ where: { idempotencyKey: firstRowKey(input), ...(scope ? { orderGroupId: input.orderGroupId, orderGroup: { departmentId: scope.departmentId } } : {}) }, select: { id: true } }),
     () =>
       db.$transaction(async (tx) => {
-        const ctx = await openOrderForWrite(tx, actor, input.orderId);
+        const ctx = await openOrderForWrite(tx, actor, input.orderId, scope);
         const twin = await tx.productionReady.findUnique({ where: { idempotencyKey: firstRowKey(input) }, select: { id: true } });
         if (twin) return { id: twin.id, replayed: true };
         const g = findGroup(ctx.groups, input.orderGroupId);

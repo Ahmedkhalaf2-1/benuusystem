@@ -15,6 +15,7 @@ import type { Actor } from "./actor";
 import { accountForNewPayment } from "./treasury-service";
 import { canAccessOrder } from "./order-access";
 import { AUDIT_ACTIONS, recordAudit } from "./audit-service";
+import { allocationSnapshot } from "./department-finance";
 
 export type RecordPaymentResult = { paymentId: string; orderId: string; created: boolean };
 
@@ -104,6 +105,8 @@ export async function recordPayment(
           accountId,
           paidAt: input.paidAt,
           paidBefore: centsToDecimalString(paid),
+          // How this payment is attributed to departments right now (derived, pro-rata; not a partner payment).
+          departmentAllocation: await allocationSnapshot(tx, input.orderId, input.amount),
         },
       });
 

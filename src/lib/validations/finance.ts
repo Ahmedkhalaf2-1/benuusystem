@@ -1,6 +1,8 @@
 import { paymentAccountSchema } from "./utils";
 import { z } from "zod";
 import { todayDateString } from "@/lib/dates";
+import { parseMoney } from "@/lib/money";
+import { parseWholeNumber } from "@/lib/numbers";
 import { COST_CATEGORIES, EXPENSE_CATEGORIES, PAY_STATUSES } from "@/lib/finance/labels";
 import { PAYMENT_METHODS } from "@/lib/orders/labels";
 import { phoneSchema } from "./customer";
@@ -78,10 +80,35 @@ export const recordOrderCostSchema = z
     costDate: notInFuture("التاريخ"),
     supplier: supplierChoiceSchema,
     notes: optionalText(500),
+    /** The department the work is for (partner settlements). Must have an item on the order. */
+    departmentId: z.uuid("اختار القسم").optional().or(z.literal("").transform(() => undefined)),
+    /**
+     * «بالقطعة»: pieces and the agreed cost per piece. When given, the amount
+     * must equal pieces × cost per piece exactly (the agreed numbers are typed
+     * by the owner — nothing is invented).
+     */
+    quantity: z.union([z.string(), z.number()]).optional(),
+    unitCost: z.string().optional(),
     ...payNowShape,
   })
   .superRefine(checkPayNow)
-  .transform((data) => ({ ...data, initialPayment: initialPayment(data) }));
+  .superRefine((data, ctx) => {
+    const qText = data.quantity === undefined ? "" : String(data.quantity).trim();
+    const uText = data.unitCost?.trim() ?? "";
+    if (qText === "" && uText === "") return;
+    const q = parseWholeNumber(qText);
+    const u = uText === "" ? null : parseMoney(uText);
+    if (q === null || q <= 0) ctx.addIssue({ code: "custom", path: ["quantity"], message: "اكتب عدد القطع" });
+    if (u === null || u <= 0n) ctx.addIssue({ code: "custom", path: ["unitCost"], message: "اكتب تكلفة القطعة" });
+    if (q !== null && q > 0 && u !== null && u > 0n && BigInt(q) * u !== data.amount) {
+      ctx.addIssue({ code: "custom", path: ["amount"], message: "المبلغ لازم يساوي عدد القطع × تكلفة القطعة" });
+    }
+  })
+  .transform((data) => {
+    const qText = data.quantity === undefined ? "" : String(data.quantity).trim();
+    const perPiece = qText !== "" ? { quantity: parseWholeNumber(qText)!, unitCost: parseMoney(data.unitCost!.trim())! } : null;
+    return { ...data, perPiece, initialPayment: initialPayment(data) };
+  });
 
 export type RecordOrderCostInput = z.output<typeof recordOrderCostSchema>;
 export type RecordOrderCostPayload = z.input<typeof recordOrderCostSchema>;

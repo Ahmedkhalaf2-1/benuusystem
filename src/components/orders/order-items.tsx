@@ -9,6 +9,7 @@ import { MAX_CUSTOM_PLACEMENTS, OPERATION_LABELS, OTHER_PLACEMENT_LABEL, PLACEME
 import { cn } from "@/lib/utils";
 import { MAX_DESIGNS_PER_ITEM } from "@/lib/validations/order";
 import { newDesignDraft, type DesignDraft, type GroupDraft } from "./order-draft";
+import { spansDepartments, type DepartmentOption } from "@/lib/departments/suggest";
 import { chip, MoneyInput, OperationPicker } from "./order-form-parts";
 import { SizeGrid } from "./size-grid";
 
@@ -35,6 +36,9 @@ export function ItemCard({
   sizesEnabled,
   unitLabel,
   defaultMaterial,
+  departments = [],
+  departmentId = "",
+  presets = READY_MADE_PRESETS,
   errors,
   onChange,
   onRemove,
@@ -50,6 +54,12 @@ export function ItemCard({
   sizesEnabled: boolean;
   unitLabel: string;
   defaultMaterial: string;
+  /** Departments offered (active ones, plus an item's current one). */
+  departments?: DepartmentOption[];
+  /** The item's department: chosen, or suggested from its work while not chosen. */
+  departmentId?: string;
+  /** «منتج جاهز» shortcuts (managed by the owner). */
+  presets?: readonly string[];
   errors: Errors;
   onChange: (patch: Partial<GroupDraft> | ((g: GroupDraft) => Partial<GroupDraft>)) => void;
   onRemove: () => void;
@@ -115,7 +125,7 @@ export function ItemCard({
 
       {group.readyMade && (
         <div className="flex flex-wrap gap-2" role="group" aria-label="منتجات جاهزة">
-          {READY_MADE_PRESETS.map((name) => {
+          {presets.map((name) => {
             const on = group.name.trim() === name;
             return (
               <button
@@ -180,6 +190,33 @@ export function ItemCard({
 
       {sizesEnabled && (
         <SizeGrid idPrefix={`g${index}`} sizes={group.sizes} target={qty} unitLabel={unitLabel} error={e("sizes")} onChange={(sizes) => onChange({ sizes })} />
+      )}
+
+      {departments.length > 0 && (
+        <div data-error={e("departmentId") ? "true" : undefined}>
+          <p className="mb-1.5 flex items-center gap-1.5 text-sm font-medium">
+            القسم
+            {!group.departmentId && departmentId && <span className="text-xs font-normal text-graphite">(مقترح من نوع الشغل — غيّره لو محتاج)</span>}
+          </p>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={`قسم البند ${index + 1}`}>
+            {departments.map((d) => (
+              <button
+                key={d.id}
+                type="button"
+                role="radio"
+                aria-checked={departmentId === d.id}
+                onClick={() => onChange({ departmentId: d.id })}
+                className={cn(chip(departmentId === d.id), "min-h-10 px-3 text-sm")}
+              >
+                {d.name}
+              </button>
+            ))}
+          </div>
+          {e("departmentId") && <p className="mt-1 text-sm text-red">{e("departmentId")}</p>}
+          {spansDepartments({ designs: group.useDesigns ? group.designs : [], operations: group.useDesigns ? [] : group.operations }) && (
+            <p className="mt-1.5 text-xs text-graphite">البند ده فيه شغل لأكتر من قسم — قيمته كلها بتتحسب للقسم اللي تختاره بس. لو كل قسم ليه سعر، قسّمه لبندين.</p>
+          )}
+        </div>
       )}
 
       {group.readyMade ? (

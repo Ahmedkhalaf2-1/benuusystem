@@ -49,7 +49,8 @@ export async function loginAction(
   }
 
   await setSessionCookie(result.token, result.expiresAt);
-  redirect("/dashboard");
+  // "/" sends each account to its home (partners: their department work).
+  redirect("/");
 }
 
 function parsedErrors(issues: { path: PropertyKey[]; message: string }[]) {

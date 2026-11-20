@@ -53,6 +53,8 @@ export type GroupDraft = {
    * so no designs (saved as a «بدون» item; no stock is tracked).
    */
   readyMade: boolean;
+  /** «القسم» chosen for the item; "" = not chosen yet (the suggested one is shown and sent). */
+  departmentId: string;
   designs: DesignDraft[];
   quantity: string;
   material: string;
@@ -98,6 +100,7 @@ export function newGroupDraft(partial: Partial<GroupDraft> = {}): GroupDraft {
     pressesPerUnit: "",
     useDesigns: true,
     readyMade: false,
+    departmentId: "",
     designs: [newDesignDraft()],
     quantity: "",
     material: "",
@@ -156,6 +159,7 @@ export function draftFromOrder(order: OrderDetails): OrderDraft {
         pressesPerUnit: g.pressesPerUnit === null ? "" : String(g.pressesPerUnit),
         useDesigns: g.designs.length > 0 || readyMade,
         readyMade,
+        departmentId: g.department?.id ?? "",
         designs: g.designs.map((d) =>
           newDesignDraft({
             id: d.id,

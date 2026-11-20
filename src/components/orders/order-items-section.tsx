@@ -20,6 +20,11 @@ export function OrderItemsList({ order, unitLabel }: { order: OrderDetails; unit
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <h3 className="font-display font-semibold break-words">{g.label}</h3>
+              <p className="mt-0.5">
+                <span className="inline-flex h-6 items-center rounded-full bg-violet-soft px-2.5 text-xs font-semibold text-violet" data-testid="item-department">
+                  {g.department ? `قسم ${g.department.name}` : "من غير قسم"}
+                </span>
+              </p>
               <p className="text-sm text-graphite">
                 <span className="tabular">{formatNumber(g.quantity)}</span> {unitLabel}
                 {g.material && <> · {g.material}</>}

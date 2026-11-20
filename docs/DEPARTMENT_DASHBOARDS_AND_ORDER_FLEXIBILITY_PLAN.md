@@ -1,8 +1,14 @@
 # Department dashboards, partner access and order flexibility: architecture plan
 
-> **Status:** Phase 1 (order flexibility and backdating) is **implemented
-> locally** (2026-11-20, uncommitted). See section 16. Phases 2–6 are still
-> proposals; nothing for departments or partners was built.
+> **Status:**
+> - Phase 1 (order flexibility and backdating): committed locally
+>   (`aaf9fb3`), section 16.
+> - Phase 2 (departments, partners, dashboards): implemented locally,
+>   uncommitted, section 17.
+> - Phase 3 (department finance, allocated collections, partner settlements,
+>   presets): implemented locally, uncommitted, section 18.
+> - Nothing is pushed or deployed. Owner decisions still open are listed in
+>   18.8.
 >
 > **Snapshot:** branch `feature/ui-ux-overhaul` @ `9877d55`, the same build
 > that is live in production. Production data was reset on 2026-11-20: 2 user
@@ -698,3 +704,420 @@ receipt-date sorting. No departments or partner work was started.
 - **Treasury cutover with several accounts:** the form hides the account
   picker before the **earliest** opening date. An account opened later still
   refuses earlier payments with the existing server message.
+
+---
+
+## 17. Phase 2 implementation results (2026-11-20)
+
+### 17.1 Database: migration `20261120120000_departments_partners` (additive)
+
+- `Role` gains `PARTNER`. No existing account changes role.
+- `departments`:
+  - columns: `id`, `key` (nullable, unique; for seeded rows only), `name`
+    (unique), `is_active`, `sort_order`, `created_by_id`, timestamps;
+  - seeded with تطريز (EMBROIDERY), كوفرات (COVERS), طباعة (PRINTING) and
+    ملابس / منتج كامل (GARMENTS);
+  - departments are never deleted, only deactivated.
+- `department_members`:
+  - key `(department_id, user_id)`, indexed by `user_id`;
+  - three independent switches: `can_view_work`, `can_view_money`,
+    `can_record_production`;
+  - also `granted_by_id` and timestamps;
+  - cascades with the user or department.
+- `order_groups.department_id` is a nullable FK (`ON DELETE RESTRICT`) with an
+  index.
+- **The only `UPDATE`** fills `order_groups.department_id` for existing items,
+  using the same rule as the app's suggestion (`src/lib/departments/suggest.ts`):
+  - "covers" in the item name, or the product type if unnamed → COVERS;
+  - otherwise the primary work type (the first design's operation, else the
+    first item-level operation):
+    - EMBROIDERY → EMBROIDERY;
+    - DTF / SCREEN_PRINT → PRINTING;
+    - MANUFACTURING or none → GARMENTS.
+  - A test runs the SQL and checks that it matches the TypeScript rule.
+- No prices, totals, payments, treasury, production or delivery rows are
+  touched. Nobody gains access: memberships start empty.
+- **Deployment note:** `ALTER TYPE "Role"` must be run by the role that
+  **owns** the type, which is the production app role. On the local preview
+  database, the restricted `preview_runner` role can't run it. The failed
+  attempt was marked rolled back there and nothing was applied. Confirm the
+  production migration role owns `Role` during rehearsal.
+
+### 17.2 Backend
+
+**Permissions (`src/lib/auth/permissions.ts`)**
+
+- `permissionsFor()` returns **nothing** for `PARTNER`, whatever is stored on
+  the row. This is the hard backstop: every company-wide service refuses
+  partners, including orders, customers, payments, treasury, reports,
+  `/dashboard`, PDFs and the JSON APIs.
+- `homePathFor()` sends partners to `/departments`.
+
+**`department-access.ts`**
+
+- `departmentGrants()`:
+  - the owner reaches every department;
+  - anyone else reaches active departments where they have a membership with
+    `canViewWork`;
+  - grants are re-read from the database on every request.
+- `requireDepartment()` returns `NOT_FOUND` for an unknown, inactive,
+  ungranted or malformed department, and `FORBIDDEN` for a missing money or
+  production switch.
+
+**`department-service.ts`** (explicit allowlist DTOs)
+
+- `getDepartmentDashboard`:
+  - order counts (total, active, completed, cancelled);
+  - item work-status counts;
+  - pending pieces and ready-not-delivered;
+  - the 6 most recent department orders and the last 10 activity records.
+- `listDepartmentOrders` (filter, search, pages).
+- `getDepartmentOrder`: the order header plus **this department's items
+  only**, with progress, designs, sizes and item notes.
+- **Never included in any of them:**
+  - the order total, paid or outstanding;
+  - other departments' items;
+  - the customer phone and order notes;
+  - payments, costs and wages.
+- `getDepartmentsOverview` (owner): per-department stats, an
+  "unassigned items" bucket and a **no-double-count check**: Σ department
+  values + unassigned = Σ totals of item-priced orders.
+- Department and membership management (owner only, audited):
+  - `createDepartment`, `updateDepartment` (name, active);
+  - `setDepartmentMembership`, `revokeDepartmentMembership`;
+  - nobody can edit their own access or an owner's.
+
+**Orders**
+
+- Every new or edited item gets **one** department:
+  - an explicit department must be active (an existing item may keep a
+    department that was since deactivated);
+  - if none is sent, an existing item keeps its department;
+  - otherwise the documented suggestion is applied.
+- The department is included in the audit metadata and in `OrderDetails.groups[].department`.
+
+**Production**
+
+- `recordStageProgress` and `recordReady` accept a department scope:
+  - authorized by the membership's `canRecordProduction`, re-checked under the
+    order lock;
+  - limited to that department's items on non-archived orders;
+  - audited with `departmentId` and `via: "department"`.
+- Deliveries, prices, payments and voids stay with the general permissions,
+  which partners never have.
+
+**Partner accounts** (`staff-access-service.ts`)
+
+- The owner creates them with `kind: "PARTNER"`, using the same password
+  re-authentication, rate limit and audit as staff accounts.
+- Activate/deactivate, password reset and sign-out work as for staff.
+- `updateStaffPermissions` refuses partners.
+- Partners can't be assigned order visibility (`listAssignableStaff` lists
+  STAFF only).
+
+**Audit actions:** `DEPARTMENT_CREATED`, `DEPARTMENT_UPDATED`,
+`DEPARTMENT_ACCESS_CHANGED` (before and after), `DEPARTMENT_ACCESS_REVOKED`.
+
+### 17.3 Frontend
+
+- **`/departments`:**
+  - the owner sees the overview cards, the unassigned warning and the
+    no-double-count panel;
+  - members see their departments, and go straight in when there's only one.
+- **`/departments/[id]`:** the dashboard (stage panel, recent orders, item
+  statuses, activity) and the money panel when `canViewMoney` is on.
+- **`/departments/[id]/orders`:** a list with open/completed/all filters,
+  search and paging.
+- **`/departments/[id]/orders/[orderId]`:** the department-scoped order, with
+  «تسجيل إنتاج / جاهز» when allowed.
+- **`.../production`:** reuses `ProductionForm` in department mode.
+- **`/departments/manage`** (owner): add, rename and deactivate departments,
+  and see who has access.
+- **`/users`:** «إضافة حساب جديد» with موظف/شريك, and a «حسابات الشركاء» list.
+- **`/users/[id]`:** a «الأقسام» section with three switches per department
+  plus revoke. Partners don't get the permission editor.
+- **Navigation:**
+  - partners get «شغل القسم» + «المزيد» only and land on `/departments`;
+  - `/dashboard` redirects partners;
+  - «الأقسام» appears in the sidebar for the owner and for department members.
+- **Order form:** a «القسم» chip row per item, with the suggestion
+  pre-selected (marked «مقترح») and a hint when an item's work spans two
+  departments. The order page shows each item's department.
+
+### 17.4 Tests
+
+- `tests/integration/departments.test.ts` (13 tests):
+  - departments CRUD and auth;
+  - item assignment (explicit, suggested, kept, invalid, inactive);
+  - partner creation, login, landing and deactivation;
+  - the partner backstop (stored grants ignored; every general service
+    refused);
+  - JSON leak scans (no totals, other items, phones, notes, payments or
+    values without the switch);
+  - `NOT_FOUND` for other departments, unknown or malformed ids, orders
+    without department items and archived orders;
+  - cross-partner isolation;
+  - revocation, work-off and deactivation taking effect on the next request;
+  - money values with and without the switch;
+  - no double count (balanced overview, cancelled orders excluded);
+  - department production writes, audited, refused on other items,
+    departments and deliveries;
+  - owner and staff-member visibility;
+  - existing orders, payments and Phase 1 flows;
+  - the backfill SQL matching the TypeScript rule.
+- `tests/unit/departments-migration.test.ts` (6 tests): additive SQL, one
+  `UPDATE`, the seeds, the suggestion rule and the partner backstop.
+- **Totals:** full suite 36 files / 326 tests passing; `typecheck`, `eslint`
+  and `next build` clean.
+
+### 17.5 How department money is shown in Phase 2
+
+- **Department value** = Σ quantity × unit price of the department's items on
+  non-cancelled, non-archived orders. It's labelled «قيمة شغل القسم», never
+  revenue or collected.
+- Items on older `ORDER_TOTAL` orders have no price of their own and are shown
+  as «غير موزّع». No value is invented for them.
+- Customer collections per department are always shown as **pending**
+  (`collections: "PENDING_PHASE_3"`). Partners never see whole-order payments.
+
+### 17.6 Owner decisions still open (Phase 3 depends on these)
+
+1. **Collections per department:** pro-rata (A), explicit allocation (B) or
+   separate orders (C) (section 7.3).
+2. **Partner settlement rule:** per piece, a percentage, or an agreed cost per
+   job; and whether it depends on customer payment (section 7.4). The
+   partner ↔ supplier link isn't built yet.
+3. **One item, two departments:** today it belongs to the department chosen
+   (by default, its first design's work). Confirm the "split into two priced
+   items" rule.
+4. **What partners see:** the customer **name** is shown and the phone is
+   not. Confirm, or hide the name too.
+5. **Department membership vs. order visibility:** membership alone currently
+   gives access to the department's items, even on a private order. Confirm,
+   or require the order to be shared as well.
+6. **Partner production rights:** partners may record steps and «جاهز» (when
+   switched on), but never deliveries. Confirm.
+7. **Ready-made sales:** they are currently in «ملابس / منتج كامل». Should
+   they be a department of their own?
+
+---
+
+## 18. Phase 3 implementation results (2026-11-21)
+
+### 18.1 Database: migration `20261121090000_department_finance_presets` (additive)
+
+**New columns**
+
+| Table | Column | Purpose |
+|---|---|---|
+| `department_members` | `can_view_collections` (default **false**) | allocated collections switch |
+| `department_members` | `can_view_settlements` (default **false**) | own settlement switch |
+| `orders` | `hidden_from_departments` (default **false**) | hide an order from department views |
+| `users` | `supplier_id` (nullable, unique FK) | partner ↔ settlement supplier |
+| `order_costs` | `department_id` (nullable FK, indexed) | which department the job is for |
+| `order_costs` | `quantity`, `unit_cost` (nullable) | «بالقطعة» |
+
+`order_costs` gets two CHECK constraints: `quantity` and `unit_cost` must be
+set together, and both must be > 0.
+
+**New tables**
+
+- `order_group_value_shares`:
+  - key `(order_group_id, department_id)`, with `amount > 0` (CHECK),
+    `set_by_id` and `created_at`;
+  - the owner's explicit split of one item's value across departments.
+- `product_presets`:
+  - columns: unique `name`, `is_active`, `sort_order`, `created_by_id`,
+    timestamps;
+  - seeded with تيشيرت، هودي، سويت شيرت، بولو، كاب، شنطة.
+
+**Safety**
+
+- No `UPDATE`, `DELETE`, `DROP`, `RENAME` or `ALTER TYPE`. Nobody gains any
+  access.
+- This migration needs **no enum ownership**.
+
+**Enum ownership (Phase 2 review)**
+
+- Phase 2's `ALTER TYPE "Role" ADD VALUE 'PARTNER'` must be run by the role
+  that **owns** the type.
+- `npm run db:check` now includes a read-only **migration privileges**
+  check: it lists every public table and enum type the connecting role
+  doesn't own.
+- Results on 2026-11-21:
+
+| Database | Ownership | Migrations |
+|---|---|---|
+| Test | owned ✓ | all 11 applied |
+| Local dev (`benuuprint`) | owned ✓ | 3 pending (treasury, Phase 2, Phase 3); not migrated by this task |
+| Local preview | **not owned** (44 objects belong to `benuuprint`; the app connects as `preview_runner`) | can only be migrated with the owner's credentials |
+
+- **Before production:** run `npm run db:check` with the deploy credentials;
+  "Migration privileges" must show ✓.
+
+### 18.2 Allocation of customer payments (`src/lib/finance/allocation.ts`)
+
+**Basis per order** (each item's value counts exactly once):
+- `PER_ITEM` items go to their department.
+- An item with a valid owner split goes to the split's departments, by the
+  split amounts.
+- Everything else goes to **UNALLOCATED**:
+  - items with no department;
+  - **stale** splits (they no longer add up to the line value after a price
+    or quantity change);
+  - the whole total of older `ORDER_TOTAL` orders.
+
+**Each valid payment** is split by the largest-remainder method in integer
+piasters (BigInt):
+- `floor(P × w / W)` per bucket;
+- the leftover piasters go one each to the largest remainders;
+- ties are broken by department sort order, with UNALLOCATED last;
+- with no positive basis, the whole payment is UNALLOCATED.
+
+**Guarantees**
+- Σ shares = the payment, exactly. This is property-tested on 2,000 random
+  cases.
+- Voided payments are excluded.
+- Payments, treasury and accounting are untouched: allocation is **derived**,
+  never stored, and creates no transactions.
+- Each `PAYMENT_RECORDED` audit entry, including the order's advance, now
+  carries a `departmentAllocation` snapshot.
+
+**Per department**
+- Allocated collections, outstanding (value − collected), paid / partial /
+  unpaid orders, and per-payment history.
+- Labelled «تحصيل موزّع»: never "paid to the partner".
+
+**Owner reconciliation** (`/departments`):
+- Σ department values + unallocated = Σ order totals (non-cancelled);
+- Σ department collections + unallocated = Σ valid customer payments.
+
+### 18.3 Mixed-department orders
+
+- **Physical work:** each item still belongs to one department. Production and
+  quantities are never duplicated.
+- **Money split:** the owner can split one item's value across departments on
+  the order page («الأقسام وتقسيم القيمة»):
+  - exact amounts that must equal the line value;
+  - owner only;
+  - audited as `ORDER_VALUE_SPLIT_SET`.
+- **Display:**
+  - a department's share of another department's item shows as «نصيب القسم
+    من بنود أقسام تانية» (money switch only);
+  - an item that can't be allocated reliably is counted under
+    `unreliableItems` and shown as «غير موزّع».
+
+### 18.4 Partner settlements (`partner-settlement-service.ts`)
+
+**Built only from the existing payables**
+- Each job is an **order cost** for the partner's linked supplier, tagged with
+  a department.
+- The amount is either:
+  - an agreed price per job; or
+  - pieces × an agreed cost per piece, which must match the amount exactly.
+- Payouts use the existing supplier payment flow (partial payments, voids,
+  treasury attribution unchanged).
+
+**Totals**
+- payable = Σ valid costs; paid = Σ valid outgoing payments; remaining.
+- History of jobs and payouts.
+
+**Separation from customer money**
+- Customer payments **never** create partner payouts.
+- No commission or percentage exists anywhere.
+
+**Who sees what**
+- A partner sees only **its own** linked supplier's costs, tagged with
+  departments where its settlements switch is on.
+- Jobs on hidden orders appear with the order title masked.
+- The owner sees per-department settlements (`/departments/[id]/settlement`)
+  and per-partner totals (`/users/[id]`).
+- The owner links a partner to its supplier from the account page («مورد جديد
+  باسم الشريك», or an existing unlinked supplier). Audited as
+  `PARTNER_SUPPLIER_LINKED`.
+
+### 18.5 Permissions
+
+Membership switches (independent; all default off):
+- see the work;
+- record production;
+- work value;
+- allocated collections (**effective only with the work-value switch**,
+  because an outstanding balance reveals the value);
+- own settlement.
+
+Other rules:
+- `Order.hiddenFromDepartments` (owner only, audited) removes the order from
+  every non-owner department view: work, value, collections and production
+  writes.
+- All checks run in the services. Responses are explicit allowlists.
+- Leak scans in the tests confirm partners never receive:
+  - whole-order totals or payments;
+  - other departments' shares;
+  - payment ids;
+  - phone numbers;
+  - other partners' settlements.
+
+### 18.6 Interfaces
+
+- **`/departments`:** value, allocated collections and outstanding per
+  department, plus both reconciliation checks.
+- **`/departments/[id]`:**
+  - the money panel (value, collected, outstanding, paid/partial/unpaid);
+  - the latest allocated collections;
+  - a link to the settlement.
+- **New pages:** `/departments/[id]/collections` (full history) and
+  `/departments/[id]/settlement` (partner: own; owner: per supplier).
+- **Department order pages:** per-order value, collected, status chip,
+  allocations, and shared-work lines.
+- **`/orders/[id]` (owner):** «الأقسام وتقسيم القيمة» with the hide toggle and
+  a split editor per item (live sum check, stale warning).
+- **`/orders/[id]/costs/new`:** a department select and «بالقطعة» (pieces ×
+  cost per piece fills the amount).
+- **`/users/[id]` (partner):** the supplier link and settlement totals; the
+  department rows have the two new switches.
+- **`/orders/presets`** (owner, linked from «المزيد»): add, rename,
+  hide/show and reorder presets. The order form reads the active list.
+
+### 18.7 Tests
+
+- `tests/unit/allocation.test.ts` (8): exactness, ties, randomized
+  reconciliation, attribution, stale splits, basis order, status.
+- `tests/unit/departments-migration.test.ts`: Phase 3 SQL is additive, needs
+  no enum change, defaults are off, constraints and seeds are present.
+- `tests/integration/department-finance.test.ts` (10):
+  - pro-rata allocation and reconciliation with partial and full payments;
+  - voids and the audit snapshot;
+  - ambiguous money stays unallocated (legacy single-total orders, items with
+    no department);
+  - 3-way piaster rounding;
+  - explicit splits: validation, owner-only, allocation follows the split, no
+    duplicated physical work, stale splits flagged;
+  - switch independence and the collections dependency, with leak scans;
+  - hidden orders (work, money, production);
+  - settlements: unlinked, per-piece and per-job, mismatches rejected, partial
+    and voided payouts, separation from collections, owner views;
+  - cross-partner isolation and masking;
+  - presets.
+- `departments.test.ts` updated to the new money shape.
+- **Totals:** full suite 38 files / **346 tests** passing; `typecheck`,
+  `eslint` and `next build` clean.
+
+### 18.8 Owner decisions still open (nothing invented)
+
+1. **Settlement rates:** the agreed job price or per-piece cost is typed per
+   job by the owner. No standing rate table exists. Decide if one is wanted.
+2. **Settlement timing:** whether settlements should wait for customer
+   collection is a policy, not enforced. Payouts are manual.
+3. **Collections rule:** pro-rata by priced work is implemented as the display
+   rule. Confirm it, or ask for explicit per-payment allocation instead.
+4. **Older single-total orders:** they stay «غير موزّع». Convert them to item
+   pricing if they should count for departments.
+5. **Partners and customer names:** partners see the customer name, never the
+   phone number. Confirm.
+6. **Default for new orders:** visible to the departments of their items;
+   the owner can hide individual orders. Confirm the default.
+7. **Partner delivery rights:** partners still can't record deliveries.
+   Confirm.
+8. **Ready-made sales:** they currently count under «ملابس / منتج كامل».
+   Confirm, or add a department for them.

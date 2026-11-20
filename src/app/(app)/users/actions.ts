@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { toActionResult, type ActionResult } from "@/lib/actions";
 import { requireUser } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
+import { linkPartnerSupplier } from "@/server/services/partner-settlement-service";
 import { createStaffAccount, resetStaffPassword, revokeStaffSessions, setStaffActive, updateStaffPermissions } from "@/server/services/staff-access-service";
 
 /** Owner: save a staff account's permissions (the service checks owner, self-edit and version). */
@@ -50,6 +51,7 @@ export async function createStaffAction(_prev: ActionResult | null, formData: Fo
         email: formData.get("email"),
         password: formData.get("password"),
         ownerPassword: formData.get("ownerPassword"),
+        kind: formData.get("kind"),
       })
     ).userId;
   });
@@ -65,4 +67,13 @@ export async function resetPasswordAction(_prev: ActionResult | null, formData: 
   );
   if (failure) return failure;
   redirect(`/users/${userId}?saved=password`);
+}
+
+/** Owner: link a partner account to its settlement supplier («new» creates one), or unlink. */
+export async function linkPartnerSupplierAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const user = await requireUser();
+  const userId = String(formData.get("userId") ?? "");
+  const failure = await toActionResult(() => linkPartnerSupplier(prisma, user, { userId, supplierId: formData.get("supplierId") }));
+  if (failure) return failure;
+  redirect(`/users/${userId}?saved=supplier#settlement`);
 }

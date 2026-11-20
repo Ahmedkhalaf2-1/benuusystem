@@ -33,6 +33,8 @@ import { loadGroupProgress, productionTotalsByOrder, refreshOrderStatus } from "
 import { ORDER_SUMMARY_SELECT, isOverdue, toOrderSummary, type OrderSummary } from "./order-dto";
 import { canSeeOrderPrices, orderScope, orderScopeSql, requireOrderAccess } from "./order-access";
 import { applyOrderAccess, parseOrderAccess } from "./order-visibility-service";
+import { suggestDepartmentId } from "@/lib/departments/suggest";
+import { allocationSnapshot } from "./department-finance";
 
 // ───────────────────────────── Create ─────────────────────────────
 
@@ -76,12 +78,43 @@ async function resolveCustomerId(
 }
 
 /** The new per-item columns, as stored. */
-function itemFields(group: { name: string | null; unitPrice: Cents | null; pressesPerUnit: number | null }) {
+function itemFields(group: { name: string | null; unitPrice: Cents | null; pressesPerUnit: number | null; departmentId: string | null }) {
   return {
     name: group.name,
     unitPrice: group.unitPrice === null ? null : centsToDecimalString(group.unitPrice),
     pressesPerUnit: group.pressesPerUnit,
+    departmentId: group.departmentId,
   };
+}
+
+/**
+ * Gives every item exactly ONE department («القسم»):
+ * - a department sent by the form must exist and be active (an existing item
+ *   may keep a department that was deactivated since);
+ * - none sent: an existing item keeps its department; otherwise the
+ *   documented suggestion rule picks one among the active departments.
+ * The item's whole value belongs to that department — never split or doubled.
+ */
+async function resolveItemDepartments(
+  tx: DbTransaction,
+  productType: string,
+  groups: { id?: string; name: string | null; operations: PrintOperation[]; designs: { operation: PrintOperation }[]; departmentId: string | null }[],
+  current: Map<string, string | null> = new Map(),
+) {
+  const departments = await tx.department.findMany({ select: { id: true, key: true, isActive: true } });
+  const active = departments.filter((d) => d.isActive).map((d) => ({ id: d.id, key: d.key, name: "" }));
+  const byId = new Map(departments.map((d) => [d.id, d]));
+  groups.forEach((g, index) => {
+    const before = g.id ? (current.get(g.id) ?? null) : null;
+    if (g.departmentId) {
+      const dep = byId.get(g.departmentId);
+      if (!dep || (!dep.isActive && dep.id !== before)) {
+        throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { [`groups.${index}.departmentId`]: ["القسم ده مش موجود أو متوقف — اختار قسم تاني"] } });
+      }
+      return;
+    }
+    g.departmentId = before ?? suggestDepartmentId(active, { name: g.name, productType, designs: g.designs, operations: g.operations });
+  });
 }
 
 function groupsCreateData(groups: CreateOrderInput["groups"]) {
@@ -274,6 +307,7 @@ export async function createOrder(
   try {
     return await db.$transaction(async (tx) => {
       const customerId = await resolveCustomerId(tx, actor, input.customer);
+      await resolveItemDepartments(tx, input.productType, input.groups);
       const number = await nextOrderNumber(tx);
 
       const order = await tx.order.create({
@@ -323,6 +357,7 @@ export async function createOrder(
             operations: g.operations,
             unitPrice: g.unitPrice === null ? null : centsToDecimalString(g.unitPrice),
             pressesPerUnit: g.pressesPerUnit,
+            departmentId: g.departmentId,
           })),
         },
       });
@@ -357,6 +392,7 @@ export async function createOrder(
             paidAt: input.advancePaidAt,
             advance: true,
             accountId,
+            departmentAllocation: await allocationSnapshot(tx, order.id, input.advance),
           },
         });
       }
@@ -395,6 +431,7 @@ type GroupSnapshot = {
   sizes: string[];
   unitPrice: string | null;
   pressesPerUnit: number | null;
+  departmentId: string | null;
   designs: string[];
 };
 
@@ -409,6 +446,7 @@ function snapshotGroups(
     sizes?: { label: string; quantity: number }[];
     unitPrice?: Cents | null;
     pressesPerUnit?: number | null;
+    departmentId?: string | null;
     designs?: { id?: string | null; name: string | null; operation: PrintOperation; placements: string[]; customPlacements: string[]; quantity: number; pressesPerUnit: number | null; notes: string | null }[];
   }[],
 ): GroupSnapshot[] {
@@ -422,6 +460,7 @@ function snapshotGroups(
     sizes: (g.sizes ?? []).map((x) => `${x.label}:${x.quantity}`),
     unitPrice: g.unitPrice === undefined || g.unitPrice === null ? null : centsToDecimalString(g.unitPrice),
     pressesPerUnit: g.pressesPerUnit ?? null,
+    departmentId: g.departmentId ?? null,
     designs: (g.designs ?? []).map((d) =>
       [d.id ?? "new", d.name ?? "", d.operation, [...d.placements].sort().join("+"), d.customPlacements.join("+"), d.quantity, d.pressesPerUnit ?? "", d.notes ?? ""].join("|"),
     ),
@@ -606,6 +645,7 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
             name: true,
             unitPrice: true,
             pressesPerUnit: true,
+            departmentId: true,
             designs: {
               orderBy: { position: "asc" },
               select: { id: true, name: true, operation: true, placements: true, customPlacements: true, quantity: true, pressesPerUnit: true, notes: true },
@@ -689,6 +729,7 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
     }
 
     const customerId = await resolveCustomerId(tx, actor, input.customer);
+    await resolveItemDepartments(tx, input.productType, input.groups, new Map(before.groups.map((g) => [g.id, g.departmentId])));
 
     const beforeGroups = snapshotGroups(
       before.groups.map((g) => ({
@@ -942,6 +983,8 @@ export type OrderDetails = OrderSummary & {
     /** Per-item pricing only (decimal strings). Absent without "orders:view-prices". */
     unitPrice?: string | null;
     lineTotal?: string | null;
+    /** The item's department («القسم»); null only for items created before departments existed with none left. */
+    department: { id: string; name: string } | null;
     designs: OrderDesignView[];
     pressesPerUnit: number | null;
     /** Planned presses for the item (Σ designs, or quantity × item presses); null if not planned. */
@@ -990,6 +1033,7 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
             name: true,
             unitPrice: prices,
             pressesPerUnit: true,
+            department: { select: { id: true, name: true } },
             designs: {
               orderBy: { position: "asc" },
               select: { id: true, position: true, name: true, operation: true, placements: true, customPlacements: true, quantity: true, pressesPerUnit: true, notes: true },
@@ -1054,6 +1098,7 @@ export async function getOrderDetails(db: DbClient, actor: Actor, orderId: strin
       label: itemLabel(g.position, g.name),
       quantity: g.quantity,
       material: g.material,
+      department: g.department,
       notes: g.notes,
       operations,
       description: describeOperations(operations),

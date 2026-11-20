@@ -184,6 +184,12 @@ export function effectiveStaffPermissions(granted: readonly string[]): Grantable
 /** The subject of a permission check: role plus the account's grants. */
 export type PermissionSubject = { role: Role; permissions?: readonly string[] | null };
 
+/**
+ * PARTNER accounts get NO company-wide permission, whatever is stored on the
+ * row (not even the home dashboard): they only reach department items through
+ * their department membership (src/server/services/department-access.ts).
+ * This is the hard backstop — every general service refuses them.
+ */
 export function permissionsFor(user: PermissionSubject): readonly Permission[] {
   if (user.role === "OWNER_ADMIN") return PERMISSIONS;
   if (user.role !== "STAFF") return [];
@@ -193,7 +199,17 @@ export function permissionsFor(user: PermissionSubject): readonly Permission[] {
 export const ROLE_LABELS: Record<Role, string> = {
   OWNER_ADMIN: "المالك / المدير",
   STAFF: "موظف",
+  PARTNER: "شريك",
 };
+
+export function isPartner(user: { role: Role } | null | undefined): boolean {
+  return user?.role === "PARTNER";
+}
+
+/** Where an account lands after sign-in: partners have no company dashboard. */
+export function homePathFor(user: { role: Role }): string {
+  return isPartner(user) ? "/departments" : "/dashboard";
+}
 
 export function isOwner(user: { role: Role } | null | undefined): boolean {
   return user?.role === "OWNER_ADMIN";

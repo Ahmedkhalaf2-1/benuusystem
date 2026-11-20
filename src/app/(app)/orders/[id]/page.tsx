@@ -20,10 +20,12 @@ import { VoidPaymentForm } from "@/components/orders/void-payment-form";
 import { BackLink } from "@/components/page-header";
 import { buttonVariants } from "@/components/ui/button";
 import { requirePermission } from "@/lib/auth/current-user";
-import { hasPermission } from "@/lib/auth/permissions";
+import { hasPermission, isOwner } from "@/lib/auth/permissions";
 import { prisma } from "@/lib/db/prisma";
 import { daysBetween, formatDateAr, formatDateTimeAr, todayDateString } from "@/lib/dates";
-import { formatMoneyString, toCents } from "@/lib/money";
+import { formatAmount, formatMoneyString, toCents } from "@/lib/money";
+import { HideFromDepartmentsForm, ValueSplitForm } from "@/components/departments/order-department-tools";
+import { listDepartmentOptions } from "@/server/services/department-service";
 import { formatNumber } from "@/lib/numbers";
 import { formatOrderNumber, OPERATION_LABELS, PAYMENT_METHOD_LABELS, UNIT_LABELS } from "@/lib/orders/labels";
 import { cn } from "@/lib/utils";
@@ -53,6 +55,8 @@ const FLASH: Record<string, string> = {
   "delivery-voided": "تم إلغاء التسليم",
   restored: "رجع الأوردر للقوايم ✓",
   access: "تم حفظ ظهور الأوردر للعمال ✓",
+  split: "تم حفظ تقسيم قيمة البند على الأقسام ✓",
+  "departments-visibility": "تم حفظ ظهور الأوردر للأقسام ✓",
 };
 
 function Line({ label, children, strong, testId, tone }: { label: string; children: React.ReactNode; strong?: boolean; testId?: string; tone?: string }) {
@@ -79,6 +83,14 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
   const contribution = hasPermission(user, "finance:reports") ? (await getOrderContributions(prisma, user, { orderIds: [order.id] }))[0] : undefined;
   const access = hasPermission(user, "orders:manage-access") ? await getOrderAccess(prisma, user, order.id) : null;
   const assignable = access ? await listAssignableStaff(prisma, user) : [];
+  // Owner: how this order meets the departments (value splits, hide from departments).
+  const deptTools = isOwner(user) && order.archived === null
+    ? await Promise.all([
+        prisma.order.findUniqueOrThrow({ where: { id: order.id }, select: { hiddenFromDepartments: true } }),
+        prisma.orderGroupValueShare.findMany({ where: { orderGroup: { orderId: order.id } }, select: { orderGroupId: true, departmentId: true, amount: true } }),
+        listDepartmentOptions(prisma, user),
+      ])
+    : null;
   const partlyDelivered = (production?.totals.delivered ?? 0) > 0 && order.status !== "COMPLETED";
 
   const money = order.money;
@@ -409,6 +421,43 @@ export default async function OrderDetailsPage(props: PageProps<"/orders/[id]">)
               </p>
             )}
           </Fold>
+
+          {deptTools && (
+            <Fold title="الأقسام وتقسيم القيمة" icon={Layers} id="departments" meta={deptTools[0].hiddenFromDepartments ? "مخفي عن الأقسام" : undefined}>
+              <div className="space-y-3">
+                <HideFromDepartmentsForm orderId={order.id} hidden={deptTools[0].hiddenFromDepartments} />
+                {order.pricing === "PER_ITEM" ? (
+                  <>
+                    <p className="text-sm text-graphite">
+                      كل بند قيمته بتتحسب لقسمه. لو بند واحد فيه شغل لأكتر من قسم وعايز تقسّم قيمته، اكتب نصيب كل قسم بالظبط (لازم المجموع يساوي قيمة البند). التحصيل الموزّع بيمشي على التقسيم ده.
+                    </p>
+                    {order.groups.map((g) => {
+                      const shares = deptTools[1].filter((x) => x.orderGroupId === g.id).map((x) => ({ departmentId: x.departmentId, amount: formatAmount(toCents(x.amount)).replace(/,/g, "") }));
+                      const stale = shares.length > 0 && g.lineTotal != null && shares.reduce((s, x) => s + toCents(x.amount), 0n) !== toCents(g.lineTotal);
+                      return (
+                        <details key={g.id} className="rounded-2xl border border-line p-3" open={shares.length > 0}>
+                          <summary className="cursor-pointer text-sm font-semibold">
+                            {g.label} — {g.department ? g.department.name : "من غير قسم"}
+                            {g.lineTotal != null && <span className="tabular ms-2 text-graphite">{formatMoneyString(g.lineTotal)}</span>}
+                            {shares.length > 0 && <span className="ms-2 rounded-full bg-violet-soft px-2 py-0.5 text-xs text-violet">متقسّم</span>}
+                          </summary>
+                          <div className="pt-2">
+                            {g.lineTotal != null ? (
+                              <ValueSplitForm orderId={order.id} itemId={g.id} lineTotal={g.lineTotal} departments={deptTools[2]} initial={shares} stale={stale} />
+                            ) : (
+                              <p className="text-sm text-graphite">البند ده مالوش سعر.</p>
+                            )}
+                          </div>
+                        </details>
+                      );
+                    })}
+                  </>
+                ) : (
+                  <p className="rounded-2xl bg-well p-3 text-sm text-graphite">أوردر قديم بسعر إجمالي واحد: قيمته وتحصيله بيفضلوا «غير موزّع» على الأقسام لحد ما يتحوّل لتسعير بالبند.</p>
+                )}
+              </div>
+            </Fold>
+          )}
 
           {access && live && (
             <Fold title="ظهور الأوردر للعمال" icon={Eye} hue="bg-violet-soft text-violet" meta={VISIBILITY_LABELS[access.visibility]}>

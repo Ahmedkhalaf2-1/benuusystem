@@ -24,9 +24,27 @@ export function CreateStaffForm() {
     <details className="group rounded-2xl border border-line bg-surface p-4" open={!!state} data-testid="create-staff">
       <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 font-display font-semibold text-violet [&::-webkit-details-marker]:hidden">
         <UserPlus className="size-5" aria-hidden="true" />
-        إضافة موظف جديد
+        إضافة حساب جديد
       </summary>
       <form action={action} className="mt-3 space-y-4">
+        <fieldset>
+          <legend className="mb-1.5 text-sm font-semibold">نوع الحساب</legend>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { value: "STAFF", label: "موظف", hint: "بتحدد صلاحياته واحدة واحدة" },
+              { value: "PARTNER", label: "شريك", hint: "يشوف بنود الأقسام اللي تحددها بس" },
+            ].map((k) => (
+              <label key={k.value} className="flex cursor-pointer flex-col rounded-xl border border-line bg-surface p-3 has-[:checked]:border-violet has-[:checked]:bg-violet-soft">
+                <span className="flex items-center gap-2 font-semibold">
+                  <input type="radio" name="kind" value={k.value} defaultChecked={k.value === "STAFF"} className="size-4" />
+                  {k.label}
+                </span>
+                <span className="mt-0.5 text-xs text-graphite">{k.hint}</span>
+              </label>
+            ))}
+          </div>
+          {err(state, "kind") && <p className="mt-1 text-sm text-red">{err(state, "kind")}</p>}
+        </fieldset>
         <Field label="الاسم" htmlFor="name" error={err(state, "name")}>
           <Input id="name" name="name" required autoComplete="off" aria-invalid={err(state, "name") ? true : undefined} />
         </Field>
@@ -38,7 +56,7 @@ export function CreateStaffForm() {
         </Field>
         <OwnerPasswordField error={err(state, "ownerPassword")} />
         <FormMessage message={state?.fieldErrors ? undefined : state?.message} />
-        <p className="text-xs text-graphite">الحساب الجديد بيبدأ من غير أي صلاحيات — هتحددها في الصفحة اللي بعدها.</p>
+        <p className="text-xs text-graphite">الحساب الجديد بيبدأ من غير أي صلاحيات ولا أقسام — هتحددها في الصفحة اللي بعدها.</p>
         <Button type="submit" disabled={pending} className="h-12 w-full rounded-xl">
           {pending && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
           إنشاء الحساب

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { CalendarDays, ChevronDown, Factory, Gauge, Loader2 } from "lucide-react";
 import { recordReadyAction, recordStageAction } from "@/app/(app)/orders/production-actions";
+import { recordDepartmentReadyAction, recordDepartmentStageAction } from "@/app/(app)/departments/actions";
 import { ChoiceCards } from "@/components/finance/choice-cards";
 import { Field, FormMessage, Textarea } from "@/components/forms/field";
 import { FlowCard } from "@/components/ds/primitives";
@@ -35,7 +36,10 @@ const singleStep = (g: GroupProgress) => (g.designs.length > 0 ? g.designs.lengt
 const needsConfirm = (g: GroupProgress) => (g.designs.length > 0 ? g.designs.length > 1 || g.designs.some((d) => d.quantity < g.quantity) : g.operations.length > 1);
 
 /** "تسجيل إنتاج": which step finished how many pieces — or which pieces are ready. */
-export function ProductionForm({ orderId, unit, groups, today }: { orderId: string; unit: QuantityUnit; groups: GroupProgress[]; today: string }) {
+/** `departmentId`: recorded from a department view (membership-authorized; that department's items only). */
+export function ProductionForm({ orderId, unit, groups, today, departmentId }: { orderId: string; unit: QuantityUnit; groups: GroupProgress[]; today: string; departmentId?: string }) {
+  const readyAction = departmentId ? (p: Parameters<typeof recordReadyAction>[0]) => recordDepartmentReadyAction(departmentId, p) : recordReadyAction;
+  const stageAction = departmentId ? (p: Parameters<typeof recordStageAction>[0]) => recordDepartmentStageAction(departmentId, p) : recordStageAction;
   const [requestId] = useState(newRequestId);
   const [groupId, setGroupId] = useState(groups.length === 1 ? groups[0]!.id : "");
   const group = groups.find((g) => g.id === groupId);
@@ -75,7 +79,7 @@ export function ProductionForm({ orderId, unit, groups, today }: { orderId: stri
     startTransition(async () => {
       const result =
         info.kind === "ready"
-          ? await recordReadyAction({
+          ? await readyAction({
               orderId,
               orderGroupId: group.id,
               idempotencyKey: requestId,
@@ -84,7 +88,7 @@ export function ProductionForm({ orderId, unit, groups, today }: { orderId: stri
               notes,
               confirmAllOperations: confirmAll,
             })
-          : await recordStageAction({
+          : await stageAction({
               orderId,
               orderGroupId: group.id,
               idempotencyKey: requestId,

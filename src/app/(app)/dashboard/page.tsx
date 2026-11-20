@@ -3,7 +3,8 @@ import Link from "next/link";
 import { AlarmClock, CheckCircle2, ChevronLeft, Factory, HandCoins, Plus, ReceiptText, Truck, UserCheck, type LucideIcon } from "lucide-react";
 import { AttentionCard, OrderCard, type AttentionKind } from "@/components/ds/order-cards";
 import { requireUser } from "@/lib/auth/current-user";
-import { hasPermission } from "@/lib/auth/permissions";
+import { hasPermission, isPartner } from "@/lib/auth/permissions";
+import { redirect } from "next/navigation";
 import { todayDateString } from "@/lib/dates";
 import { prisma } from "@/lib/db/prisma";
 import { greetingAr } from "@/lib/format";
@@ -36,6 +37,8 @@ function SectionTitle({ id, children, action }: { id: string; children: React.Re
 
 export default async function DashboardPage() {
   const user = await requireUser();
+  // Partners have no company dashboard: their home is their department work.
+  if (isPartner(user)) redirect("/departments");
   const firstName = user.name.trim().split(/\s+/)[0];
   const canSeeMoney = hasPermission(user, "finance:view-summary");
   // Every order figure below only covers orders this account may see; money needs its own permission.

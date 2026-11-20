@@ -74,6 +74,11 @@ export async function recordOrderCost(
       const order = await tx.order.findUnique({ where: { id: input.orderId }, select: { id: true, number: true } });
       if (!order) throw new AppError("NOT_FOUND", "الأوردر مش موجود");
 
+      // A department-tagged cost must be work of that department on this order.
+      if (input.departmentId) {
+        const has = await tx.orderGroup.findFirst({ where: { orderId: order.id, OR: [{ departmentId: input.departmentId }, { valueShares: { some: { departmentId: input.departmentId } } }] }, select: { id: true } });
+        if (!has) throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { departmentId: ["الأوردر ده مفيهوش شغل للقسم ده"] } });
+      }
       const supplierId = await resolveSupplierId(tx, actor, input.supplier);
       const cost = await tx.orderCost.create({
         data: {
@@ -83,6 +88,9 @@ export async function recordOrderCost(
           amount: centsToDecimalString(input.amount),
           costDate: dateFromString(input.costDate),
           supplierId,
+          departmentId: input.departmentId ?? null,
+          quantity: input.perPiece?.quantity ?? null,
+          unitCost: input.perPiece ? centsToDecimalString(input.perPiece.unitCost) : null,
           notes: input.notes,
           idempotencyKey: input.idempotencyKey,
           recordedById: actor.id,
@@ -100,6 +108,8 @@ export async function recordOrderCost(
           category: input.category,
           amount: centsToDecimalString(input.amount),
           supplierId,
+          departmentId: input.departmentId ?? null,
+          ...(input.perPiece ? { quantity: input.perPiece.quantity, unitCost: centsToDecimalString(input.perPiece.unitCost) } : {}),
           paidNow: centsToDecimalString(input.initialPayment),
         },
       });

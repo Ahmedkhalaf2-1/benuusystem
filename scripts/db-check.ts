@@ -3,7 +3,8 @@
  *
  * Shows WHICH PostgreSQL the app is configured for (host, port, database,
  * user; never the password), whether it is reachable through Prisma Client,
- * migration status, Phase 1 tables and whether an owner account exists.
+ * migration status, whether this role may run migrations (owns the tables
+ * and enum types), Phase 1 tables and whether an owner account exists.
  * Read-only: it never changes the database.
  */
 import "dotenv/config";
@@ -64,6 +65,24 @@ async function main() {
     } else {
       ok = false;
       console.log(`✗ Migrations: ${pending.length} pending (${pending.join(", ")}). Run: npm run db:migrate`);
+    }
+
+    // Migration privileges: ALTER TABLE / ALTER TYPE (e.g. the departments
+    // migration's ALTER TYPE "Role") need the role that OWNS the object.
+    const notOwned = await db.$queryRaw<{ kind: string; name: string; owner: string }[]>`
+      SELECT 'table' AS kind, c.relname AS name, pg_get_userbyid(c.relowner) AS owner
+        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT pg_has_role(current_user, c.relowner, 'MEMBER')
+      UNION ALL
+      SELECT 'type', t.typname, pg_get_userbyid(t.typowner)
+        FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+       WHERE n.nspname = 'public' AND t.typtype = 'e' AND NOT pg_has_role(current_user, t.typowner, 'MEMBER')`;
+    if (notOwned.length === 0) {
+      console.log("✓ Migration privileges: this role owns every table and enum type");
+    } else {
+      ok = false;
+      const sample = notOwned.slice(0, 6).map((o) => `${o.kind} ${o.name} (owner ${o.owner})`).join(", ");
+      console.log(`✗ Migration privileges: this role does not own ${notOwned.length} object(s): ${sample}. Run migrations as the owning role.`);
     }
 
     const missing = EXPECTED_TABLES.filter((t) => !present.has(t));

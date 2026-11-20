@@ -1,7 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ClipboardList, KeyRound, ShieldCheck } from "lucide-react";
+import { ClipboardList, KeyRound, Layers, Scale, ShieldCheck } from "lucide-react";
+import { PartnerSupplierForm } from "@/components/users/partner-supplier-form";
+import { formatMoneyString } from "@/lib/money";
+import { getPartnerAccountSettlement } from "@/server/services/partner-settlement-service";
+import { DepartmentAccessRow } from "@/components/departments/department-admin-forms";
+import { ROLE_LABELS } from "@/lib/auth/permissions";
+import { getAccountDepartments } from "@/server/services/department-service";
 import { Flash } from "@/components/flash";
 import { UserAvatar } from "@/components/layout/user-avatar";
 import { BackLink } from "@/components/page-header";
@@ -23,6 +29,9 @@ const FLASH: Record<string, string> = {
   "signed-out": "اتقفل دخوله من كل الأجهزة ✓",
   created: "تم إنشاء الحساب ✓ — حدد صلاحياته تحت",
   password: "تم تغيير كلمة السر واتقفل دخوله من كل الأجهزة ✓",
+  departments: "تم حفظ الدخول على القسم ✓",
+  supplier: "تم حفظ ربط الشريك بحساب المورد ✓",
+  "department-revoked": "اتشال الدخول على القسم ✓",
 };
 
 export default async function UserAccessPage(props: PageProps<"/users/[id]">) {
@@ -31,7 +40,10 @@ export default async function UserAccessPage(props: PageProps<"/users/[id]">) {
   const { saved } = await props.searchParams;
   const account = await getAccount(prisma, user, id);
   if (!account) notFound();
-  const editable = account.role === "STAFF" && account.id !== user.id;
+  const partner = account.role === "PARTNER";
+  const editable = (account.role === "STAFF" || partner) && account.id !== user.id;
+  const departments = editable ? await getAccountDepartments(prisma, user, account.id) : null;
+  const settlement = partner && editable ? await getPartnerAccountSettlement(prisma, user, account.id) : null;
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
@@ -47,7 +59,7 @@ export default async function UserAccessPage(props: PageProps<"/users/[id]">) {
               {account.email}
             </p>
             <p className="mt-1 flex flex-wrap gap-1.5 text-xs">
-              <span className="inline-flex h-6 items-center rounded-full bg-panel-2 px-2.5 font-semibold ring-1 ring-panel-line">{account.role === "STAFF" ? "موظف" : "مدير"}</span>
+              <span className="inline-flex h-6 items-center rounded-full bg-panel-2 px-2.5 font-semibold ring-1 ring-panel-line">{ROLE_LABELS[account.role]}</span>
               <span className={account.isActive ? "inline-flex h-6 items-center rounded-full bg-panel-2 px-2.5 ring-1 ring-panel-line" : "inline-flex h-6 items-center rounded-full bg-danger-soft px-2.5 font-semibold text-danger-ink"}>
                 {account.isActive ? "نشط" : "موقوف"}
               </span>
@@ -65,14 +77,78 @@ export default async function UserAccessPage(props: PageProps<"/users/[id]">) {
         </p>
       ) : (
         <>
-          {account.ignoredPermissions.length > 0 && (
+          {departments && (
+            <section id="departments" className="scroll-mt-20 rounded-2xl border border-line bg-surface p-4" aria-labelledby="departments-heading">
+              <h2 id="departments-heading" className="flex items-center gap-2 font-display font-semibold">
+                <Layers className="size-4 text-violet" aria-hidden="true" />
+                الأقسام
+              </h2>
+              <p className="mt-1 text-sm text-graphite">
+                {partner
+                  ? "الشريك بيشوف بنود الأقسام دي بس — مش الأوردر كله ولا إجماليه ولا تليفون العميل ولا مدفوعاته."
+                  : "اختياري للموظف: يشوف داشبورد القسم وبنوده. صلاحياته العادية على الأوردرات زي ما هي."}
+              </p>
+              <ul className="mt-3 space-y-2.5">
+                {departments.all.map((d) => (
+                  <DepartmentAccessRow
+                    key={d.id}
+                    userId={account.id}
+                    departmentId={d.id}
+                    name={d.name}
+                    active={d.isActive}
+                    membership={departments.memberships.find((m) => m.departmentId === d.id) ?? null}
+                  />
+                ))}
+              </ul>
+            </section>
+          )}
+          {settlement && (
+            <section id="settlement" className="scroll-mt-20 space-y-3 rounded-2xl border border-line bg-surface p-4" aria-labelledby="settlement-heading">
+              <h2 id="settlement-heading" className="flex items-center gap-2 font-display font-semibold">
+                <Scale className="size-4 text-violet" aria-hidden="true" />
+                حساب التسوية
+              </h2>
+              <p className="text-sm text-graphite">
+                شغل الشريك بيتسجل كتكلفة على الأوردر (بسعر متفق عليه للشغلانة أو للقطعة) على حساب المورد ده، والدفع له من صفحة المورد. منفصل عن تحصيل العميل.
+              </p>
+              <PartnerSupplierForm userId={account.id} current={settlement.supplier?.id ?? null} suppliers={settlement.suppliers} />
+              {settlement.settlement && (
+                <dl className="grid grid-cols-3 gap-1 rounded-2xl bg-well py-3 text-center text-sm">
+                  <div>
+                    <dt className="text-xs text-graphite">المستحق</dt>
+                    <dd className="tabular font-semibold">{formatMoneyString(settlement.settlement.totals.payable)}</dd>
+                  </div>
+                  <div className="border-x border-hairline">
+                    <dt className="text-xs text-graphite">اتدفع</dt>
+                    <dd className="tabular font-semibold text-success-ink">{formatMoneyString(settlement.settlement.totals.paid)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-graphite">الباقي</dt>
+                    <dd className="tabular font-semibold text-violet">{formatMoneyString(settlement.settlement.totals.remaining)}</dd>
+                  </div>
+                </dl>
+              )}
+              {settlement.supplier && (
+                <Link href={`/suppliers/${settlement.supplier.id}`} className="inline-flex text-sm font-semibold text-violet hover:underline">
+                  افتح حساب المورد ({settlement.supplier.name}) — الدفع والسجل
+                </Link>
+              )}
+            </section>
+          )}
+          {partner && (
+            <p className="flex items-start gap-2 rounded-2xl border border-line bg-surface p-4 text-sm">
+              <ShieldCheck className="mt-0.5 size-4 shrink-0 text-violet" aria-hidden="true" />
+              حساب شريك: مالوش أي صلاحيات عامة (أوردرات، عملاء، فلوس، تقارير) حتى لو اتسجلت بالغلط — بيدخل على الأقسام اللي فوق بس.
+            </p>
+          )}
+          {!partner && account.ignoredPermissions.length > 0 && (
             <p className="rounded-2xl bg-warning-soft p-3.5 text-sm text-warning-ink">
               في صلاحيات متسجلة على الحساب ومش شغالة (ناقصها صلاحية تانية أو للمدير بس): <span dir="ltr">{account.ignoredPermissions.join(", ")}</span>. لما تحفظ هتتشال.
             </p>
           )}
-          <PermissionEditor userId={account.id} initial={account.permissions} version={account.version} />
+          {!partner && <PermissionEditor userId={account.id} initial={account.permissions} version={account.version} />}
 
-          <section className="rounded-2xl border border-line bg-surface p-4" aria-labelledby="orders-access-heading">
+          {!partner && <section className="rounded-2xl border border-line bg-surface p-4" aria-labelledby="orders-access-heading">
             <h2 id="orders-access-heading" className="flex items-center gap-2 font-display font-semibold">
               <ClipboardList className="size-4 text-violet" aria-hidden="true" />
               الأوردرات اللي يقدر يشوفها
@@ -101,7 +177,7 @@ export default async function UserAccessPage(props: PageProps<"/users/[id]">) {
               </ul>
             )}
             <p className="mt-2 text-xs text-graphite">تغيّر مين يشوف أوردر معيّن من صفحة الأوردر نفسه («ظهور الأوردر للعمال»).</p>
-          </section>
+          </section>}
 
           <section className="space-y-3 rounded-2xl border border-line bg-surface p-4" aria-labelledby="sessions-heading">
             <h2 id="sessions-heading" className="flex items-center gap-2 font-display font-semibold">

@@ -61,6 +61,18 @@ export const AUDIT_ACTIONS = {
   DELIVERY_VOIDED: "DELIVERY_VOIDED",
   /** Status changed automatically from production/delivery records. */
   ORDER_STATUS_AUTO: "ORDER_STATUS_AUTO",
+  DEPARTMENT_CREATED: "DEPARTMENT_CREATED",
+  DEPARTMENT_UPDATED: "DEPARTMENT_UPDATED",
+  /** An account's access to a department was granted or changed (work / money / production). */
+  DEPARTMENT_ACCESS_CHANGED: "DEPARTMENT_ACCESS_CHANGED",
+  DEPARTMENT_ACCESS_REVOKED: "DEPARTMENT_ACCESS_REVOKED",
+  /** Owner split an item's value across departments (or cleared the split). */
+  ORDER_VALUE_SPLIT_SET: "ORDER_VALUE_SPLIT_SET",
+  ORDER_DEPARTMENT_VISIBILITY_CHANGED: "ORDER_DEPARTMENT_VISIBILITY_CHANGED",
+  /** A partner account was linked to (or unlinked from) its settlement supplier. */
+  PARTNER_SUPPLIER_LINKED: "PARTNER_SUPPLIER_LINKED",
+  PRODUCT_PRESET_CREATED: "PRODUCT_PRESET_CREATED",
+  PRODUCT_PRESET_UPDATED: "PRODUCT_PRESET_UPDATED",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

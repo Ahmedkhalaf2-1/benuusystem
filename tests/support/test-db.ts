@@ -37,7 +37,21 @@ export async function resetDatabase(db: PrismaClient): Promise<void> {
       '"worker_work_logs", "worker_workdays", "workers", ' +
       '"outgoing_payments", "order_costs", "general_expenses", "suppliers", ' +
       '"order_group_sizes", "order_group_operations", "order_groups", "order_payments", "orders", "customers", ' +
-      '"audit_logs", "sessions", "login_attempts", "users" CASCADE',
+      '"audit_logs", "sessions", "login_attempts", "department_members", "departments", "product_presets", "users" CASCADE',
+  );
+  // The four departments the Phase 2 migration seeds.
+  await db.$executeRawUnsafe(
+    `INSERT INTO "departments" ("id", "key", "name", "sort_order", "updated_at") VALUES
+      (gen_random_uuid(), 'EMBROIDERY', 'تطريز', 1, now()),
+      (gen_random_uuid(), 'COVERS', 'كوفرات', 2, now()),
+      (gen_random_uuid(), 'PRINTING', 'طباعة', 3, now()),
+      (gen_random_uuid(), 'GARMENTS', 'ملابس / منتج كامل', 4, now())`,
+  );
+  // The «منتج جاهز» presets the Phase 3 migration seeds.
+  await db.$executeRawUnsafe(
+    `INSERT INTO "product_presets" ("id", "name", "sort_order", "updated_at") VALUES
+      (gen_random_uuid(), 'تيشيرت', 1, now()), (gen_random_uuid(), 'هودي', 2, now()), (gen_random_uuid(), 'سويت شيرت', 3, now()),
+      (gen_random_uuid(), 'بولو', 4, now()), (gen_random_uuid(), 'كاب', 5, now()), (gen_random_uuid(), 'شنطة', 6, now())`,
   );
   await db.$executeRawUnsafe(
     `INSERT INTO "counters" ("key", "value") VALUES ('order_number', 0)
@@ -63,12 +77,12 @@ export const LEGACY_STAFF_PERMISSIONS = [
 /** Creates a user directly (tests only) and returns it as a service Actor. */
 export async function createTestUser(
   db: PrismaClient,
-  role: "OWNER_ADMIN" | "STAFF",
+  role: "OWNER_ADMIN" | "STAFF" | "PARTNER",
   email = `${role.toLowerCase()}-${Math.random().toString(36).slice(2, 8)}@benuuprint.test`,
   permissions: string[] = role === "STAFF" ? LEGACY_STAFF_PERMISSIONS : [],
 ) {
   const user = await db.user.create({
-    data: { name: role === "OWNER_ADMIN" ? "المدير" : "موظف", email, passwordHash: "not-used", role, permissions },
+    data: { name: role === "OWNER_ADMIN" ? "المدير" : role === "PARTNER" ? "شريك" : "موظف", email, passwordHash: "not-used", role, permissions },
     select: { id: true, role: true, name: true, permissions: true },
   });
   return user;

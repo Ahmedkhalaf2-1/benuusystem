@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { PrismaClient } from "@/generated/prisma/client";
+import type { Role } from "@/generated/prisma/enums";
 import { PERMISSION_INFO, missingDependencies } from "@/lib/auth/permission-catalog";
 import { STAFF_GRANTABLE, assertPermission, effectiveStaffPermissions, isGrantable, isOwner, type GrantablePermission } from "@/lib/auth/permissions";
 import type { DbClient, DbTransaction } from "@/lib/db/prisma";
@@ -35,13 +36,16 @@ export type StaffAccountSummary = {
   id: string;
   name: string;
   email: string;
-  role: "OWNER_ADMIN" | "STAFF";
+  /** PARTNER: external account — no general permissions, department access only. */
+  role: Role;
   isActive: boolean;
   /** Effective grants (owners: empty — they have everything). */
   permissions: GrantablePermission[];
   sessions: number;
   /** Orders shared with this account by name (SELECTED_STAFF). */
   assignedOrders: number;
+  /** Departments this account has a membership in. */
+  departments: number;
   createdAt: Date;
 };
 
@@ -58,7 +62,7 @@ export async function listAccounts(db: DbClient, actor: Actor): Promise<StaffAcc
       isActive: true,
       permissions: true,
       createdAt: true,
-      _count: { select: { sessions: { where: { expiresAt: { gt: now } } }, orderAccess: { where: { order: { visibility: "SELECTED_STAFF", archivedAt: null } } } } },
+      _count: { select: { sessions: { where: { expiresAt: { gt: now } } }, orderAccess: { where: { order: { visibility: "SELECTED_STAFF", archivedAt: null } } }, departmentMemberships: true } },
     },
   });
   return rows.map((u) => ({
@@ -70,6 +74,7 @@ export async function listAccounts(db: DbClient, actor: Actor): Promise<StaffAcc
     permissions: u.role === "STAFF" ? effectiveStaffPermissions(u.permissions) : [],
     sessions: u._count.sessions,
     assignedOrders: u._count.orderAccess,
+    departments: u._count.departmentMemberships,
     createdAt: u.createdAt,
   }));
 }
@@ -99,7 +104,7 @@ export async function getAccount(db: DbClient, actor: Actor, userId: string): Pr
       permissions: true,
       permissionsVersion: true,
       createdAt: true,
-      _count: { select: { sessions: { where: { expiresAt: { gt: now } } } } },
+      _count: { select: { sessions: { where: { expiresAt: { gt: now } } }, departmentMemberships: true } },
       orderAccess: {
         where: { order: { visibility: "SELECTED_STAFF", archivedAt: null } },
         orderBy: { order: { number: "desc" } },
@@ -125,6 +130,7 @@ export async function getAccount(db: DbClient, actor: Actor, userId: string): Pr
     ignoredPermissions: u.role === "STAFF" ? u.permissions.filter((p) => !(effective as string[]).includes(p)) : [],
     sessions: u._count.sessions,
     assignedOrders,
+    departments: u._count.departmentMemberships,
     createdAt: u.createdAt,
     version: u.permissionsVersion,
     orders: u.orderAccess.map((a) => ({ id: a.order.id, number: a.order.number, title: a.order.title, customerName: a.order.customer.name })),
@@ -133,14 +139,17 @@ export async function getAccount(db: DbClient, actor: Actor, userId: string): Pr
   };
 }
 
-/** Locks a STAFF account row for a change by the owner. Refuses owners and self-edits. */
+/**
+ * Locks a STAFF or PARTNER account row for a change by the owner. Refuses
+ * owners and self-edits.
+ */
 async function lockStaffAccount(tx: DbTransaction, actor: Actor, userId: string, expectedVersion: number | undefined) {
   if (userId === actor.id) throw new AppError("FORBIDDEN", "مينفعش تعدّل صلاحيات أو حالة حسابك إنت.");
   const rows = await tx.$queryRaw<{ id: string; role: string; is_active: boolean; permissions: string[]; permissions_version: number; email: string }[]>`
     SELECT id, role, is_active, permissions, permissions_version, email FROM users WHERE id = ${userId}::uuid FOR UPDATE`;
   const row = rows[0];
   if (!row) throw new AppError("NOT_FOUND", "الحساب مش موجود");
-  if (row.role !== "STAFF") throw new AppError("FORBIDDEN", "حسابات المدير بتتدار من السيرفر بس، ودايمًا ليها كل الصلاحيات.");
+  if (row.role !== "STAFF" && row.role !== "PARTNER") throw new AppError("FORBIDDEN", "حسابات المدير بتتدار من السيرفر بس، ودايمًا ليها كل الصلاحيات.");
   if (expectedVersion !== undefined && expectedVersion !== row.permissions_version) {
     throw new AppError("CONFLICT", "الحساب ده اتعدّل من شوية. افتح الصفحة تاني وراجع قبل ما تحفظ.");
   }
@@ -178,6 +187,8 @@ export async function updateStaffPermissions(db: PrismaClient, actor: Actor, pay
 
   return db.$transaction(async (tx) => {
     const row = await lockStaffAccount(tx, actor, input.userId, input.expectedVersion);
+    // Partners never hold company-wide permissions; their access is per department.
+    if (row.role === "PARTNER") throw new AppError("FORBIDDEN", "حساب الشريك مالوش صلاحيات عامة — حدد الأقسام اللي يشوفها بس.");
     const before = effectiveStaffPermissions(row.permissions);
     const added = wanted.filter((k) => !before.includes(k));
     const removed = before.filter((k) => !wanted.includes(k));
@@ -274,13 +285,18 @@ function field<T>(schema: { safeParse: (v: unknown) => { success: true; data: T 
   return r.data;
 }
 
-/** Creates a STAFF account with NO permissions. Owner only, with re-authentication. */
+/**
+ * Creates a STAFF account with NO permissions, or a PARTNER account with no
+ * department yet (`kind: "PARTNER"`). Owner only, with re-authentication.
+ */
 export async function createStaffAccount(
   db: PrismaClient,
   actor: Actor,
-  payload: { name: unknown; email: unknown; password: unknown; ownerPassword: unknown },
+  payload: { name: unknown; email: unknown; password: unknown; ownerPassword: unknown; kind?: unknown },
 ): Promise<{ userId: string }> {
   requireOwnerActor(actor);
+  const kind = payload.kind === undefined || payload.kind === null || payload.kind === "" ? "STAFF" : payload.kind;
+  if (kind !== "STAFF" && kind !== "PARTNER") throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { kind: ["اختار نوع الحساب"] } });
   const name = field(userNameSchema, payload.name, "name");
   const email = field(emailSchema, payload.email, "email");
   const password = field(newPasswordSchema, payload.password, "password");
@@ -289,8 +305,8 @@ export async function createStaffAccount(
   const passwordHash = await hashPassword(password);
   return db.$transaction(async (tx) => {
     if (await findUserByEmail(tx, email)) throw new AppError("CONFLICT", "الإيميل ده مستخدم في حساب تاني", { fieldErrors: { email: ["الإيميل ده مستخدم في حساب تاني"] } });
-    const user = await createUser(tx, { name, email, passwordHash, role: "STAFF", permissions: [] });
-    await recordAudit(tx, { userId: actor.id, action: AUDIT_ACTIONS.USER_CREATED, entityType: "User", entityId: user.id, metadata: { role: "STAFF", email, source: SOURCE } });
+    const user = await createUser(tx, { name, email, passwordHash, role: kind, permissions: [] });
+    await recordAudit(tx, { userId: actor.id, action: AUDIT_ACTIONS.USER_CREATED, entityType: "User", entityId: user.id, metadata: { role: kind, email, source: SOURCE } });
     return { userId: user.id };
   });
 }

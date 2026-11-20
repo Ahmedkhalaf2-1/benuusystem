@@ -6,6 +6,7 @@ import {
   Landmark,
   House,
   LayoutGrid,
+  Layers,
   PlusCircle,
   Receipt,
   ShieldCheck,
@@ -33,6 +34,8 @@ export const MAIN_NAV: readonly NavItem[] = [
   { key: "orders", label: "الأوردرات", href: "/orders", icon: ClipboardList },
   { key: "accounts", label: "الحسابات", href: "/accounts", icon: Wallet },
   { key: "more", label: "المزيد", href: "/more", icon: LayoutGrid },
+  /** Partner accounts' home: their department(s) only. */
+  { key: "departments", label: "شغل القسم", href: "/departments", icon: Layers },
 ];
 
 /**
@@ -40,8 +43,11 @@ export const MAIN_NAV: readonly NavItem[] = [
  * are always there; الأوردرات needs orders:view; الحسابات needs something to
  * do or see there.
  */
-export function mainNavKeys(can: (permission: Permission) => boolean): string[] {
+export function mainNavKeys(can: (permission: Permission) => boolean, options: { partner?: boolean } = {}): string[] {
+  // Partners have no company screens: their department work and المزيد only.
+  if (options.partner) return ["departments", "more"];
   return MAIN_NAV.filter((item) => {
+    if (item.key === "departments") return false;
     if (item.key === "orders") return can("orders:view");
     if (item.key === "accounts") return can("finance:reports") || can("customers:view") || can("suppliers:view") || can("expenses:record");
     return true;
@@ -49,7 +55,9 @@ export function mainNavKeys(can: (permission: Permission) => boolean): string[] 
 }
 
 /** Extra sidebar entries on desktop (phones reach them from the dashboard / المزيد). */
-export const SIDEBAR_EXTRA_NAV: readonly (NavItem & { permission: Permission })[] = [
+/** `permission: null` = shown to accounts with department access (owner, or a department member). */
+export const SIDEBAR_EXTRA_NAV: readonly (NavItem & { permission: Permission | null })[] = [
+  { key: "departments", label: "الأقسام", href: "/departments", icon: Layers, permission: null },
   { key: "customers", label: "العملاء", href: "/customers", icon: UsersRound, permission: "customers:view" },
   { key: "workers", label: "العمال", href: "/workers", icon: HardHat, permission: "workers:view" },
   { key: "suppliers", label: "الموردين", href: "/suppliers", icon: Truck, permission: "suppliers:view-balances" },
