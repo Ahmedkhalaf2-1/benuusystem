@@ -3,22 +3,52 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { suggestDepartmentKey } from "@/lib/departments/suggest";
 import { formatQuantity, parseQuantity, usageTotalCents } from "@/lib/finance/usage";
-import { checkLinear, cmToMm, itemLineCents, itemWorkSummary, linearLineCents, maxCopiesPerRow, variantLabel, WORK_KIND_CONFIG, WORK_KINDS } from "@/lib/orders/work-kinds";
+import { checkLinear, cmToMm, formatMeters, itemLineCents, itemWorkSummary, linearLineCents, metersToMm, variantLabel, WORK_KIND_CONFIG, WORK_KINDS } from "@/lib/orders/work-kinds";
+import { draftLinear, itemLineTotal } from "@/components/orders/order-items";
+import { newWorkLine } from "@/components/orders/order-draft";
 import { createOrderSchema, type CreateOrderPayload } from "@/lib/validations/order";
 
-describe("linear-meter pricing", () => {
-  it("bills the owner's example: 50×70 cm × 10 copies on a 60 cm roll at 120/m = 7 m = 840", () => {
-    const r = checkLinear({ fileWidthMm: 500, fileLengthMm: 700, copies: 10, copiesPerRow: 1, rollWidthMm: 600 });
-    expect(r).toEqual({ ok: true, rows: 10, billableLengthMm: 7000 });
-    expect(linearLineCents(7000, 12_000n)).toBe(84_000n);
+const orderBase: CreateOrderPayload = { idempotencyKey: "0192f3b4-5c6d-7e8f-9a0b-1c2d3e4f5a6b", customer: { mode: "new", name: "x" }, title: "x", productType: "ورق DTF", unit: "PIECE", pricing: "items", receivedDate: "2026-11-01", deliveryDate: "2026-12-01", groups: [] };
+
+describe("linear-meter pricing (file length in meters × copies × price per meter)", () => {
+  const line = (meters: string, copies: number, price: bigint) => {
+    const r = checkLinear({ fileLengthMm: metersToMm(meters)!, copies });
+    if (!r.ok) throw new Error(r.message);
+    return { meters: formatMeters(r.billableLengthMm), cents: linearLineCents(r.billableLengthMm, price) };
+  };
+
+  it("matches the owner's three mandatory examples", () => {
+    expect(line("1", 3, 15_000n)).toEqual({ meters: "3", cents: 45_000n });
+    expect(line("0.25", 10, 15_000n)).toEqual({ meters: "2.5", cents: 37_500n });
+    expect(line("0.5", 9, 15_000n)).toEqual({ meters: "4.5", cents: 67_500n });
   });
 
-  it("uses an explicit copies-per-row only, and refuses files wider than the roll (no rotation)", () => {
-    expect(checkLinear({ fileWidthMm: 250, fileLengthMm: 700, copies: 5, copiesPerRow: 2, rollWidthMm: 600 })).toEqual({ ok: true, rows: 3, billableLengthMm: 2100 });
-    expect(checkLinear({ fileWidthMm: 700, fileLengthMm: 500, copies: 1, copiesPerRow: 1, rollWidthMm: 600 })).toMatchObject({ ok: false, field: "fileWidthMm" });
-    expect(checkLinear({ fileWidthMm: 250, fileLengthMm: 700, copies: 5, copiesPerRow: 3, rollWidthMm: 600 })).toMatchObject({ ok: false, field: "copiesPerRow" });
-    expect(checkLinear({ fileWidthMm: 250, fileLengthMm: 700, copies: 5, copiesPerRow: 1, rollWidthMm: 0 })).toMatchObject({ ok: false, field: "rollWidthMm" });
-    expect(maxCopiesPerRow(250, 600)).toBe(2);
+  it("supports decimal lengths without rounding meters to whole numbers", () => {
+    expect(line("1.25", 1, 15_000n)).toEqual({ meters: "1.25", cents: 18_750n });
+    expect(line("2.75", 2, 15_000n)).toEqual({ meters: "5.5", cents: 82_500n });
+    expect(line("0.125", 3, 10_000n)).toEqual({ meters: "0.375", cents: 3_750n });
+    expect(line("0.333", 1, 9_999n)).toEqual({ meters: "0.333", cents: 3_330n }); // 33.29667 → 33.30 (half up, piaster)
+    expect(checkLinear({ fileLengthMm: 250, copies: 10 })).toEqual({ ok: true, billableLengthMm: 2500 });
+  });
+
+  it("asks only for length and copies (no roll, width or per-row inputs)", () => {
+    expect(checkLinear({ fileLengthMm: 0, copies: 3 })).toMatchObject({ ok: false, field: "fileLengthMm" });
+    expect(checkLinear({ fileLengthMm: 500, copies: 0 })).toMatchObject({ ok: false, field: "copies" });
+  });
+
+  it("parses meters exactly (up to 3 decimals, Arabic digits and comma too)", () => {
+    expect(metersToMm("1")).toBe(1000);
+    expect(metersToMm("0.25")).toBe(250);
+    expect(metersToMm(".5")).toBe(500);
+    expect(metersToMm("2.75")).toBe(2750);
+    expect(metersToMm("٠٫٥")).toBe(500);
+    expect(metersToMm("1,25")).toBe(1250);
+    expect(metersToMm("0.1234")).toBeNull();
+    expect(metersToMm("abc")).toBeNull();
+    expect(metersToMm("-1")).toBeNull();
+    expect(formatMeters(3000)).toBe("3");
+    expect(formatMeters(7000)).toBe("7");
+    expect(formatMeters(125)).toBe("0.125");
   });
 
   it("rounds half up to the piaster and keeps every other item as quantity × unit price", () => {
@@ -29,12 +59,34 @@ describe("linear-meter pricing", () => {
     expect(itemLineCents({ quantity: 3, unitPriceCents: null })).toBeNull();
   });
 
-  it("parses cm with one decimal (Arabic digits too)", () => {
+  it("keeps the legacy cm parser for the old roll-width setting only", () => {
     expect(cmToMm("70")).toBe(700);
     expect(cmToMm("29.7")).toBe(297);
-    expect(cmToMm("٥٠")).toBe(500);
     expect(cmToMm("1.25")).toBeNull();
-    expect(cmToMm("abc")).toBeNull();
+  });
+});
+
+describe("frontend / backend parity", () => {
+  const cases: [string, string, string][] = [
+    ["1", "3", "150"], ["0.25", "10", "150"], ["0.5", "9", "150"], ["1.25", "4", "137.50"], ["2.75", "7", "99.99"], ["0.333", "3", "120.01"], ["0.001", "1", "10"],
+  ];
+  it.each(cases)("length %s m × %s copies × %s/m gives the same line on both sides", (fileLengthM, quantity, unitPrice) => {
+    const draft = newWorkLine("DTF_PAPER", { variant: "WHITE_80", fileLengthM, quantity, unitPrice });
+    const client = itemLineTotal(draft);
+    const server = createOrderSchema.parse({ ...orderBase, groups: [{ workKind: "DTF_PAPER", variant: "WHITE_80", name: "x", quantity, unitPrice, fileLengthM, plain: true, designs: [] }] });
+    expect(client).not.toBeNull();
+    expect(server.totalPrice).toBe(client);
+    expect(draftLinear(draft)).toMatchObject({ ok: true, billableLengthMm: server.groups[0]!.linear!.billableLengthMm });
+    expect(server.groups[0]!.linear).toMatchObject({ fileWidthMm: null, copiesPerRow: null, rollWidthMm: null });
+  });
+
+  it("an unchanged legacy line keeps its stored billed length in the form; a changed one is re-measured", () => {
+    const legacyLinear = { fileLengthMm: 700, copies: 5, billableLengthMm: 2100, summary: "ملف 25×70 سم" }; // old rule: ceil(5/2) rows × 70 cm
+    const kept = newWorkLine("DTF_PAPER", { variant: "WHITE_80", fileLengthM: "0.7", quantity: "5", unitPrice: "120", legacyLinear });
+    expect(draftLinear(kept)).toMatchObject({ ok: true, billableLengthMm: 2100, legacy: true });
+    expect(itemLineTotal(kept)).toBe(25_200n);
+    const changed = { ...kept, quantity: "6" };
+    expect(draftLinear(changed)).toEqual({ ok: true, billableLengthMm: 4200 });
   });
 });
 
@@ -51,9 +103,12 @@ describe("work-kind config", () => {
     expect(suggestDepartmentKey({ workKind: "EMBROIDERY_FOR_OTHERS", designs: [{ operation: "DTF" }] })).toBe("EMBROIDERY");
   });
 
-  it("summarizes a line for pages and PDFs", () => {
+  it("summarizes a line for pages and PDFs (new meters rule, and legacy rows exactly as stored)", () => {
+    expect(itemWorkSummary({ workKind: "DTF_PAPER", variant: "WHITE_80", variantText: null, threadColor: null, saleUnit: null, pricingBasis: "LINEAR_METER", fileWidthMm: null, fileLengthMm: 250, copiesPerRow: null, rollWidthMm: null, billableLengthMm: 2500 }, 10)).toBe(
+      "ورق DTF · أبيض 80% · طول الفايل 0.25 متر × 10 كوبيه · 2.5 متر طولي",
+    );
     expect(itemWorkSummary({ workKind: "DTF_PAPER", variant: "WHITE_80", variantText: null, threadColor: null, saleUnit: null, pricingBasis: "LINEAR_METER", fileWidthMm: 500, fileLengthMm: 700, copiesPerRow: 1, rollWidthMm: 600, billableLengthMm: 7000 }, 10)).toBe(
-      "ورق DTF · أبيض 80% · ملف 50×70 سم × 10 نسخة · رول 60 سم · 7.00 متر طولي",
+      "ورق DTF · أبيض 80% · ملف 50×70 سم × 10 نسخة · رول 60 سم · 7 متر طولي",
     );
     expect(itemWorkSummary({ workKind: null, variant: null, variantText: null, threadColor: null, saleUnit: null, pricingBasis: "UNIT", fileWidthMm: null, fileLengthMm: null, copiesPerRow: null, rollWidthMm: null, billableLengthMm: null })).toBeNull();
   });
@@ -65,13 +120,22 @@ describe("order schema with work kinds", () => {
     const r = createOrderSchema.parse({
       ...base,
       groups: [
-        { workKind: "DTF_PAPER", variant: "WHITE_80", name: "a", quantity: "10", unitPrice: "120", fileWidthCm: "50", fileLengthCm: "70", rollWidthCm: "60", plain: true, designs: [] },
-        { workKind: "DTF_PAPER", variant: "WHITE_100", name: "b", quantity: "10", unitPrice: "150", fileWidthCm: "50", fileLengthCm: "70", rollWidthCm: "60", plain: true, designs: [] },
+        { workKind: "DTF_PAPER", variant: "WHITE_80", name: "a", quantity: "10", unitPrice: "120", fileLengthM: "0.7", plain: true, designs: [] },
+        { workKind: "DTF_PAPER", variant: "WHITE_100", name: "b", quantity: "10", unitPrice: "150", fileLengthM: "0.7", plain: true, designs: [] },
         { workKind: "HEAT_PRESS_FOR_OTHERS", name: "c", quantity: "100", unitPrice: "3", plain: true, designs: [] },
       ],
     });
     expect(r.totalPrice).toBe(84_000n + 105_000n + 30_000n);
     expect(r.groups.map((g) => [g.pricingBasis, g.linear?.billableLengthMm ?? null, g.material])).toEqual([["LINEAR_METER", 7000, ""], ["LINEAR_METER", 7000, ""], ["UNIT", null, ""]]);
+  });
+
+  it("does not require (or accept) the removed inputs, and never reads a cm length as meters", () => {
+    const ok = createOrderSchema.parse({ ...base, groups: [{ workKind: "VINYL_PAPER", variant: "BLACK", name: "v", quantity: "3", unitPrice: "150", fileLengthM: "1", plain: true, designs: [] }] });
+    expect(ok.totalPrice).toBe(45_000n);
+    // An outdated client still sending «fileLengthCm: 70» is refused, not billed as 70 m.
+    const stale = createOrderSchema.safeParse({ ...base, groups: [{ workKind: "VINYL_PAPER", variant: "BLACK", name: "v", quantity: "3", unitPrice: "150", fileLengthCm: "70", rollWidthCm: "60", fileWidthCm: "50", plain: true, designs: [] }] });
+    expect(stale.success).toBe(false);
+    expect(JSON.stringify(stale.error?.issues)).toContain("fileLengthM");
   });
 });
 

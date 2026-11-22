@@ -25,8 +25,8 @@ export type WorkKindConfig = {
   /** Short English name (reports). */
   english: string;
   /**
-   * LINEAR_METER: billed by linear meter of a fixed-width roll (file width ×
-   * length × copies; price per linear meter). UNIT: quantity × unit price.
+   * LINEAR_METER: billed by linear meter (file length in meters × copies ×
+   * price per linear meter). UNIT: quantity × unit price.
    */
   pricing: "LINEAR_METER" | "UNIT";
   /** Material / method choices; `multi`: picking several makes one line per choice. */
@@ -160,41 +160,34 @@ export function variantLabel(kind: WorkKind | null | undefined, variant: string 
 // ───────────────────────────── Linear-meter pricing ─────────────────────────────
 
 /**
- * DTF / vinyl are sold by the LINEAR METER of a fixed-width roll (never by
- * square meter). All lengths are whole millimetres; money is whole piasters.
+ * DTF / vinyl are sold by the LINEAR METER. The sale has exactly three inputs:
+ * the file length in METERS, the number of copies and the price per linear
+ * meter. Lengths are stored as whole millimetres (exact), money as piasters:
  *
- *   rows            = ceil(copies / copiesPerRow)        (copiesPerRow set explicitly; default 1)
- *   billableLength  = rows × fileLength                  (no rotation, nesting or spacing is invented)
- *   lineTotal       = round_half_up(billableLength × pricePerMeter / 1000)
+ *   billableLength = fileLength × copies               (never rounded to whole meters)
+ *   lineTotal      = round_half_up(billableLength × pricePerMeter / 1000)  (to the piaster)
  *
- * The file must fit across the roll: fileWidth × copiesPerRow ≤ rollWidth.
- * Actual consumed length (waste, setup) is recorded separately as a cost
- * entry, never mixed into the billed length.
+ * No roll width, file width, copies per row, nesting or rotation is part of
+ * the sale. Actual material consumed (waste, setup) is recorded separately as
+ * a cost entry, never mixed into the billed length.
+ *
+ * Legacy items (saved before this rule) also stored file width, copies per row
+ * and roll width (billed = ceil(copies ÷ perRow) × length). Their stored billed
+ * length is authoritative and is never recomputed or reinterpreted.
  */
-export type LinearInput = { fileWidthMm: number; fileLengthMm: number; copies: number; copiesPerRow: number; rollWidthMm: number };
+export type LinearInput = { fileLengthMm: number; copies: number };
 
-export type LinearCheck = { ok: true; rows: number; billableLengthMm: number } | { ok: false; field: "fileWidthMm" | "fileLengthMm" | "copies" | "copiesPerRow" | "rollWidthMm"; message: string };
+export type LinearCheck = { ok: true; billableLengthMm: number } | { ok: false; field: "fileLengthMm" | "copies"; message: string };
 
 export const MAX_LENGTH_MM = 1_000_000; // 1 km — a sanity limit, not a business rule
 
 export function checkLinear(i: LinearInput): LinearCheck {
   const pos = (n: number) => Number.isInteger(n) && n > 0;
-  if (!pos(i.rollWidthMm) || i.rollWidthMm > 10_000) return { ok: false, field: "rollWidthMm", message: "اكتب عرض الرول" };
-  if (!pos(i.fileWidthMm) || i.fileWidthMm > 10_000) return { ok: false, field: "fileWidthMm", message: "اكتب عرض الملف" };
-  if (!pos(i.fileLengthMm) || i.fileLengthMm > MAX_LENGTH_MM) return { ok: false, field: "fileLengthMm", message: "اكتب طول الملف" };
-  if (!pos(i.copies)) return { ok: false, field: "copies", message: "اكتب عدد النسخ" };
-  if (!pos(i.copiesPerRow)) return { ok: false, field: "copiesPerRow", message: "اكتب عدد النسخ في الصف" };
-  if (i.fileWidthMm * i.copiesPerRow > i.rollWidthMm) {
-    return {
-      ok: false,
-      field: i.copiesPerRow > 1 ? "copiesPerRow" : "fileWidthMm",
-      message: i.copiesPerRow > 1 ? `${i.copiesPerRow} نسخ جنب بعض مش هيدخلوا في عرض الرول (${formatCm(i.rollWidthMm)} سم)` : `عرض الملف أكبر من عرض الرول (${formatCm(i.rollWidthMm)} سم)`,
-    };
-  }
-  const rows = Math.ceil(i.copies / i.copiesPerRow);
-  const billableLengthMm = rows * i.fileLengthMm;
+  if (!pos(i.fileLengthMm) || i.fileLengthMm > MAX_LENGTH_MM) return { ok: false, field: "fileLengthMm", message: "اكتب طول الفايل بالمتر، مثال: 0.5" };
+  if (!pos(i.copies)) return { ok: false, field: "copies", message: "اكتب عدد الكوبيهات" };
+  const billableLengthMm = i.fileLengthMm * i.copies;
   if (billableLengthMm > MAX_LENGTH_MM) return { ok: false, field: "copies", message: "الطول الكلي كبير جدًا" };
-  return { ok: true, rows, billableLengthMm };
+  return { ok: true, billableLengthMm };
 }
 
 /** Line total in piasters for a billed length (mm) at a price per linear meter (piasters). Half-up to the piaster. */
@@ -203,15 +196,23 @@ export function linearLineCents(billableLengthMm: number, pricePerMeterCents: bi
   return (num * 2n + 1000n) / 2000n; // round half up of num / 1000
 }
 
-/** The most copies that fit side by side (for the form's hint — never applied silently). */
-export function maxCopiesPerRow(fileWidthMm: number, rollWidthMm: number): number {
-  return fileWidthMm > 0 ? Math.floor(rollWidthMm / fileWidthMm) : 0;
+const ARABIC_DIGITS = "٠١٢٣٤٥٦٧٨٩";
+const westernDigits = (text: string) => text.replace(/[٠-٩]/g, (d) => String(ARABIC_DIGITS.indexOf(d))).replace(/[٫,]/, ".");
+
+/** "0.25" / "1.25" / ".5" / "٢٫٧٥" meters → exact mm (up to 3 decimals); null when invalid. */
+export function metersToMm(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const text = westernDigits(String(value).trim());
+  if (!/^(\d+(\.\d{0,3})?|\.\d{1,3})$/.test(text)) return null;
+  const [whole = "", frac = ""] = text.split(".");
+  const mm = Number(whole || "0") * 1000 + Number(frac.padEnd(3, "0"));
+  return Number.isSafeInteger(mm) ? mm : null;
 }
 
-/** "70" / "70.5" cm → mm (one decimal allowed); null when invalid. */
+/** "70" / "70.5" cm → mm (one decimal allowed); null when invalid. Legacy roll-width setting only. */
 export function cmToMm(value: string | number | null | undefined): number | null {
   if (value === null || value === undefined) return null;
-  const text = String(value).trim().replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))).replace(",", ".");
+  const text = westernDigits(String(value).trim());
   if (!/^\d+(\.\d)?$/.test(text)) return null;
   const [whole, frac = "0"] = text.split(".");
   return Number(whole) * 10 + Number(frac);
@@ -221,9 +222,16 @@ export function formatCm(mm: number): string {
   return mm % 10 === 0 ? String(mm / 10) : (mm / 10).toFixed(1);
 }
 
-/** 7000 mm → "7.00" linear meters. */
+/** Exact meters from mm, without padding: 3000 → "3", 2500 → "2.5", 125 → "0.125". */
 export function formatMeters(mm: number): string {
-  return (mm / 1000).toFixed(2);
+  const whole = Math.trunc(mm / 1000);
+  const frac = String(Math.abs(mm % 1000)).padStart(3, "0").replace(/0+$/, "");
+  return frac ? `${whole}.${frac}` : String(whole);
+}
+
+/** A legacy item stored the old layout (roll / file width / copies per row). */
+export function isLegacyLinear(work: { fileWidthMm?: number | null; copiesPerRow?: number | null; rollWidthMm?: number | null }): boolean {
+  return work.fileWidthMm != null || work.copiesPerRow != null || work.rollWidthMm != null;
 }
 
 // ───────────────────────────── Any item's line total ─────────────────────────────
@@ -272,9 +280,14 @@ export function itemWorkSummary(work: {
   if (v) parts.push(v);
   if (work.threadColor) parts.push(`لون الخيط ${work.threadColor}`);
   if (work.saleUnit) parts.push(work.measuredQuantity ? `${work.measuredQuantity} ${SALE_UNIT_LABELS[work.saleUnit] ?? work.saleUnit}` : `بال${SALE_UNIT_LABELS[work.saleUnit] ?? work.saleUnit}`);
-  if (work.pricingBasis === "LINEAR_METER" && work.fileWidthMm && work.fileLengthMm && work.billableLengthMm) {
-    parts.push(`ملف ${formatCm(work.fileWidthMm)}×${formatCm(work.fileLengthMm)} سم${quantity ? ` × ${quantity} نسخة` : ""}${work.copiesPerRow && work.copiesPerRow > 1 ? ` (${work.copiesPerRow} في الصف)` : ""}`);
-    if (work.rollWidthMm) parts.push(`رول ${formatCm(work.rollWidthMm)} سم`);
+  if (work.pricingBasis === "LINEAR_METER" && work.fileLengthMm && work.billableLengthMm) {
+    if (isLegacyLinear(work) && work.fileWidthMm) {
+      // Saved under the old rule: shown exactly as stored (cm), never reinterpreted.
+      parts.push(`ملف ${formatCm(work.fileWidthMm)}×${formatCm(work.fileLengthMm)} سم${quantity ? ` × ${quantity} نسخة` : ""}${work.copiesPerRow && work.copiesPerRow > 1 ? ` (${work.copiesPerRow} في الصف)` : ""}`);
+      if (work.rollWidthMm) parts.push(`رول ${formatCm(work.rollWidthMm)} سم`);
+    } else {
+      parts.push(`طول الفايل ${formatMeters(work.fileLengthMm)} متر${quantity ? ` × ${quantity} كوبيه` : ""}`);
+    }
     parts.push(`${formatMeters(work.billableLengthMm)} متر طولي`);
   }
   return parts.join(" · ");

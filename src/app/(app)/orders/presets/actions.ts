@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { toActionResult, type ActionResult } from "@/lib/actions";
 import { requireUser } from "@/lib/auth/current-user";
 import { prisma } from "@/lib/db/prisma";
-import { createPreset, setRollWidth, updatePreset } from "@/server/services/product-preset-service";
+import { createPreset, updatePreset } from "@/server/services/product-preset-service";
 
 /** Owner: «منتجات جاهزة» list. The service re-checks owner rights. */
 export async function createPresetAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
@@ -26,14 +26,6 @@ export async function updatePresetAction(_prev: ActionResult | null, formData: F
       ...(move === "-1" || move === "1" ? { move: Number(move) } : {}),
     }),
   );
-  if (failure) return failure;
-  redirect("/orders/presets?saved=updated");
-}
-
-/** Owner: default roll width of a linear-meter work kind (cm; empty clears it). */
-export async function setRollWidthAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
-  const user = await requireUser();
-  const failure = await toActionResult(() => setRollWidth(prisma, user, { workKind: formData.get("workKind"), rollWidthCm: formData.get("rollWidthCm") }));
   if (failure) return failure;
   redirect("/orders/presets?saved=updated");
 }

@@ -34,7 +34,7 @@ import { ORDER_SUMMARY_SELECT, isOverdue, toOrderSummary, type OrderSummary } fr
 import { canSeeOrderPrices, orderScope, orderScopeSql, requireOrderAccess } from "./order-access";
 import { applyOrderAccess, parseOrderAccess } from "./order-visibility-service";
 import { suggestDepartmentId } from "@/lib/departments/suggest";
-import { itemLineCents } from "@/lib/orders/work-kinds";
+import { isLegacyLinear, itemLineCents, linearLineCents } from "@/lib/orders/work-kinds";
 import { formatQuantity, parseQuantity } from "@/lib/finance/usage";
 import { allocationSnapshot } from "./department-finance";
 import { markCostsNeedReview } from "./cost-review-service";
@@ -473,7 +473,7 @@ function snapshotGroups(
     threadColor?: string | null;
     saleUnit?: string | null;
     pricingBasis?: string | null;
-    linear?: { fileWidthMm: number; fileLengthMm: number; copiesPerRow: number; rollWidthMm: number; billableLengthMm: number } | null;
+    linear?: LinearStored | null;
     measuredQuantity?: string | null;
     designs?: { id?: string | null; name: string | null; operation: PrintOperation; placements: string[]; customPlacements: string[]; quantity: number; pressesPerUnit: number | null; notes: string | null }[];
   }[],
@@ -494,6 +494,32 @@ function snapshotGroups(
       [d.id ?? "new", d.name ?? "", d.operation, [...d.placements].sort().join("+"), d.customPlacements.join("+"), d.quantity, d.pressesPerUnit ?? "", d.notes ?? ""].join("|"),
     ),
   }));
+}
+
+type LinearStored = { fileWidthMm: number | null; fileLengthMm: number; copiesPerRow: number | null; rollWidthMm: number | null; billableLengthMm: number };
+
+/**
+ * Legacy linear-meter items (saved with roll width / file width / copies per
+ * row) are never re-priced by the new meters × copies rule on their own: while
+ * an edit keeps the same work kind, file length and copies, the stored billed
+ * length — and so the agreed line total — is kept exactly. Changing the length
+ * or the copies re-measures the line under the current rule (shown in the form).
+ */
+function preserveLegacyLinear(
+  input: { pricing: string; totalPrice: Cents; groups: { id?: string; workKind: string | null; quantity: number; unitPrice: Cents | null; linear: LinearStored | null }[] },
+  stored: { id: string; workKind: string | null; quantity: number; pricingBasis: string; fileWidthMm: number | null; fileLengthMm: number | null; copiesPerRow: number | null; rollWidthMm: number | null; billableLengthMm: number | null }[],
+) {
+  const byId = new Map(stored.map((g) => [g.id, g]));
+  for (const g of input.groups) {
+    const old = g.id ? byId.get(g.id) : undefined;
+    if (!old || !g.linear || old.pricingBasis !== "LINEAR_METER" || !isLegacyLinear(old)) continue;
+    if (old.fileLengthMm == null || old.billableLengthMm == null) continue;
+    if (old.workKind !== g.workKind || old.fileLengthMm !== g.linear.fileLengthMm || old.quantity !== g.quantity) continue;
+    if (input.pricing === "items" && g.unitPrice !== null) {
+      input.totalPrice += linearLineCents(old.billableLengthMm, g.unitPrice) - linearLineCents(g.linear.billableLengthMm, g.unitPrice);
+    }
+    g.linear = { fileWidthMm: old.fileWidthMm, fileLengthMm: old.fileLengthMm, copiesPerRow: old.copiesPerRow, rollWidthMm: old.rollWidthMm, billableLengthMm: old.billableLengthMm };
+  }
 }
 
 /** Order units that a worker-log unit can be compared with (same physical thing). */
@@ -707,6 +733,9 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
       throw new AppError("CONFLICT", "الأوردر ده مكتمل ومينفعش يتعدل");
     }
 
+    // Items saved under the old cm / roll-width rule keep their stored billed length.
+    preserveLegacyLinear(input, before.groups);
+
     // A changed receipt date can't move into the future (an unchanged one is left as it was).
     if (input.receivedDate !== dateToString(before.receivedDate) && input.receivedDate > todayDateString()) {
       throw new AppError("VALIDATION_ERROR", undefined, { fieldErrors: { receivedDate: [RECEIVED_DATE_FUTURE_MESSAGE] } });
@@ -779,7 +808,7 @@ export async function updateOrder(db: PrismaClient, actor: Actor, payload: Updat
         unitPrice: g.unitPrice === null ? null : toCents(g.unitPrice),
         linear:
           g.pricingBasis === "LINEAR_METER"
-            ? { fileWidthMm: g.fileWidthMm!, fileLengthMm: g.fileLengthMm!, copiesPerRow: g.copiesPerRow!, rollWidthMm: g.rollWidthMm!, billableLengthMm: g.billableLengthMm! }
+            ? { fileWidthMm: g.fileWidthMm, fileLengthMm: g.fileLengthMm!, copiesPerRow: g.copiesPerRow, rollWidthMm: g.rollWidthMm, billableLengthMm: g.billableLengthMm! }
             : null,
         measuredQuantity: g.measuredQuantity === null ? null : formatQuantity(parseQuantity(g.measuredQuantity.toString())!),
       })),

@@ -24,7 +24,7 @@ import { AccountField, defaultAccountId } from "@/components/treasury/account-fi
 import type { AccountOption } from "@/lib/treasury/labels";
 import type { AssignableStaff, OrderAccessValue } from "@/lib/orders/visibility";
 import { suggestDepartmentId, type DepartmentOption } from "@/lib/departments/suggest";
-import { formatCm, formatMeters, OTHER_VARIANT, variantLabel, WORK_KIND_CONFIG, WORK_KINDS, type WorkKind } from "@/lib/orders/work-kinds";
+import { formatMeters, OTHER_VARIANT, variantLabel, WORK_KIND_CONFIG, WORK_KINDS, type WorkKind } from "@/lib/orders/work-kinds";
 import { WorkKindItems } from "./work-kind-items";
 
 /** Owner only: «ظهور الأوردر للعمال» inside the form. `version` is the order's accessVersion (edit). */
@@ -42,8 +42,6 @@ type Props =
       departments?: DepartmentOption[];
       /** «منتج جاهز» shortcuts (owner-managed). */
       presets?: string[];
-      /** Owner-configured default roll width per work kind (mm); missing = typed per line. */
-      rollWidths?: Partial<Record<WorkKind, number>>;
     }
   | {
       mode: "edit";
@@ -63,8 +61,6 @@ type Props =
       departments?: DepartmentOption[];
       /** «منتج جاهز» shortcuts (owner-managed). */
       presets?: string[];
-      /** Owner-configured default roll width per work kind (mm); missing = typed per line. */
-      rollWidths?: Partial<Record<WorkKind, number>>;
     };
 
 /** Product shortcuts shown as tiles (the input still accepts anything). */
@@ -175,14 +171,13 @@ export function OrderForm(props: Props) {
     }) ||
     "";
   const kindCfg = draft.workKind ? WORK_KIND_CONFIG[draft.workKind] : null;
-  const rollCm = (k: WorkKind) => (props.rollWidths?.[k] ? formatCm(props.rollWidths[k]!) : "");
 
   /** «بنعمل إيه؟» work kind: the order's lines follow its config; garment tiles clear it. */
   function setWorkKind(kind: WorkKind | "") {
     setDraft((d) => {
       if (d.workKind === kind) return d;
       const cfg = kind ? WORK_KIND_CONFIG[kind] : null;
-      const startLine = kind && !cfg!.variants ? [newWorkLine(kind, { rollWidthCm: rollCm(kind) })] : kind ? [] : [newGroupDraft()];
+      const startLine = kind && !cfg!.variants ? [newWorkLine(kind)] : kind ? [] : [newGroupDraft()];
       // Keep what was typed only when staying in the same family of items.
       const keep = d.groups.filter((g) => (kind ? g.workKind === kind : !g.workKind));
       return {
@@ -248,7 +243,7 @@ export function OrderForm(props: Props) {
       ...(cfg.variants ? { variant: g.variant, variantText: g.variant === OTHER_VARIANT ? g.variantText : undefined } : {}),
       ...(cfg.threadColor ? { threadColor: g.threadColor } : {}),
       ...(cfg.materialName ? { saleUnit: g.saleUnit } : {}),
-      ...(linear ? { fileWidthCm: g.fileWidthCm, fileLengthCm: g.fileLengthCm, copiesPerRow: g.copiesPerRow, rollWidthCm: g.rollWidthCm } : {}),
+      ...(linear ? { fileLengthM: g.fileLengthM } : {}),
       operations: [],
       plain: true,
       designs: [],
@@ -570,7 +565,6 @@ export function OrderForm(props: Props) {
             priceLocked={props.mode === "edit" && !props.canEditPrice}
             departments={departments}
             departmentOf={departmentOf}
-            defaultRollWidthCm={rollCm(draft.workKind)}
             onChange={(index, patch) => setGroup(index, patch)}
             onGroups={(update) => {
               setDraft((d) => ({ ...d, groups: update(d.groups) }));

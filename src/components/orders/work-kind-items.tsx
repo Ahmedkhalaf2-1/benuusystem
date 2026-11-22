@@ -4,9 +4,8 @@ import { Plus, Ruler, Trash2 } from "lucide-react";
 import { Field, NativeSelect } from "@/components/forms/field";
 import { Input } from "@/components/ui/input";
 import { formatMoney } from "@/lib/money";
-import { formatNumber } from "@/lib/numbers";
 import type { DepartmentOption } from "@/lib/departments/suggest";
-import { formatMeters, isFractionalUnit, maxCopiesPerRow, cmToMm, OTHER_VARIANT, SALE_UNITS, variantLabel, WORK_KIND_CONFIG, type WorkKind } from "@/lib/orders/work-kinds";
+import { formatMeters, isFractionalUnit, OTHER_VARIANT, SALE_UNITS, variantLabel, WORK_KIND_CONFIG, type WorkKind } from "@/lib/orders/work-kinds";
 import { cn } from "@/lib/utils";
 import { newWorkLine, type GroupDraft } from "./order-draft";
 import { chip, MoneyInput } from "./order-form-parts";
@@ -26,7 +25,6 @@ export function WorkKindItems({
   priceLocked,
   departments,
   departmentOf,
-  defaultRollWidthCm,
   onChange,
   onGroups,
 }: {
@@ -36,14 +34,11 @@ export function WorkKindItems({
   priceLocked: boolean;
   departments: DepartmentOption[];
   departmentOf: (g: GroupDraft) => string;
-  /** Owner-configured roll width for this kind (cm); "" = typed per line. */
-  defaultRollWidthCm: string;
   onChange: (index: number, patch: Partial<GroupDraft>) => void;
   onGroups: (update: (groups: GroupDraft[]) => GroupDraft[]) => void;
 }) {
   const cfg = WORK_KIND_CONFIG[kind];
-  const linearKind = cfg.pricing === "LINEAR_METER";
-  const newLine = (variant = "") => newWorkLine(kind, { variant, rollWidthCm: linearKind ? defaultRollWidthCm : "" });
+  const newLine = (variant = "") => newWorkLine(kind, { variant });
   const used = new Set(groups.map((g) => g.variant));
 
   return (
@@ -132,9 +127,6 @@ function WorkLine({
   const linearKind = cfg.pricing === "LINEAR_METER";
   const linear = draftLinear(group);
   const total = itemLineTotal(group);
-  const fileWidthMm = cmToMm(group.fileWidthCm);
-  const rollMm = cmToMm(group.rollWidthCm);
-  const fits = fileWidthMm && rollMm ? maxCopiesPerRow(fileWidthMm, rollMm) : 0;
   const title = variantLabel(kind, group.variant, group.variantText) ?? cfg.label;
 
   return (
@@ -187,38 +179,36 @@ function WorkLine({
         <div className="space-y-3 rounded-xl bg-surface p-3 ring-1 ring-line" data-testid={`linear-${index}`}>
           <p className="flex items-center gap-1.5 text-sm font-semibold">
             <Ruler className="size-4 text-brand" aria-hidden="true" />
-            الحساب بالمتر الطولي (عرض الرول ثابت)
+            الحساب بالمتر الطولي
           </p>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <Field label="عرض الرول (سم)" htmlFor={id("roll")} error={e("rollWidthCm")}>
-              <Input id={id("roll")} inputMode="decimal" value={group.rollWidthCm} onChange={(ev) => onChange({ rollWidthCm: ev.target.value })} className="tabular" aria-invalid={e("rollWidthCm") ? true : undefined} />
+            <Field label="طول الفايل (متر)" htmlFor={id("fl")} error={e("fileLengthM")} hint="مثال: 0.25 أو 1.5">
+              <Input id={id("fl")} inputMode="decimal" value={group.fileLengthM} onChange={(ev) => onChange({ fileLengthM: ev.target.value })} placeholder="0.5" className="tabular" aria-invalid={e("fileLengthM") ? true : undefined} />
             </Field>
-            <Field label="عرض الملف (سم)" htmlFor={id("fw")} error={e("fileWidthCm")}>
-              <Input id={id("fw")} inputMode="decimal" value={group.fileWidthCm} onChange={(ev) => onChange({ fileWidthCm: ev.target.value })} className="tabular" aria-invalid={e("fileWidthCm") ? true : undefined} />
-            </Field>
-            <Field label="طول الملف (سم)" htmlFor={id("fl")} error={e("fileLengthCm")}>
-              <Input id={id("fl")} inputMode="decimal" value={group.fileLengthCm} onChange={(ev) => onChange({ fileLengthCm: ev.target.value })} className="tabular" aria-invalid={e("fileLengthCm") ? true : undefined} />
-            </Field>
-            <Field label="عدد النسخ" htmlFor={id("qty")} error={e("quantity")}>
+            <Field label="عدد الكوبيهات" htmlFor={id("qty")} error={e("quantity")}>
               <Input id={id("qty")} inputMode="numeric" value={group.quantity} onChange={(ev) => onChange({ quantity: ev.target.value })} className="tabular" aria-invalid={e("quantity") ? true : undefined} />
             </Field>
-            <Field label="نسخ جنب بعض في الصف" htmlFor={id("cpr")} error={e("copiesPerRow")} hint={fits > 1 ? `يدخل لحد ${fits} — اكتبها بنفسك لو هتترص كده` : undefined}>
-              <Input id={id("cpr")} inputMode="numeric" value={group.copiesPerRow} onChange={(ev) => onChange({ copiesPerRow: ev.target.value })} className="tabular" aria-invalid={e("copiesPerRow") ? true : undefined} />
-            </Field>
-            <Field label="سعر المتر الطولي" htmlFor={id("price")} error={e("unitPrice")}>
-              <MoneyInput id={id("price")} value={group.unitPrice} onChange={(v) => onChange({ unitPrice: v })} invalid={!!e("unitPrice")} disabled={priceLocked} />
-            </Field>
+            <div className="col-span-2 sm:col-span-1">
+              <Field label="سعر المتر الطولي" htmlFor={id("price")} error={e("unitPrice")}>
+                <MoneyInput id={id("price")} value={group.unitPrice} onChange={(v) => onChange({ unitPrice: v })} invalid={!!e("unitPrice")} disabled={priceLocked} />
+              </Field>
+            </div>
           </div>
           <dl className="grid grid-cols-2 gap-2 rounded-xl bg-well px-3 py-2.5 text-sm" aria-live="polite">
             <div>
-              <dt className="text-xs text-graphite">الطول المحسوب</dt>
+              <dt className="text-xs text-graphite">إجمالي الأمتار الطولية</dt>
               <dd className="tabular font-semibold" data-testid={`meters-${index}`}>{linear?.ok ? `${formatMeters(linear.billableLengthMm)} متر طولي` : "—"}</dd>
             </div>
             <div>
-              <dt className="text-xs text-graphite">إجمالي السطر</dt>
+              <dt className="text-xs text-graphite">إجمالي السعر</dt>
               <dd className="tabular font-display text-lg font-semibold" data-testid={`line-total-${index}`}>{total !== null ? formatMoney(total) : "—"}</dd>
             </div>
             {linear && !linear.ok && <p className="col-span-2 text-xs text-warning-ink">{linear.message}</p>}
+            {linear?.ok && "legacy" in linear && (
+              <p className="col-span-2 text-xs text-graphite" data-testid={`legacy-${index}`}>
+                سطر قديم متسجل بالطريقة القديمة ({group.legacyLinear?.summary}) — حسابه هيفضل زي ما هو. لو غيّرت الطول أو العدد هيتحسب بالطول × العدد.
+              </p>
+            )}
           </dl>
         </div>
       ) : (
@@ -264,7 +254,7 @@ function WorkLine({
       <Field label="ملاحظات السطر" htmlFor={id("notes")} optional>
         <Input id={id("notes")} value={group.notes} onChange={(ev) => onChange({ notes: ev.target.value })} />
       </Field>
-      {group.quantity && linear?.ok && <p className="text-xs text-graphite">{formatNumber(linear.rows)} صف × طول الملف = الطول المحسوب. الاستهلاك الفعلي (هالك أو تجربة) بيتسجل في «التكاليف».</p>}
+      {linearKind && <p className="text-xs text-graphite">الاستهلاك الفعلي للخامة (هالك أو تجربة) بيتسجل في «التكاليف» — مش بيأثر على سعر البيع.</p>}
     </article>
   );
 }

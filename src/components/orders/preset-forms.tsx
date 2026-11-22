@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { ArrowDown, ArrowUp, Loader2, Plus } from "lucide-react";
-import { createPresetAction, setRollWidthAction, updatePresetAction } from "@/app/(app)/orders/presets/actions";
+import { createPresetAction, updatePresetAction } from "@/app/(app)/orders/presets/actions";
 import { Field, FormMessage } from "@/components/forms/field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,19 +68,3 @@ export function PresetRow({ id, name, isActive, first, last }: { id: string; nam
 }
 
 /** Owner: default roll width of DTF / vinyl (cm). Empty = typed per line; nothing is assumed. */
-export function RollWidthForm({ workKind, label, valueCm }: { workKind: string; label: string; valueCm: string }) {
-  const [state, action, pending] = useActionState(setRollWidthAction, null);
-  return (
-    <form action={action} className="flex items-end gap-2">
-      <input type="hidden" name="workKind" value={workKind} />
-      <div className="flex-1">
-        <Field label={`عرض رول ${label} (سم)`} htmlFor={`roll-${workKind}`} error={state?.fieldErrors?.rollWidthCm?.[0] ?? state?.message} optional>
-          <Input id={`roll-${workKind}`} name="rollWidthCm" inputMode="decimal" defaultValue={valueCm} placeholder="مثال: 60" className="tabular" />
-        </Field>
-      </div>
-      <Button type="submit" variant="outline" disabled={pending} className="h-12 rounded-xl">
-        حفظ
-      </Button>
-    </form>
-  );
-}

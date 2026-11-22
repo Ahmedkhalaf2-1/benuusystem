@@ -1201,28 +1201,41 @@ and reports:
 
 ### 19.3 Linear-meter rules
 
-- Lengths are integer mm (cm typed with one decimal); money is integer
-  piasters.
-- `rows = ceil(copies / copiesPerRow)`.
-- `billableLength = rows × fileLength`.
-- `lineTotal = round_half_up(billableLength × pricePerMeter / 1000)`.
-- `copiesPerRow` defaults to 1 and is never applied silently. The form only
-  hints how many would fit.
-- The file must fit: `fileWidth × copiesPerRow ≤ rollWidth`. Nothing is
-  rotated, nested or spaced automatically.
-- **Roll width:**
-  - owner-configured per kind (`work_kind_settings`, «المنتجات الجاهزة وأنواع
-    الشغل»);
-  - no width is assumed: an empty setting means it's typed per line;
-  - stored on each line.
+Updated 2026-11-22 (migration `20261124090000_linear_meter_simple_pricing`):
+the sale has exactly three inputs.
+
+- **Inputs:** file length in **meters** («طول الفايل (متر)», up to 3
+  decimals: 0.25, 0.5, 1.25, 2.75…), copies («عدد الكوبيهات» = the item
+  quantity), price per linear meter («سعر المتر الطولي»).
+- `billableLength = fileLength × copies` — never rounded to whole meters.
+- `lineTotal = round_half_up(billableLength × pricePerMeter / 1000)` (to the
+  piaster; lengths stored as integer mm, money as integer piasters).
+- Roll width, file width and copies per row are **not** part of the sale: not
+  asked, not validated, not stored (null) on new lines. No nesting, rotation or
+  roll fitting. The old owner roll-width setting (`work_kind_settings`) is
+  kept in the database but no longer shown or used.
+- Examples: 1 m × 3 at 150 = 3 m = 450; 0.25 m × 10 at 150 = 2.5 m = 375;
+  0.5 m × 9 at 150 = 4.5 m = 675.
+- **Legacy lines** (saved before this change with roll / file width and copies
+  per row; billed `ceil(copies ÷ perRow) × length`): every stored value is kept
+  and the stored billed length stays authoritative. Their stored mm values are
+  never reinterpreted. Editing such an order without changing the line's
+  length or copies keeps its total exactly; changing either re-measures the
+  line under the current rule (the edit form says so). Production had no
+  linear-meter lines at the time of the change.
+- **Database check:** a linear-meter line is either the current rule (no
+  layout fields, `billable = file_length × quantity`) or a complete legacy
+  layout; every branch is NULL-safe.
+- A request still sending the old `fileLengthCm` fields is refused (the length
+  is required in meters), so a cm value is never billed as meters.
 - **Billable vs. consumed:**
   - the billed length is stored on the line (`billable_length_mm`);
   - the actually consumed length (waste, setup) is recorded as a cost entry,
     never mixed into the billed length.
 - **One rule everywhere:** `itemLineCents()` is used by validation, order
   details, invoices, department finance and value splits.
-- **Edits:** recompute the line; the existing price and permission rules
-  apply.
+- **Edits:** recompute the line (legacy lines: see above); the existing price
+  and permission rules apply.
 - **Example:** 60 cm roll, 50×70 cm file, 10 copies at 120/m → 7.00 m →
   840.00.
 

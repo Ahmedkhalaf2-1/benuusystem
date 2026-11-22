@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { dateFromString, dateToString, todayDateString } from "@/lib/dates";
+import { centsToDecimalString, toCents } from "@/lib/money";
 import type { CreateOrderPayload } from "@/lib/validations/order";
 import { createFirstOwnerAdmin } from "@/server/services/admin-bootstrap-service";
 import type { Actor } from "@/server/services/actor";
@@ -48,11 +49,11 @@ describe.skipIf(!hasTestDatabase)("work kinds, costs, suppliers & overdue alerts
 
   const order = (groups: CreateOrderPayload["groups"], extra: Partial<CreateOrderPayload> = {}) =>
     createOrder(db, owner, { idempotencyKey: randomUUID(), customer: { mode: "new", name: "مطبعة النور" }, title: "شغل للغير", productType: "ورق DTF", pricing: "items", unit: "PIECE", groups, receivedDate: TODAY, deliveryDate: "2099-01-01", ...extra }, { visibility: "ALL_AUTHORIZED_STAFF" });
-  const dtf = (variant: string, extra: Record<string, unknown> = {}) => ({ workKind: "DTF_PAPER", variant, name: `DTF ${variant}`, quantity: "10", unitPrice: "120", fileWidthCm: "50", fileLengthCm: "70", rollWidthCm: "60", copiesPerRow: "1", plain: true, designs: [], ...extra });
+  const dtf = (variant: string, extra: Record<string, unknown> = {}) => ({ workKind: "DTF_PAPER", variant, name: `DTF ${variant}`, quantity: "10", unitPrice: "120", fileLengthM: "0.7", plain: true, designs: [], ...extra });
 
   // ─── Work kinds & linear meters ───
 
-  it("prices DTF by the linear meter: 50×70 cm × 10 copies on a 60 cm roll at 120 = 7 m = 840 EGP; 80% and 100% are separate lines", async () => {
+  it("prices DTF by the linear meter: 0.7 m × 10 copies at 120 = 7 m = 840 EGP; 80% and 100% are separate lines", async () => {
     const { orderId } = await order([dtf("WHITE_80"), dtf("WHITE_100", { quantity: "5", unitPrice: "150" })]);
     const d = (await getOrderDetails(db, owner, orderId))!;
     expect(d.groups.map((g) => [g.work.variant, g.work.billableLengthMm, g.lineTotal])).toEqual([
@@ -61,25 +62,88 @@ describe.skipIf(!hasTestDatabase)("work kinds, costs, suppliers & overdue alerts
     ]);
     expect(d.money?.totalPrice).toBe("1365.00");
     expect(d.groups.map((g) => g.department?.name)).toEqual(["طباعة", "طباعة"]);
-    expect(d.groups[0]!.work).toMatchObject({ workKind: "DTF_PAPER", pricingBasis: "LINEAR_METER", fileWidthMm: 500, fileLengthMm: 700, copiesPerRow: 1, rollWidthMm: 600 });
+    // Only the three sale inputs are stored; the removed layout fields stay empty.
+    expect(d.groups[0]!.work).toMatchObject({ workKind: "DTF_PAPER", pricingBasis: "LINEAR_METER", fileLengthMm: 700, fileWidthMm: null, copiesPerRow: null, rollWidthMm: null });
   });
 
-  it("validates roll width and copies per row; never rotates or nests silently; rounds half up to the piaster", async () => {
-    await expect(order([dtf("WHITE_80", { fileWidthCm: "65" })])).rejects.toMatchObject({ fieldErrors: { "groups.0.fileWidthCm": [expect.stringContaining("أكبر من عرض الرول")] } });
-    await expect(order([dtf("WHITE_80", { fileWidthCm: "25", copiesPerRow: "3" })])).rejects.toMatchObject({ fieldErrors: { "groups.0.copiesPerRow": [expect.stringContaining("مش هيدخلوا")] } });
-    // Two across a 60 cm roll: ceil(10 / 2) = 5 rows × 70 cm = 3.5 m.
-    const two = await order([dtf("WHITE_80", { fileWidthCm: "25", copiesPerRow: "2" })]);
-    expect((await getOrderDetails(db, owner, two.orderId))!.groups[0]).toMatchObject({ lineTotal: "420.00", work: { billableLengthMm: 3500 } });
-    // 3 × 33.3 cm = 99.9 cm at 99.99/m = 99.89001 → 99.89
-    const odd = await order([dtf("WHITE_80", { fileWidthCm: "30", fileLengthCm: "33.3", quantity: "3", unitPrice: "99.99" })]);
+  it("bills the owner's three examples exactly, with decimal meters and the order total reconciled to its lines", async () => {
+    const { orderId } = await order([
+      dtf("WHITE_80", { name: "مثال 1", fileLengthM: "1", quantity: "3", unitPrice: "150" }),
+      dtf("WHITE_100", { name: "مثال 2", fileLengthM: "0.25", quantity: "10", unitPrice: "150" }),
+      { workKind: "VINYL_PAPER", variant: "BLACK", name: "مثال 3", fileLengthM: "0.5", quantity: "9", unitPrice: "150", plain: true, designs: [] },
+      dtf("WHITE_80", { name: "كسور", fileLengthM: "2.75", quantity: "2", unitPrice: "150" }),
+      dtf("WHITE_80", { name: "كسور 2", fileLengthM: "1.25", quantity: "1", unitPrice: "150" }),
+    ]);
+    const d = (await getOrderDetails(db, owner, orderId))!;
+    expect(d.groups.map((g) => [g.work.billableLengthMm, g.lineTotal])).toEqual([
+      [3000, "450.00"],
+      [2500, "375.00"],
+      [4500, "675.00"],
+      [5500, "825.00"],
+      [1250, "187.50"],
+    ]);
+    expect(d.money?.totalPrice).toBe("2512.50");
+    const sum = d.groups.reduce((s, g) => s + toCents(g.lineTotal!), 0n);
+    expect(centsToDecimalString(sum)).toBe(d.money?.totalPrice);
+    expect((await getDepartmentsOverview(db, owner)).totals).toMatchObject({ valueBalanced: true });
+  });
+
+  it("validates the length in meters (no roll width, file width or copies per row), and rounds half up to the piaster", async () => {
+    await expect(order([dtf("WHITE_80", { fileLengthM: "" })])).rejects.toMatchObject({ fieldErrors: { "groups.0.fileLengthM": [expect.stringContaining("بالمتر")] } });
+    await expect(order([dtf("WHITE_80", { fileLengthM: "0.1234" })])).rejects.toMatchObject({ fieldErrors: { "groups.0.fileLengthM": [expect.any(String)] } });
+    await expect(order([dtf("WHITE_80", { quantity: "0" })])).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+    // A stale client sending the old cm fields is refused — 70 cm is never billed as 70 m.
+    await expect(order([dtf("WHITE_80", { fileLengthM: undefined, fileLengthCm: "70", fileWidthCm: "50", rollWidthCm: "60" })])).rejects.toMatchObject({ fieldErrors: { "groups.0.fileLengthM": [expect.any(String)] } });
+    // 3 × 0.333 m = 0.999 m at 99.99/m = 99.89001 → 99.89
+    const odd = await order([dtf("WHITE_80", { fileLengthM: "0.333", quantity: "3", unitPrice: "99.99" })]);
     expect((await getOrderDetails(db, owner, odd.orderId))!.groups[0]!.lineTotal).toBe("99.89");
     await expect(order([dtf("WHITE_80")], { pricing: "order", totalPrice: "100" })).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
   });
 
+  it("keeps a legacy (cm / roll-width) item's stored billed length and total; editing it re-measures only when length or copies change", async () => {
+    const { orderId } = await order([dtf("WHITE_80", { quantity: "5" })], { advance: "100", advancePaidAt: TODAY });
+    const item = (await getOrderDetails(db, owner, orderId))!.groups[0]!;
+    // Simulate a row saved by the previous release: 25×70 cm, 2 per row on a 60 cm roll → ceil(5/2) × 70 cm = 2.1 m = 252.
+    await db.orderGroup.update({ where: { id: item.id }, data: { fileWidthMm: 250, copiesPerRow: 2, rollWidthMm: 600, billableLengthMm: 2100 } });
+    await db.order.update({ where: { id: orderId }, data: { totalPrice: "252.00" } });
+
+    let d = (await getOrderDetails(db, owner, orderId))!;
+    expect(d.groups[0]).toMatchObject({ lineTotal: "252.00", work: { fileWidthMm: 250, fileLengthMm: 700, copiesPerRow: 2, rollWidthMm: 600, billableLengthMm: 2100 } });
+    expect(d.money?.totalPrice).toBe("252.00");
+
+    const edit = (groupExtra: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+      updateOrder(db, owner, {
+        orderId, customer: { mode: "existing", id: d.customerId }, title: d.title, productType: d.productType, pricing: "items", unit: d.unit,
+        receivedDate: d.receivedDate, deliveryDate: d.deliveryDate, status: "NEW",
+        groups: [{ ...dtf("WHITE_80", { quantity: "5", ...groupExtra }), id: item.id, departmentId: item.department!.id }],
+        ...extra,
+      });
+
+    // The edit form sends 0.7 m × 5 (unchanged) with a new note: nothing is re-priced.
+    await edit({ notes: "ملاحظة جديدة" }, { notes: "تعديل" });
+    d = (await getOrderDetails(db, owner, orderId))!;
+    expect(d.money?.totalPrice).toBe("252.00");
+    expect(d.groups[0]!.work).toMatchObject({ fileWidthMm: 250, copiesPerRow: 2, rollWidthMm: 600, billableLengthMm: 2100 });
+    expect(await db.auditLog.count({ where: { action: "ORDER_PRICE_CHANGED", entityId: orderId } })).toBe(0);
+
+    // Changing the copies re-measures under the current rule (0.7 × 6 = 4.2 m = 504) and clears the legacy layout.
+    await edit({ quantity: "6" });
+    d = (await getOrderDetails(db, owner, orderId))!;
+    expect(d.money?.totalPrice).toBe("504.00");
+    expect(d.groups[0]!.work).toMatchObject({ fileWidthMm: null, copiesPerRow: null, rollWidthMm: null, billableLengthMm: 4200 });
+  });
+
+  it("the database refuses a new-rule row whose billed length is not length × copies", async () => {
+    const { orderId } = await order([dtf("WHITE_80")]);
+    const item = (await getOrderDetails(db, owner, orderId))!.groups[0]!;
+    await expect(db.orderGroup.update({ where: { id: item.id }, data: { billableLengthMm: 9999 } })).rejects.toThrow();
+    await expect(db.orderGroup.update({ where: { id: item.id }, data: { fileWidthMm: 900, copiesPerRow: 1, rollWidthMm: 600 } })).rejects.toThrow();
+  });
+
   it("supports vinyl variants with «أخرى», several printing methods, embroidery threads with colours, heat press without material, and raw materials", async () => {
     const { orderId } = await order([
-      { workKind: "VINYL_PAPER", variant: "REFLECTIVE_GRAY", name: "فينيل عاكس", quantity: "4", unitPrice: "200", fileWidthCm: "40", fileLengthCm: "50", rollWidthCm: "50", plain: true, designs: [] },
-      { workKind: "VINYL_PAPER", variant: "OTHER", variantText: "فينيل ذهبي", name: "فينيل ذهبي", quantity: "2", unitPrice: "250", fileWidthCm: "40", fileLengthCm: "50", rollWidthCm: "50", plain: true, designs: [] },
+      { workKind: "VINYL_PAPER", variant: "REFLECTIVE_GRAY", name: "فينيل عاكس", quantity: "4", unitPrice: "200", fileLengthM: "0.5", plain: true, designs: [] },
+      { workKind: "VINYL_PAPER", variant: "OTHER", variantText: "فينيل ذهبي", name: "فينيل ذهبي", quantity: "2", unitPrice: "250", fileLengthM: "0.5", plain: true, designs: [] },
       { workKind: "PRINT_FOR_OTHERS", variant: "SUBLIMATION", name: "سبلميشن", quantity: "20", unitPrice: "15", plain: true, designs: [] },
       { workKind: "PRINT_FOR_OTHERS", variant: "SILK_SCREEN", name: "سلك", quantity: "30", unitPrice: "10", plain: true, designs: [] },
       { workKind: "EMBROIDERY_FOR_OTHERS", variant: "POLYESTER", threadColor: "ذهبي", name: "تطريز لوجو", quantity: "12", unitPrice: "25", plain: true, designs: [] },
@@ -97,8 +161,8 @@ describe.skipIf(!hasTestDatabase)("work kinds, costs, suppliers & overdue alerts
     expect(d.groups[7]!.work.saleUnit).toBe("LITER");
 
     // Required per kind: variant, «أخرى» text, raw material unit; no designs on work-kind lines.
-    await expect(order([{ workKind: "VINYL_PAPER", name: "x", quantity: "1", unitPrice: "1", fileWidthCm: "10", fileLengthCm: "10", rollWidthCm: "50", plain: true, designs: [] }])).rejects.toMatchObject({ fieldErrors: { "groups.0.variant": ["اختار نوع الفينيل"] } });
-    await expect(order([{ workKind: "VINYL_PAPER", variant: "OTHER", name: "x", quantity: "1", unitPrice: "1", fileWidthCm: "10", fileLengthCm: "10", rollWidthCm: "50", plain: true, designs: [] }])).rejects.toMatchObject({ fieldErrors: { "groups.0.variantText": ["اكتب النوع"] } });
+    await expect(order([{ workKind: "VINYL_PAPER", name: "x", quantity: "1", unitPrice: "1", fileLengthM: "0.1", plain: true, designs: [] }])).rejects.toMatchObject({ fieldErrors: { "groups.0.variant": ["اختار نوع الفينيل"] } });
+    await expect(order([{ workKind: "VINYL_PAPER", variant: "OTHER", name: "x", quantity: "1", unitPrice: "1", fileLengthM: "0.1", plain: true, designs: [] }])).rejects.toMatchObject({ fieldErrors: { "groups.0.variantText": ["اكتب النوع"] } });
     await expect(order([{ workKind: "RAW_MATERIALS", name: "حبر", quantity: "1", unitPrice: "1", plain: true, designs: [] }])).rejects.toMatchObject({ fieldErrors: { "groups.0.saleUnit": ["اختار الوحدة"] } });
     await expect(order([{ workKind: "HEAT_PRESS_FOR_OTHERS", name: "كبس", quantity: "1", unitPrice: "1", designs: [{ operation: "DTF" }] }])).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
     await expect(order([{ workKind: "NOT_A_KIND", name: "x", quantity: "1", unitPrice: "1", plain: true, designs: [] }])).rejects.toMatchObject({ fieldErrors: { "groups.0.workKind": ["نوع الشغل مش معروف"] } });
@@ -236,7 +300,7 @@ describe.skipIf(!hasTestDatabase)("work kinds, costs, suppliers & overdue alerts
     const s1 = await createSupplier(db, owner, { name: "مورد DTF" });
     const s2 = await createSupplier(db, owner, { name: "مورد فينيل" });
     const a = await order([dtf("WHITE_80")]);
-    const b = await order([{ workKind: "VINYL_PAPER", variant: "BLACK", name: "فينيل أسود", quantity: "4", unitPrice: "200", fileWidthCm: "40", fileLengthCm: "50", rollWidthCm: "50", plain: true, designs: [] }], { productType: "ورق فينيل" });
+    const b = await order([{ workKind: "VINYL_PAPER", variant: "BLACK", name: "فينيل أسود", quantity: "4", unitPrice: "200", fileLengthM: "0.5", plain: true, designs: [] }], { productType: "ورق فينيل" });
     const use = (orderId: string, extra: Record<string, unknown>) => recordCostEntry(db, owner, { orderId, idempotencyKey: randomUUID(), category: "MATERIALS", costDate: TODAY, ...extra });
     await use(a.orderId, { materialName: "ورق DTF", materialVariant: "أبيض 80%", usageQuantity: "7.4", usageUnit: "LINEAR_METER", usageUnitCost: "45", supplierId: s1.id, costDate: daysAgo(40) });
     await use(a.orderId, { materialName: "ورق DTF", materialVariant: "أبيض 80%", usageQuantity: "3", usageUnit: "LINEAR_METER", usageUnitCost: "45", supplierId: s1.id, costDate: daysAgo(5) });

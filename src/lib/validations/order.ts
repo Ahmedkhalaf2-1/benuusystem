@@ -5,7 +5,7 @@ import { MAX_CENTS, parseMoney, type Cents } from "@/lib/money";
 import { isValidDateString, todayDateString } from "@/lib/dates";
 import { parseWholeNumber } from "@/lib/numbers";
 import { MAX_SIZES_PER_GROUP, normalizeSizeLabel } from "@/lib/orders/sizes";
-import { checkLinear, cmToMm, isFractionalUnit, isWorkKind, linearLineCents, OTHER_VARIANT, SALE_UNITS, WORK_KIND_CONFIG, type LinearCheck, type WorkKind } from "@/lib/orders/work-kinds";
+import { checkLinear, isFractionalUnit, isWorkKind, linearLineCents, metersToMm, OTHER_VARIANT, SALE_UNITS, WORK_KIND_CONFIG, type LinearCheck, type WorkKind } from "@/lib/orders/work-kinds";
 import { formatQuantity, parseQuantity, usageTotalCents } from "@/lib/finance/usage";
 import {
   MAX_CUSTOM_PLACEMENTS,
@@ -198,11 +198,13 @@ const groupSchema = z.object({
   variantText: optionalText(120),
   threadColor: optionalText(60),
   saleUnit: z.string().optional().transform((v) => (v ? v : undefined)),
-  /** Linear-meter items: dimensions in cm (one decimal), copies per row, roll width. */
-  fileWidthCm: z.union([z.string(), z.number()]).optional(),
-  fileLengthCm: z.union([z.string(), z.number()]).optional(),
-  copiesPerRow: z.union([z.string(), z.number()]).optional(),
-  rollWidthCm: z.union([z.string(), z.number()]).optional(),
+  /**
+   * Linear-meter items (DTF / vinyl): the file length in METERS (up to 3
+   * decimals). Copies = the item quantity; the unit price is per linear meter.
+   * Older width / per-row / roll fields are not accepted (a cm length is never
+   * read as meters).
+   */
+  fileLengthM: z.union([z.string(), z.number()]).optional(),
   /** Designs on this item's pieces. When present, the item's operations are theirs. */
   designs: z
     .array(designSchema)
@@ -262,14 +264,7 @@ function kindOf(group: GroupIn): WorkKind | null {
 function linearOf(group: GroupIn, copies: number | null): LinearCheck | null {
   const kind = kindOf(group);
   if (!kind || WORK_KIND_CONFIG[kind].pricing !== "LINEAR_METER") return null;
-  const perRowRaw = group.copiesPerRow === undefined || String(group.copiesPerRow).trim() === "" ? 1 : parseWholeNumber(group.copiesPerRow);
-  return checkLinear({
-    fileWidthMm: cmToMm(group.fileWidthCm) ?? 0,
-    fileLengthMm: cmToMm(group.fileLengthCm) ?? 0,
-    copies: copies ?? 0,
-    copiesPerRow: perRowRaw ?? 0,
-    rollWidthMm: cmToMm(group.rollWidthCm) ?? 0,
-  });
+  return checkLinear({ fileLengthMm: metersToMm(group.fileLengthM) ?? 0, copies: copies ?? 0 });
 }
 
 /**
@@ -283,7 +278,7 @@ function measuredOf(group: GroupIn): bigint | null | undefined {
   return milli !== null && milli > 0n ? milli : null;
 }
 
-const LINEAR_FIELD: Record<string, string> = { fileWidthMm: "fileWidthCm", fileLengthMm: "fileLengthCm", copies: "quantity", copiesPerRow: "copiesPerRow", rollWidthMm: "rollWidthCm" };
+const LINEAR_FIELD: Record<string, string> = { fileLengthMm: "fileLengthM", copies: "quantity" };
 
 /** An item's quantity: its own, or the order's when it is the only item and has none. */
 function groupQuantity(data: CoreParsed, group: CoreParsed["groups"][number]): number | null {
@@ -611,11 +606,12 @@ function normalizeOrder(data: CoreParsed) {
       measuredQuantity: measured ? formatQuantity(measured) : null,
       linear: linear && linear.ok
         ? {
-            fileWidthMm: cmToMm(group.fileWidthCm)!,
-            fileLengthMm: cmToMm(group.fileLengthCm)!,
-            copiesPerRow: group.copiesPerRow === undefined || String(group.copiesPerRow).trim() === "" ? 1 : parseWholeNumber(group.copiesPerRow)!,
-            rollWidthMm: cmToMm(group.rollWidthCm)!,
+            fileLengthMm: metersToMm(group.fileLengthM)!,
             billableLengthMm: linear.billableLengthMm,
+            // Removed from the sale: never stored for new lines.
+            fileWidthMm: null,
+            copiesPerRow: null,
+            rollWidthMm: null,
           }
         : null,
       name: group.name ?? null,

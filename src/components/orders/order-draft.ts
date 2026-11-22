@@ -3,7 +3,7 @@ import { toCents, formatAmount } from "@/lib/money";
 import type { OrderDetails } from "@/server/services/order-service";
 import type { PaymentMethod, PrintOperation, QuantityUnit, OrderStatus } from "@/generated/prisma/enums";
 import { PLACEMENTS, type Placement } from "@/lib/orders/labels";
-import { formatCm, isWorkKind, type WorkKind } from "@/lib/orders/work-kinds";
+import { formatMeters, isLegacyLinear, isWorkKind, itemWorkSummary, type WorkKind } from "@/lib/orders/work-kinds";
 import type { CustomerChoice } from "./customer-picker";
 
 /** Form state of the order form (strings exactly as typed). Shared by server and client. */
@@ -62,11 +62,13 @@ export type GroupDraft = {
   variantText: string;
   threadColor: string;
   saleUnit: string;
-  /** Linear-meter lines, in cm as typed. */
-  fileWidthCm: string;
-  fileLengthCm: string;
-  copiesPerRow: string;
-  rollWidthCm: string;
+  /** Linear-meter lines (DTF / vinyl): file length in METERS as typed. Copies = quantity. */
+  fileLengthM: string;
+  /**
+   * An item saved under the old cm / roll-width rule: its stored billed length
+   * stays authoritative while the length and copies are unchanged.
+   */
+  legacyLinear: { fileLengthMm: number; copies: number; billableLengthMm: number; summary: string } | null;
   designs: DesignDraft[];
   quantity: string;
   material: string;
@@ -120,10 +122,8 @@ export function newGroupDraft(partial: Partial<GroupDraft> = {}): GroupDraft {
     variantText: "",
     threadColor: "",
     saleUnit: "",
-    fileWidthCm: "",
-    fileLengthCm: "",
-    copiesPerRow: "",
-    rollWidthCm: "",
+    fileLengthM: "",
+    legacyLinear: null,
     designs: [newDesignDraft()],
     quantity: "",
     material: "",
@@ -160,11 +160,10 @@ export function emptyOrderDraft(customer: OrderDraft["customer"] = null): OrderD
   };
 }
 
-const cm = (mm: number | null) => (mm == null ? "" : formatCm(mm));
 
 /** A new line of a work-kind order (one per material / method). */
 export function newWorkLine(kind: WorkKind, partial: Partial<GroupDraft> = {}): GroupDraft {
-  return newGroupDraft({ workKind: kind, useDesigns: true, readyMade: false, plain: true, designs: [], copiesPerRow: "1", ...partial });
+  return newGroupDraft({ workKind: kind, useDesigns: true, readyMade: false, plain: true, designs: [], ...partial });
 }
 
 const plainAmount = (value: string) => formatAmount(toCents(value)).replace(/,/g, "");
@@ -196,10 +195,11 @@ export function draftFromOrder(order: OrderDetails): OrderDraft {
         variantText: g.work.variantText ?? "",
         threadColor: g.work.threadColor ?? "",
         saleUnit: g.work.saleUnit ?? "",
-        fileWidthCm: cm(g.work.fileWidthMm),
-        fileLengthCm: cm(g.work.fileLengthMm),
-        copiesPerRow: g.work.copiesPerRow == null ? "" : String(g.work.copiesPerRow),
-        rollWidthCm: cm(g.work.rollWidthMm),
+        fileLengthM: g.work.fileLengthMm == null ? "" : formatMeters(g.work.fileLengthMm),
+        legacyLinear:
+          g.work.pricingBasis === "LINEAR_METER" && isLegacyLinear(g.work) && g.work.fileLengthMm != null && g.work.billableLengthMm != null
+            ? { fileLengthMm: g.work.fileLengthMm, copies: g.quantity, billableLengthMm: g.work.billableLengthMm, summary: itemWorkSummary(g.work, g.quantity) ?? "" }
+            : null,
         designs: g.designs.map((d) =>
           newDesignDraft({
             id: d.id,

@@ -320,7 +320,9 @@ model OrderGroup {
   threadColor      String?            @map("thread_color") @db.VarChar(60)
   /// Raw materials: the unit sold (PIECE, KG, ROLL…).
   saleUnit         String?            @map("sale_unit") @db.VarChar(20)
-  /// UNIT: quantity × unitPrice. LINEAR_METER: billableLengthMm × unitPrice (per linear meter) / 1000.
+  /// UNIT: quantity × unitPrice. LINEAR_METER: billableLengthMm × unitPrice (per linear meter) / 1000,
+  /// where billableLengthMm = fileLengthMm (typed in meters) × quantity (copies).
+  /// fileWidthMm / copiesPerRow / rollWidthMm: legacy rows only (old cm rule); null for new rows.
   pricingBasis     ItemPricingBasis   @default(UNIT) @map("pricing_basis")
   fileWidthMm      Int?               @map("file_width_mm")
   fileLengthMm     Int?               @map("file_length_mm")

@@ -8,7 +8,7 @@ import { formatNumber, parseWholeNumber } from "@/lib/numbers";
 import { MAX_CUSTOM_PLACEMENTS, OPERATION_LABELS, OTHER_PLACEMENT_LABEL, PLACEMENT_LABELS, PLACEMENTS, PRINT_OPERATIONS, READY_MADE_PRESETS } from "@/lib/orders/labels";
 import { cn } from "@/lib/utils";
 import { MAX_DESIGNS_PER_ITEM } from "@/lib/validations/order";
-import { checkLinear, cmToMm, isFractionalUnit, linearLineCents, WORK_KIND_CONFIG } from "@/lib/orders/work-kinds";
+import { checkLinear, isFractionalUnit, linearLineCents, metersToMm, WORK_KIND_CONFIG } from "@/lib/orders/work-kinds";
 import { parseQuantity, usageTotalCents } from "@/lib/finance/usage";
 import { newDesignDraft, type DesignDraft, type GroupDraft } from "./order-draft";
 import { spansDepartments, type DepartmentOption } from "@/lib/departments/suggest";
@@ -20,13 +20,13 @@ type Errors = Record<string, string>;
 /** Linear-meter measurement of a draft line (null for unit-priced lines). Same rules as the server. */
 export function draftLinear(g: GroupDraft) {
   if (!g.workKind || WORK_KIND_CONFIG[g.workKind].pricing !== "LINEAR_METER") return null;
-  return checkLinear({
-    fileWidthMm: cmToMm(g.fileWidthCm) ?? 0,
-    fileLengthMm: cmToMm(g.fileLengthCm) ?? 0,
-    copies: parseWholeNumber(g.quantity) ?? 0,
-    copiesPerRow: g.copiesPerRow.trim() === "" ? 1 : (parseWholeNumber(g.copiesPerRow) ?? 0),
-    rollWidthMm: cmToMm(g.rollWidthCm) ?? 0,
-  });
+  const check = checkLinear({ fileLengthMm: metersToMm(g.fileLengthM) ?? 0, copies: parseWholeNumber(g.quantity) ?? 0 });
+  // Same rule as the server: an unchanged legacy item keeps its stored billed length.
+  const legacy = g.legacyLinear;
+  if (check.ok && legacy && legacy.fileLengthMm === metersToMm(g.fileLengthM) && legacy.copies === parseWholeNumber(g.quantity)) {
+    return { ok: true as const, billableLengthMm: legacy.billableLengthMm, legacy: true };
+  }
+  return check;
 }
 
 /** Line total of one item in piasters, or null while quantity/price/measurement are incomplete. */
